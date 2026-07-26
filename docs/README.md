@@ -16,6 +16,7 @@ The developer implements the sample. AI provides planning, explanations, review,
 | [Configuration](CONFIGURATION.md) | Canonical configuration contract | Defines profiles, environment variables, ports, and secret policy. |
 | [Operations](OPERATIONS.md) | Canonical operating contract | Defines health checks, lifecycle commands, observability, backup, release, rollback, and incident expectations. |
 | [Implementation steps](IMPLEMENTATION_STEPS.md) | Canonical delivery plan | Defines the build sequence and its completion criteria. |
+| [Phase guides](implementation/) | Runnable delivery guides | Step-by-step terminal commands for each implementation phase. |
 
 `WALLET_SAMPLE_REQUIREMENTS_PROPOSAL.md` is retained only as an archived decision record. It is non-authoritative and must not be updated to introduce or change requirements.
 

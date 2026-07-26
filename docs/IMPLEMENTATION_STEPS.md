@@ -8,6 +8,8 @@ The developer writes production code. AI can discuss design, review a proposed i
 
 ## Step 1 — Scaffold backend, frontend, and PostgreSQL
 
+Runnable commands: [Phase 1 — Scaffolding](implementation/PHASE_1_SCAFFOLDING.md).
+
 - [ ] Initialize the Python project with `uv` and Python 3.14.
 - [ ] Add backend runtime dependencies using the bounded ranges in `TECHNICAL_REQUIREMENTS.md`: FastAPI, Uvicorn, Pydantic, `pydantic-settings`, SQLAlchemy 2.0, asyncpg, Alembic, PyJWT, and `email-validator`.
 - [ ] Add backend development dependencies: ruff, mypy, pytest, pytest-asyncio, HTTPX, and testcontainers.
