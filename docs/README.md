@@ -1,0 +1,36 @@
+# Documentation index
+
+## Authority and status
+
+This documentation defines a **pre-implementation educational sample**. It is not authorization to deploy a real custodial-wallet service. The application must not be called production-ready until the implementation, automated checks, deployment configuration, and operational controls described here exist and pass review.
+
+The developer implements the sample. AI provides planning, explanations, review, and diagnosis when requested.
+
+## Reading order
+
+| Document | Authority | Purpose |
+| --- | --- | --- |
+| [Functional requirements](FUNCTIONAL_REQUIREMENTS.md) | Canonical product contract | Defines user-visible behavior, version differences, and non-goals. |
+| [Technical requirements](TECHNICAL_REQUIREMENTS.md) | Canonical architecture contract | Defines stack, dependency policy, boundaries, security controls, and reliability rules. |
+| [API contract](API_CONTRACT.md) | Canonical HTTP contract | Defines payloads, HTTP outcomes, errors, pagination, and compatibility. |
+| [Configuration](CONFIGURATION.md) | Canonical configuration contract | Defines profiles, environment variables, ports, and secret policy. |
+| [Operations](OPERATIONS.md) | Canonical operating contract | Defines health checks, lifecycle commands, observability, backup, release, rollback, and incident expectations. |
+| [Implementation steps](IMPLEMENTATION_STEPS.md) | Canonical delivery plan | Defines the build sequence and its completion criteria. |
+
+`WALLET_SAMPLE_REQUIREMENTS_PROPOSAL.md` is retained only as an archived decision record. It is non-authoritative and must not be updated to introduce or change requirements.
+
+## Version boundaries
+
+| Area | Version 1 | Version 2 |
+| --- | --- | --- |
+| Wallet mutations | Execute synchronously and return completed results. | Submit an operation and return `202 Accepted`; the worker later completes, rejects, or fails it. |
+| Balances | `AVAILABLE` only. | `AVAILABLE`, `PENDING`, and `REJECTED` user buckets. |
+| Infrastructure | PostgreSQL. | PostgreSQL, Kafka, outbox relay, and worker. |
+| Wallet feedback | Immediate result or error. | Pending operation ID and polling feedback. |
+| Kafka diagnostics | Not present. | Development-only diagnostics, disabled outside development. |
+
+## Change rules
+
+- Change behavior only in the canonical document for that concern.
+- Update API and configuration documentation with any implementation change that affects clients or operators.
+- Record intentionally incompatible API or data changes before implementing them; version the API or migration path rather than silently changing it.
