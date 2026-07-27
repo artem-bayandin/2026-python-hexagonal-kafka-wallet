@@ -19,7 +19,7 @@ uv init --app --python 3.14
 - [ ] Add backend runtime dependencies.
 
 ```sh
-uv add fastapi "uvicorn[standard]" pydantic pydantic-settings sqlalchemy asyncpg alembic pyjwt email-validator
+uv add fastapi "uvicorn[standard]" pydantic pydantic-settings sqlalchemy asyncpg alembic pyjwt email-validator greenlet
 ```
 
 - [ ] Add backend development dependencies.
@@ -95,8 +95,6 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
-frontend/node_modules/
-frontend/dist/
 EOF
 ```
 
@@ -105,11 +103,11 @@ EOF
 ```sh
 cat <<'EOF' > .env.example
 APP_ENV=development
-POSTGRES_DB=pg_db
-POSTGRES_USER=pg_user
+POSTGRES_DB=wallet_db
+POSTGRES_USER=wallet_user
 POSTGRES_PASSWORD=change-me-local-password
 POSTGRES_PORT=5432
-DATABASE_URL=postgresql+asyncpg://pg_user:change-me-local-password@127.0.0.1:5432/pg_db
+DATABASE_URL=postgresql+asyncpg://wallet_user:change-me-local-password@127.0.0.1:5432/wallet_db
 JWT_SECRET=change-me-jwt-secret-at-least-32-bytes-long
 OTP_HMAC_SECRET=change-me-otp-hmac-secret-at-least-32-bytes
 ADMIN_API_KEY=x_admin_key
@@ -123,11 +121,11 @@ EOF
 | Part | Value | Meaning |
 | --- | --- | --- |
 | Scheme | `postgresql+asyncpg://` | PostgreSQL database, accessed through SQLAlchemy's async driver `asyncpg` (not sync `psycopg2`). |
-| Username | `pg_user` | DB login user; must match `POSTGRES_USER`. |
+| Username | `wallet_user` | DB login user; must match `POSTGRES_USER`. |
 | Password | `change-me-local-password` | User password; must match `POSTGRES_PASSWORD`. |
 | Host | `127.0.0.1` | Machine where Postgres runs — localhost because Compose publishes the port to your host. |
 | Port | `5432` | Host port Postgres listens on; must match `POSTGRES_PORT`. |
-| Database | `pg_db` | Database name to connect to; must match `POSTGRES_DB`. |
+| Database | `wallet_db` | Database name to connect to; must match `POSTGRES_DB`. |
 
 Full form: `postgresql+asyncpg://<user>:<password>@<host>:<port>/<database>`
 
@@ -172,6 +170,8 @@ docker compose ps
 ```
 
 - [ ] Add `app/config.py` with `pydantic-settings` loading the [CONFIGURATION.md](../CONFIGURATION.md) variables.
+Usage in the app: create_app() calls get_settings() to get database_url for the SQLAlchemy engine. Later steps will use the same object for JWT secrets, admin key, CORS, etc.
+Important: if you change .env, restart uvicorn — @lru_cache won't reload config on its own.
 
 ```sh
 cat <<'EOF' > app/config.py
@@ -205,8 +205,7 @@ cat <<'EOF' > app/main.py
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -214,12 +213,14 @@ from app.config import Settings, get_settings
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    resolved = settings or get_settings()
-    engine: AsyncEngine = create_async_engine(resolved.database_url)
+    app_config = settings or get_settings()
+    db_connection: AsyncEngine = create_async_engine(app_config.database_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # Before yield = startup (nothing here yet; engine is already created above)
         yield
+        # After yield = shutdown (runs when uvicorn stops or reloads)
         await engine.dispose()
 
     app = FastAPI(title="Wallet Sample", lifespan=lifespan)
@@ -229,12 +230,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/health/ready")
-    async def health_ready() -> dict[str, str] | JSONResponse:
+    async def health_ready(response: Response) -> dict[str, str]:
         try:
-            async with engine.connect() as connection:
+            async with db_connection.connect() as connection:
                 await connection.execute(text("SELECT 1"))
         except Exception:
-            return JSONResponse(status_code=503, content={"status": "unavailable"})
+            response.status_code = 503
+            return {"status": "unavailable"}
         return {"status": "ok"}
 
     return app
