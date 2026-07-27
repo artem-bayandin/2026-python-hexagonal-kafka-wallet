@@ -15,7 +15,7 @@ The product behavior is defined in [FUNCTIONAL_REQUIREMENTS.md](FUNCTIONAL_REQUI
 - Pydantic and `pydantic-settings`
 - SQLAlchemy 2.0 async ORM with `asyncpg`
 - PostgreSQL
-- Alembic migrations at repository root
+- Alembic configuration and migrations under `backend/`
 - PyJWT with HS256 Bearer access tokens
 - `uv` for Python versions, environments, dependencies, and locking
 - `ruff` for linting and formatting
@@ -44,7 +44,7 @@ No component library, global state library, or generated API client is required 
 
 - Apache Kafka 4.3
 - `aiokafka>=0.14,<0.15` as the async Python Kafka client
-- Transactional outbox and idempotent inbox/message processing
+- Transactional outbox and duplicate-safe inbox/message processing
 - One wallet command topic partitioned by target user ID
 - One command worker process with deposit, exchange, and withdrawal handlers
 
@@ -128,6 +128,7 @@ project-root/
 │   │   │   │   ├── command_repositories.py
 │   │   │   │   ├── query_repositories.py
 │   │   │   │   ├── services.py
+│   │   │   │   ├── unit_of_work.py
 │   │   │   │   └── messaging.py
 │   │   │   └── use_cases/
 │   │   │       ├── commands/
@@ -148,6 +149,8 @@ project-root/
 │   │   │   ├── mappers.py
 │   │   │   ├── session.py
 │   │   │   └── repositories/
+│   │   │       ├── user_repository.py
+│   │   │       ├── auth_repository.py
 │   │   │       ├── command_repositories.py
 │   │   │       └── query_repositories.py
 │   │   ├── messaging/                 # version 2
@@ -220,9 +223,9 @@ Transactions contain the fields relevant to their type, including owner, source/
 
 ### 4.5 Authentication entities
 
-- `OtpChallenge`: email, keyed OTP digest, expiry, failed-attempt count, consumed/invalidated timestamps.
+- `OtpChallenge`: user ID, email, keyed OTP digest, expiry, failed-attempt count, consumed/invalidated timestamps.
 - `AuthSession`: `jti`, user ID, expiry, created timestamp, and optional revoked timestamp.
-- `CurrentUser`: frozen dataclass with current user identity and active state.
+- `CurrentUser`: frozen dataclass with user ID, normalized email, and the current authentication-session `jti`. A later user-lifecycle phase may add and enforce active state.
 
 OTP digests use a keyed one-way digest so the six-digit value is not stored in plain text. Random OTP generation uses Python's `secrets` module.
 
@@ -246,7 +249,7 @@ Version 2 separates submission from execution for wallet mutations:
 - HTTP submission handlers create a pending transaction and outbox command;
 - deposit submission also increments the pending balance;
 - worker execution handlers perform current-state validation and balance transitions;
-- worker handlers finalize transaction and message state idempotently.
+- worker handlers finalize transaction and message state with guarded duplicate-safe transitions.
 
 ### 5.2 Queries
 
@@ -277,11 +280,11 @@ Use one async SQLAlchemy session per HTTP command or consumed Kafka message:
 
 1. create/yield the session;
 2. execute all repositories for the command using that session;
-3. commit on success;
-4. rollback and re-raise on failure;
+3. commit on success, or explicitly commit a documented state change that must survive an expected business failure;
+4. rollback uncommitted state and re-raise on failure;
 5. close always.
 
-An explicit Unit of Work wrapper is not required. The session dependency or worker message scope supplies the transaction boundary.
+The session dependency or worker message scope normally supplies the transaction boundary. A command that must persist state before returning an expected business failure may depend on a small domain `UnitOfWork` Protocol and commit explicitly. OTP verification uses this exception: a wrong attempt is saved and committed before `OTP_INVALID` or `OTP_LOCKED` is raised, so the outer rollback cannot erase the attempt.
 
 ### 6.3 Concurrency
 
@@ -293,6 +296,8 @@ Balance-changing handlers:
 - update balances and transaction history in the same database transaction.
 
 Integration tests must cover concurrent debit attempts and prove that balances cannot become negative.
+
+Authentication handlers also require concurrency control. Request and verification operations lock the normalized user's row before changing challenges. First-time user creation uses `INSERT ... ON CONFLICT` followed by `SELECT ... FOR UPDATE`, and the database enforces at most one current challenge per user where both `consumed_at` and `invalidated_at` are null.
 
 ### 6.4 Initial schema
 
@@ -331,11 +336,11 @@ All schema changes use reviewed Alembic migrations.
 
 ### 7.3 Current-user pipeline
 
-1. `OAuth2PasswordBearer` extracts the token.
+1. FastAPI `HTTPBearer(auto_error=False)` extracts the token without advertising an OAuth2 password flow.
 2. `TokenService` validates and decodes it.
 3. The auth-session repository confirms that `jti` is active.
 4. The user repository loads fresh user state.
-5. A frozen `CurrentUser` is injected into the route/handler.
+5. A frozen `CurrentUser` containing the session `jti` is injected into the route/handler.
 
 Logout revokes only the current `jti`.
 
@@ -353,7 +358,7 @@ Logout revokes only the current `jti`.
 
 ## 8. HTTP API contract
 
-The canonical request/response, pagination, idempotency, status, error, and compatibility rules are in [API_CONTRACT.md](API_CONTRACT.md). The initial route surface is:
+The canonical request/response, pagination, status, error, and compatibility rules are in [API_CONTRACT.md](API_CONTRACT.md). The initial route surface is:
 
 ### 8.1 Authentication
 
@@ -385,8 +390,9 @@ The canonical request/response, pagination, idempotency, status, error, and comp
 
 - `GET /health/live`
 - `GET /health/ready`
+- `GET /health/authenticated`
 
-Version 1 wallet commands return completed results. Version 2 deposit, exchange, and withdrawal submissions return `202 Accepted` and an operation identifier. All mutating HTTP requests use the idempotency semantics defined in the API contract.
+Version 1 wallet commands return completed results. Version 2 deposit, exchange, and withdrawal submissions return `202 Accepted` and an operation identifier. HTTP idempotency keys are deferred to the roadmap's final optional hardening phase.
 
 Pydantic handles request shape, types, email format, and basic precision. Use cases handle authorization and business rules. Domain exceptions are translated to HTTP responses only in `api/exception_handlers.py`.
 
@@ -411,7 +417,7 @@ Contracts are versioned DTOs and contain no ORM or Pydantic API objects.
 
 HTTP submission writes the operation and outbox row atomically. A relay claims unpublished rows, publishes them, and records publication metadata.
 
-Database commit and Kafka publish cannot form one transaction, so delivery is at least once. The design must rely on idempotency, not claim exactly-once end-to-end behavior.
+Database commit and Kafka publish cannot form one transaction, so delivery is at least once. Inbox uniqueness and guarded state transitions must prevent duplicate application; the system must not claim exactly-once end-to-end behavior.
 
 ### 9.3 Worker
 
@@ -471,7 +477,7 @@ Worker business failures become `REJECTED` outcomes with safe reason codes. Unex
 - OTP and auth-session behavior.
 - Command handlers with fake command repositories/services.
 - Query handlers with fake query repositories.
-- Version 2 state transitions and idempotent duplicate handling.
+- Version 2 state transitions and duplicate-message handling.
 - No FastAPI, SQLAlchemy, PostgreSQL, or Kafka is needed.
 
 ### 12.2 Integration tests
@@ -515,5 +521,5 @@ Keep UI tests small:
   2. run `uv run alembic revision --autogenerate -m "..."`;
   3. review the generated migration;
   4. run `uv run alembic upgrade head`.
-- Pre-commit and CI are required before the sample is considered complete. They run lint, formatting, type checking, unit tests, integration tests, and the frontend test/build. Version 2 CI additionally runs Kafka outbox, worker, ordering, idempotency, and recovery tests.
+- Pre-commit and CI are optional. They run lint, formatting, type checking, unit tests, integration tests, and the frontend test/build. Version 2 CI additionally runs Kafka outbox, worker, ordering, duplicate-message, and recovery tests.
 - [OPERATIONS.md](OPERATIONS.md) defines required health, observability, migration, release, rollback, backup, and incident practices.

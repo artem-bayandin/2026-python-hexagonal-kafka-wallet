@@ -55,6 +55,8 @@ The logout endpoint revokes the authentication session identified by the current
 
 Protected requests validate the JWT, verify that its server-side session is still active, and load the current user from the database.
 
+During the authentication-only phase, the index page uses `GET /health/authenticated` to validate a token restored from `sessionStorage`. It shows the login form without a valid token and a minimal **Authorized** state with logout when validation succeeds; the later Wallet page replaces this temporary authenticated state.
+
 ## 5. Version 1 — synchronous wallet
 
 ### 5.1 Mock deposit

@@ -9,7 +9,7 @@ This is the canonical contract for the HTTP API described by the functional and 
 - Monetary amounts are decimal strings, never JSON numbers.
 - Authenticated user routes use `Authorization: Bearer <JWT>`.
 - Admin routes require `X-Admin-Key` only in `APP_ENV=development`; production deployment is prohibited until a replacement authorization mechanism exists.
-- Every mutating request requires an `Idempotency-Key` UUID header. Repeating a processed request with the same key and identical principal and payload returns the original status and body. Reusing a key with a different payload returns `409 IDEMPOTENCY_KEY_REUSED`.
+- HTTP idempotency keys are not part of the baseline API. They are reserved for the roadmap's final optional hardening phase and no endpoint requires `Idempotency-Key` unless that phase is explicitly started.
 
 ## Shared representations
 
@@ -54,7 +54,7 @@ Response: `201 Created`.
 }
 ```
 
-`otp` is present only when `APP_ENV=development`; it must be omitted in every other profile. The response must never be logged.
+`otp` is present only when `APP_ENV=development` and `ENABLE_DEMO_OTP=true`; it must be omitted, not returned as `null`, in every other configuration. The response must never be logged.
 
 ### `POST /auth/otp/verify`
 
@@ -77,6 +77,18 @@ Response: `200 OK`.
 ### `POST /auth/logout`
 
 Requires a user Bearer token. Response: `204 No Content`. It revokes only the session identified by the current token's `jti`.
+
+### `GET /health/authenticated`
+
+Requires a user Bearer token. The API validates the JWT, confirms that its server-side session is active, and loads the current user.
+
+Response: `200 OK`.
+
+```json
+{ "status": "ok" }
+```
+
+A missing, malformed, expired, or revoked token returns `401 AUTHENTICATION_FAILED` using the standard error envelope.
 
 ## User wallet
 
@@ -193,11 +205,16 @@ All handled application errors use this envelope:
 | Outcome | HTTP status | Error code |
 | --- | --- | --- |
 | Malformed request or field validation | 422 | `VALIDATION_ERROR` |
-| Missing, expired, or invalid token | 401 | `AUTHENTICATION_FAILED` |
+| Missing, malformed, expired, invalid, or revoked token | 401 | `AUTHENTICATION_FAILED` |
+| Incorrect OTP | 422 | `OTP_INVALID` |
+| Expired OTP | 422 | `OTP_EXPIRED` |
+| OTP locked after the maximum failed attempts | 422 | `OTP_LOCKED` |
+| Previously consumed OTP | 422 | `OTP_CONSUMED` |
+| OTP invalidated by a newer challenge | 422 | `OTP_SUPERSEDED` |
 | Invalid admin credential | 403 | `ADMIN_ACCESS_DENIED` |
 | Inactive user | 403 | `USER_INACTIVE` |
 | Missing or inaccessible resource | 404 | `OPERATION_NOT_FOUND` or `MESSAGE_NOT_FOUND` |
-| Invalid state, duplicate idempotency key, or conflicting operation | 409 | Specific conflict code |
+| Invalid state or conflicting operation | 409 | Specific conflict code |
 | Unsupported asset, invalid precision/amount, or same-asset exchange | 422 | Specific validation code |
 | Insufficient funds | 409 | `INSUFFICIENT_FUNDS` |
 | Unhandled server failure | 500 | `INTERNAL_ERROR` |

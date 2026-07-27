@@ -4,6 +4,8 @@ Work from top to bottom. Complete and understand version 1 before introducing Ka
 
 The developer writes production code. AI can discuss design, review a proposed implementation, diagnose failures, and review completed changes when requested.
 
+Human-directed phase guides may combine parts of several steps to support an implementation experiment.
+
 ## Version 1 — synchronous wallet
 
 ## Step 1 — Scaffold backend, frontend, and PostgreSQL
@@ -47,11 +49,12 @@ All Python/backend paths below are relative to `backend/`.
 ## Step 3 — Model user and OTP authentication
 
 - [ ] Add the `User`, `OtpChallenge`, and `AuthSession` domain entities.
-- [ ] Add frozen `CurrentUser`.
+- [ ] Add frozen `CurrentUser` with user ID, normalized email, and current authentication-session `jti`.
 - [ ] Define OTP lifecycle behavior: 6 digits, 5-minute expiry, single use, invalidation by a newer challenge, and lock after 5 failed attempts.
 - [ ] Define auth exceptions for invalid, expired, locked, consumed, and superseded OTPs plus invalid, expired, and revoked tokens.
 - [ ] Define command repository ports for users, OTP challenges, and auth sessions.
 - [ ] Define service ports for clock/time, OTP generation/digest, and JWT encode/decode where abstraction improves deterministic testing.
+- [ ] Keep concrete OTP and PyJWT adapters outside `domain/`; command/query handlers import only the service Protocols.
 - [ ] Unit-test OTP and auth-session transitions using a controllable fake clock.
 
 **Done when:** authentication lifecycle rules are fully demonstrated by pure unit tests without HTTP, JWT, or database adapters.
@@ -79,12 +82,12 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Implement the session lifecycle: commit on success, rollback on failure, and close always.
 - [ ] Add SQLAlchemy models for users, accounts, balances, transactions, OTP challenges, and authentication sessions.
 - [ ] Store money in PostgreSQL fixed-precision `NUMERIC`, with application and database constraints appropriate to asset precision and non-negative balances.
-- [ ] Add unique constraints for account ownership, account/asset/bucket balances, OTP/session identity, and other domain uniqueness rules.
+- [ ] Add unique constraints for account ownership, account/asset/bucket balances, OTP/session identity, and other domain uniqueness rules, including at most one current unconsumed/uninvalidated OTP challenge per user.
 - [ ] Seed or deterministically create the singleton admin account.
 - [ ] Implement domain/ORM mappers under `app/db/`.
 - [ ] Implement command repositories, including deterministic `SELECT ... FOR UPDATE` balance locking.
 - [ ] Implement query repositories as direct projections to frozen read models, with pagination.
-- [ ] Initialize root-level Alembic, connect metadata/settings, generate the initial migration, review it manually, and apply it.
+- [ ] Initialize Alembic under `backend/`, connect metadata/settings, generate the initial migration, review it manually, and apply it.
 - [ ] Add repository integration tests using PostgreSQL from testcontainers.
 
 **Done when:** a clean test database can be migrated from zero, repositories round-trip domain values without precision loss, and query repositories issue purpose-specific projections.
@@ -104,16 +107,18 @@ All Python/backend paths below are relative to `backend/`.
 
 - [ ] Implement the request-OTP command:
       - normalize email;
-      - create the user/account if absent;
+      - atomically create the user if absent and lock that user before challenge changes;
       - invalidate prior challenges;
       - persist a new challenge;
       - return the demo OTP and expiry.
 - [ ] Implement the verify-OTP command:
-      - load and validate the active challenge;
-      - count failed attempts;
+      - load the current and digest-matching challenges under the user lock;
+      - distinguish invalid, expired, locked, consumed, and superseded challenges;
+      - count and commit failed attempts before returning the expected OTP error;
       - consume a valid challenge;
       - create an auth session;
       - return the Bearer JWT.
+- [ ] Add the minimal Unit of Work port required to commit a failed OTP attempt before raising its typed domain error.
 - [ ] Implement logout to revoke the current `jti`.
 - [ ] Implement current-user loading that validates token, active auth session, and fresh user state.
 - [ ] Unit-test each command handler using fake ports, including every failure branch and multiple independent sessions.
@@ -150,16 +155,17 @@ All Python/backend paths below are relative to `backend/`.
 ## Step 9 — Build and compose the HTTP API
 
 - [ ] Add Pydantic request/response schemas for auth, wallet, admin, balances, transactions, errors, and pagination.
-- [ ] Implement the request, response, HTTP-status, error-envelope, cursor-pagination, and idempotency contracts in `API_CONTRACT.md`.
+- [ ] Implement the request, response, HTTP-status, error-envelope, and cursor-pagination contracts in `API_CONTRACT.md`.
 - [ ] Keep DTO-to-command and read-model-to-response mapping in `app/api/`.
 - [ ] Add exception handlers as the only domain-to-HTTP error mapping.
 - [ ] Add composition providers for settings, sessions, repositories, services, command handlers, and query handlers.
-- [ ] Use `OAuth2PasswordBearer` for protected user routes and Swagger authorization support.
+- [ ] Use `HTTPBearer(auto_error=False)` for protected user routes and Swagger Bearer authorization support; map missing credentials to the standard 401 envelope.
 - [ ] Add timing-safe `X-Admin-Key` validation for `/admin/*`; do not require user JWT there.
 - [ ] Add version-1 routes:
       - `POST /auth/otp/request`;
       - `POST /auth/otp/verify`;
       - `POST /auth/logout`;
+      - `GET /health/authenticated`;
       - `GET /me/balances`;
       - `POST /me/exchanges`;
       - `POST /me/withdrawals`;
@@ -170,7 +176,7 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Add `GET /health/live` and `GET /health/ready`.
 - [ ] Register routers and exception handlers in the app factory.
 
-**Done when:** routers only translate HTTP to/from handlers, malformed DTOs produce 422, domain errors have the documented envelope, repeated mutating requests honor idempotency, health endpoints report accurately, and Swagger can exercise all version-1 flows.
+**Done when:** routers only translate HTTP to/from handlers, malformed DTOs produce 422, domain errors have the documented envelope, health endpoints report accurately, and Swagger can exercise all version-1 flows.
 
 ## Step 10 — Build the version-1 React UI
 
@@ -220,7 +226,7 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Add transaction statuses `PENDING`, `REJECTED`, and `FAILED` while retaining `COMPLETED`.
 - [ ] Add safe failure/result fields and lifecycle timestamps.
 - [ ] Add outbox, inbox/processed-message, and Kafka diagnostics message persistence.
-- [ ] Add unique message/operation constraints supporting idempotency.
+- [ ] Add unique message/operation constraints preventing duplicate application.
 - [ ] Write and manually review an Alembic migration.
 - [ ] Update domain transitions, repositories, read models, and unit tests.
 
@@ -317,11 +323,23 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Cover Kafka diagnostics filtering, timestamps, payloads, and sanitization.
 - [ ] Run all backend/frontend quality checks and verify the startup, demo, release, rollback, backup, and incident procedures in `README.md` and `OPERATIONS.md`.
 
-**Done when:** version 2 demonstrates asynchronous execution, at-least-once delivery, idempotency, ordering, and observability without claiming production exactly-once guarantees.
+**Done when:** version 2 demonstrates asynchronous execution, at-least-once delivery, duplicate-message safety, ordering, and observability without claiming production exactly-once guarantees.
 
 ## Required completion controls
 
 - [ ] Add pre-commit checks for ruff, mypy, and fast unit tests.
 - [ ] Add CI for backend lint/typecheck/tests, frontend typecheck/tests/build, PostgreSQL integration tests, and version-2 Kafka integration tests.
 - [ ] Add dependency vulnerability scanning and a recurring dependency-review process.
-- [ ] Add architecture decision records for CQRS, PostgreSQL, OTP sessions, outbox/idempotency, and the removable Kafka diagnostics adapter.
+- [ ] Add architecture decision records for CQRS, PostgreSQL, OTP sessions, outbox/duplicate-message handling, and the removable Kafka diagnostics adapter.
+
+## Optional final phase — HTTP request idempotency
+
+Do not implement this phase unless it is explicitly requested. It is intentionally last and is not required for either baseline application version.
+
+- [ ] Require an `Idempotency-Key` UUID only on the mutating routes selected for hardening.
+- [ ] Persist the key with principal, method, route, canonical payload hash, original status, and original response.
+- [ ] Replay the original result for an identical request and return `409 IDEMPOTENCY_KEY_REUSED` when the same key is reused with different request identity or content.
+- [ ] Define retention and cleanup behavior.
+- [ ] Add concurrency and replay tests before documenting the feature in the baseline API contract.
+
+**Done when:** explicitly selected routes safely replay identical requests without repeating their effects, conflicting reuse is rejected, and no route outside this optional scope requires the header.
