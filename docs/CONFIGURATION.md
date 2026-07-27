@@ -56,11 +56,11 @@ The initial local defaults are:
 | Kafka | Internal Compose network by default; do not expose a host port unless required for local debugging. |
 
 The actual Compose file must pin container image tags and use named volumes.
-The root [`.env.example`](../.env.example) contains only development-safe placeholders, never real credentials.
+The [backend `.env.example`](../backend/.env.example) contains only development-safe placeholders, never real credentials.
 
 ## Secrets and rotation
 
-- Use a secret manager in production; `.env` is local-development only and is gitignored.
+- Use a secret manager in production; `backend/.env` is local-development only and is gitignored.
 - Generate separate high-entropy values for JWT signing and OTP HMAC.
 - Rotate a JWT key by accepting a bounded set of active key IDs during the transition, issuing only with the new key, then retiring the old key after all tokens expire.
 - Rotate OTP HMAC material by invalidating outstanding challenges if dual-verification is not implemented.

@@ -10,15 +10,17 @@ The developer writes production code. AI can discuss design, review a proposed i
 
 Runnable commands: [Phase 1 — Scaffolding](implementation/PHASE_1_SCAFFOLDING.md).
 
-- [ ] Initialize the Python project with `uv` and Python 3.14.
+All Python/backend paths below are relative to `backend/`.
+
+- [ ] Initialize the Python project with `uv` and Python 3.14 under `backend/`.
 - [ ] Add backend runtime dependencies using the bounded ranges in `TECHNICAL_REQUIREMENTS.md`: FastAPI, Uvicorn, Pydantic, `pydantic-settings`, SQLAlchemy 2.0, asyncpg, Alembic, PyJWT, and `email-validator`.
 - [ ] Add backend development dependencies: ruff, mypy, pytest, pytest-asyncio, HTTPX, and testcontainers.
-- [ ] Configure ruff and strict mypy for SQLAlchemy 2.x native typing in `pyproject.toml`.
-- [ ] Create the initial `app/`, `tests/unit/`, `tests/integration/`, and `scripts/` packages/directories.
+- [ ] Configure ruff and strict mypy for SQLAlchemy 2.x native typing in `backend/pyproject.toml`.
+- [ ] Create the initial `backend/app/`, `backend/tests/unit/`, `backend/tests/integration/`, and `backend/scripts/` packages/directories.
 - [ ] Create a Vite React TypeScript project under `frontend/`.
 - [ ] Enable Yarn with `corepack enable`; add React Router, ESLint, Vitest, React Testing Library, and basic frontend lint/typecheck scripts through Yarn.
 - [ ] Configure `frontend/.yarnrc.yml` with `nodeLinker: node-modules`, commit `frontend/yarn.lock`, and verify that `yarn install --immutable` installs the frontend package tree in `frontend/node_modules`.
-- [ ] Add `.env.example`, a gitignored `.env`, and `app/config.py`.
+- [ ] Add `backend/.env.example`, a gitignored `backend/.env`, and `backend/app/config.py`.
 - [ ] Add Docker Compose with one PostgreSQL service, persistent volume, health check, and exposed development port.
 - [ ] Implement the profile and environment-variable contract in `CONFIGURATION.md`; create safe `.env.example` placeholders only.
 - [ ] Add `/health/live` and `/health/ready` to the minimal FastAPI app.

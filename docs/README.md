@@ -6,6 +6,15 @@ This documentation defines a **pre-implementation educational sample**. It is no
 
 The developer implements the sample. AI provides planning, explanations, review, and diagnosis when requested.
 
+## Repository layout
+
+```
+project-root/
+├── backend/     # Python API
+├── frontend/    # React UI
+└── docs/        # Canonical requirements and phase guides
+```
+
 ## Reading order
 
 | Document | Authority | Purpose |

@@ -55,12 +55,12 @@ Kafka and the worker are introduced only in version 2.
 - Backend and frontend run locally with hot reload.
 - PostgreSQL runs through Docker Compose from version 1.
 - Version 2 extends Docker Compose with Kafka and the command worker.
-- Application secrets and connection settings come from `.env`; safe examples live in `.env.example`.
+- Application secrets and connection settings come from `backend/.env`; safe examples live in `backend/.env.example`.
 - Configuration, profile boundaries, local ports, topic names, and polling defaults are defined in [CONFIGURATION.md](CONFIGURATION.md).
 
 ### 2.5 Supported-version and dependency policy
 
-The scaffold declares direct dependencies with bounded compatible ranges and commits the resolved `uv.lock` and `frontend/yarn.lock`. The lockfiles, not a floating package installation, define a reproducible build.
+The scaffold declares direct dependencies with bounded compatible ranges and commits the resolved `backend/uv.lock` and `frontend/yarn.lock`. The lockfiles, not a floating package installation, define a reproducible build.
 
 - The current baseline is Python 3.14.6, FastAPI 0.139.2, Pydantic 2.13.4, `pydantic-settings` 2.14.2, SQLAlchemy 2.0.51, `uv` 0.11.31, `testcontainers` 4.14.2, `email-validator` 2.3.0, and `aiokafka` 0.14.0.
 - PostgreSQL 18.4 is the supported database baseline. Pin Compose to an exact patch tag and upgrade after backup/restore and integration-test verification.
@@ -102,63 +102,68 @@ Domain ports use `typing.Protocol`. Manual provider functions in `app/dependenci
 
 ```
 project-root/
-├── pyproject.toml
-├── uv.lock
-├── .env
-├── .env.example
 ├── docker-compose.yml
-├── alembic.ini
-├── alembic/
-│   ├── env.py
-│   └── versions/
-├── app/
-│   ├── main.py
-│   ├── config.py
-│   ├── dependencies.py
-│   ├── domain/
-│   │   ├── entities/
-│   │   ├── value_objects/
-│   │   │   └── money.py
-│   │   ├── enums.py
-│   │   ├── current_user.py
-│   │   ├── exceptions.py
-│   │   ├── read_models.py
-│   │   ├── ports/
-│   │   │   ├── command_repositories.py
-│   │   │   ├── query_repositories.py
-│   │   │   ├── services.py
-│   │   │   └── messaging.py
-│   │   └── use_cases/
-│   │       ├── commands/
-│   │       └── queries/
-│   ├── api/
-│   │   ├── routers/
-│   │   │   ├── auth.py
-│   │   │   ├── wallet.py
-│   │   │   └── admin.py
-│   │   ├── schemas/
-│   │   ├── mappers.py
-│   │   └── exception_handlers.py
-│   ├── auth/
-│   │   ├── jwt_service.py
-│   │   └── otp_service.py
-│   ├── db/
-│   │   ├── models.py
-│   │   ├── mappers.py
-│   │   ├── session.py
-│   │   └── repositories/
-│   │       ├── command_repositories.py
-│   │       └── query_repositories.py
-│   ├── messaging/                 # version 2
-│   │   ├── contracts.py
-│   │   ├── kafka_adapter.py
-│   │   ├── outbox_relay.py
-│   │   └── worker.py
-│   └── kafka_api/                 # version 2, removable diagnostics adapter
-│       ├── router.py
-│       ├── schemas.py
-│       ├── service.py
-│       └── repository.py
+├── backend/
+│   ├── pyproject.toml
+│   ├── uv.lock
+│   ├── .env
+│   ├── .env.example
+│   ├── alembic.ini
+│   ├── alembic/
+│   │   ├── env.py
+│   │   └── versions/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── config.py
+│   │   ├── dependencies.py
+│   │   ├── domain/
+│   │   │   ├── entities/
+│   │   │   ├── value_objects/
+│   │   │   │   └── money.py
+│   │   │   ├── enums.py
+│   │   │   ├── current_user.py
+│   │   │   ├── exceptions.py
+│   │   │   ├── read_models.py
+│   │   │   ├── ports/
+│   │   │   │   ├── command_repositories.py
+│   │   │   │   ├── query_repositories.py
+│   │   │   │   ├── services.py
+│   │   │   │   └── messaging.py
+│   │   │   └── use_cases/
+│   │   │       ├── commands/
+│   │   │       └── queries/
+│   │   ├── api/
+│   │   │   ├── routers/
+│   │   │   │   ├── auth.py
+│   │   │   │   ├── wallet.py
+│   │   │   │   └── admin.py
+│   │   │   ├── schemas/
+│   │   │   ├── mappers.py
+│   │   │   └── exception_handlers.py
+│   │   ├── auth/
+│   │   │   ├── jwt_service.py
+│   │   │   └── otp_service.py
+│   │   ├── db/
+│   │   │   ├── models.py
+│   │   │   ├── mappers.py
+│   │   │   ├── session.py
+│   │   │   └── repositories/
+│   │   │       ├── command_repositories.py
+│   │   │       └── query_repositories.py
+│   │   ├── messaging/                 # version 2
+│   │   │   ├── contracts.py
+│   │   │   ├── kafka_adapter.py
+│   │   │   ├── outbox_relay.py
+│   │   │   └── worker.py
+│   │   └── kafka_api/                 # version 2, removable diagnostics adapter
+│   │       ├── router.py
+│   │       ├── schemas.py
+│   │       ├── service.py
+│   │       └── repository.py
+│   ├── scripts/
+│   └── tests/
+│       ├── unit/
+│       └── integration/
 ├── frontend/
 │   ├── src/
 │   │   ├── api/
@@ -166,10 +171,7 @@ project-root/
 │   │   ├── components/
 │   │   └── types/
 │   └── package.json
-├── scripts/
-└── tests/
-    ├── unit/
-    └── integration/
+└── docs/
 ```
 
 Files may be split further when they become large, but layer boundaries and dependency direction must remain unchanged.
@@ -340,7 +342,7 @@ Logout revokes only the current `jti`.
 ### 7.4 Admin API key
 
 - `/admin/*` endpoints require `X-Admin-Key` only when `APP_ENV=development`.
-- The development value comes from `ADMIN_API_KEY`; `x_admin_key` is permitted only as a local `.env.example` placeholder.
+- The development value comes from `ADMIN_API_KEY`; `x_admin_key` is permitted only as a local `backend/.env.example` placeholder.
 - Comparison uses a timing-safe function.
 - Admin endpoints do not require a user JWT.
 - Static-key admin access is demo-only and must be disabled in production.
@@ -506,7 +508,7 @@ Keep UI tests small:
 
 ## 14. Tooling notes
 
-- Configure `ruff` for lint and format in `pyproject.toml`.
+- Configure `ruff` for lint and format in `backend/pyproject.toml`.
 - Configure `mypy` with `strict = true`. ORM models must use SQLAlchemy 2.x native `Mapped[...]` annotations and `mapped_column()`.
 - Human-driven migration workflow:
   1. change ORM models;

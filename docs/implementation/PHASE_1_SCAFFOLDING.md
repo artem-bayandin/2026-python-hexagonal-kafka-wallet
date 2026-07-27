@@ -2,7 +2,7 @@
 
 Bootstrap the Python backend, Vite/React frontend, PostgreSQL Compose service, configuration skeleton, and health endpoints so both dev servers hot-reload and quality checks pass on an empty project.
 
-Canonical requirements live in [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md), [CONFIGURATION.md](../CONFIGURATION.md), and [API_CONTRACT.md](../API_CONTRACT.md). Run every command from the repository root unless noted.
+Canonical requirements live in [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md), [CONFIGURATION.md](../CONFIGURATION.md), and [API_CONTRACT.md](../API_CONTRACT.md). The repository top level contains `backend/`, `frontend/`, and `docs/`. Run backend commands from `backend/` unless noted.
 
 ## Done when
 
@@ -10,9 +10,11 @@ PostgreSQL is healthy, backend and frontend hot-reload, `/health/live` and `/hea
 
 ## Steps
 
-- [ ] Initialize the Python application with `uv` and pin Python 3.14.
+- [ ] Create the backend directory and initialize the Python application with `uv` and Python 3.14.
 
 ```sh
+mkdir backend
+cd backend
 uv init --app --python 3.14
 ```
 
@@ -28,7 +30,7 @@ uv add fastapi "uvicorn[standard]" pydantic pydantic-settings sqlalchemy asyncpg
 uv add --dev ruff mypy pytest pytest-asyncio httpx "testcontainers[postgres]"
 ```
 
-- [ ] Configure ruff and strict mypy in `pyproject.toml` (merge into the existing file).
+- [ ] Configure ruff and strict mypy in `backend/pyproject.toml` (merge into the existing file).
 
 ```toml
 [tool.ruff]
@@ -48,9 +50,10 @@ strict = true
 ```sh
 mkdir -p app tests/unit tests/integration scripts
 touch app/__init__.py
+cd ..
 ```
 
-- [ ] Enable Corepack and scaffold the Vite React TypeScript frontend.
+- [ ] Enable Corepack and scaffold the Vite React TypeScript frontend from the repository root.
 
 ```sh
 corepack enable
@@ -84,24 +87,26 @@ cd ..
 cd frontend && yarn install --immutable && cd ..
 ```
 
-- [ ] Add `.gitignore` entries for local secrets, Python artifacts, and frontend build output.
+- [ ] Add root `.gitignore` entries for local secrets, Python artifacts, and frontend build output.
 
 ```sh
-cat <<'EOF' >> .gitignore
-.env
-.venv/
-__pycache__/
-*.py[cod]
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
+cat <<'EOF' > .gitignore
+backend/.env
+backend/.venv/
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.pytest_cache/
+frontend/node_modules/
+frontend/dist/
 EOF
 ```
 
-- [ ] Add `.env.example` with development-safe placeholders matching [CONFIGURATION.md](../CONFIGURATION.md).
+- [ ] Add `backend/.env.example` with development-safe placeholders matching [CONFIGURATION.md](../CONFIGURATION.md).
 
 ```sh
-cat <<'EOF' > .env.example
+cat <<'EOF' > backend/.env.example
 APP_ENV=development
 POSTGRES_DB=wallet_db
 POSTGRES_USER=wallet_user
@@ -129,13 +134,15 @@ EOF
 
 Full form: `postgresql+asyncpg://<user>:<password>@<host>:<port>/<database>`
 
-- [ ] Copy `.env.example` to a gitignored `.env` and replace placeholder secrets with local values.
+- [ ] Copy `backend/.env.example` to a gitignored `backend/.env` and replace placeholder secrets with local values.
 
 ```sh
-cp .env.example .env
+cp backend/.env.example backend/.env
 ```
 
-- [ ] Add Docker Compose with one PostgreSQL service (pinned image, volume, health check, development port).
+- [ ] Add root `docker-compose.yml` with one PostgreSQL service (pinned image, volume, health check, development port).
+
+PostgreSQL 18+ stores data under `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
 
 ```sh
 cat <<'EOF' > docker-compose.yml
@@ -149,7 +156,7 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -165,16 +172,16 @@ EOF
 - [ ] Start PostgreSQL and confirm the container reaches `healthy`.
 
 ```sh
-docker compose up -d postgres
+docker compose --env-file backend/.env up -d postgres
 docker compose ps
 ```
 
-- [ ] Add `app/config.py` with `pydantic-settings` loading the [CONFIGURATION.md](../CONFIGURATION.md) variables.
-Usage in the app: create_app() calls get_settings() to get database_url for the SQLAlchemy engine. Later steps will use the same object for JWT secrets, admin key, CORS, etc.
-Important: if you change .env, restart uvicorn — @lru_cache won't reload config on its own.
+- [ ] Add `backend/app/config.py` with `pydantic-settings` loading the [CONFIGURATION.md](../CONFIGURATION.md) variables.
+
+If you change `backend/.env`, restart uvicorn — `@lru_cache` won't reload config on its own.
 
 ```sh
-cat <<'EOF' > app/config.py
+cat <<'EOF' > backend/app/config.py
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -201,7 +208,7 @@ EOF
 - [ ] Add a minimal FastAPI app factory with `/health/live` and `/health/ready` (ready checks PostgreSQL).
 
 ```sh
-cat <<'EOF' > app/main.py
+cat <<'EOF' > backend/app/main.py
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -214,13 +221,11 @@ from app.config import Settings, get_settings
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_config = settings or get_settings()
-    db_connection: AsyncEngine = create_async_engine(app_config.database_url)
+    engine: AsyncEngine = create_async_engine(app_config.database_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # Before yield = startup (nothing here yet; engine is already created above)
         yield
-        # After yield = shutdown (runs when uvicorn stops or reloads)
         await engine.dispose()
 
     app = FastAPI(title="Wallet Sample", lifespan=lifespan)
@@ -232,7 +237,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health/ready")
     async def health_ready(response: Response) -> dict[str, str]:
         try:
-            async with db_connection.connect() as connection:
+            async with engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
         except Exception:
             response.status_code = 503
@@ -255,10 +260,10 @@ test -f frontend/src/main.tsx
 printf 'VITE_API_BASE_URL=http://127.0.0.1:8000\n' > frontend/.env
 ```
 
-- [ ] Start the backend development server.
+- [ ] Start the backend development server from `backend/`.
 
 ```sh
-uv run uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+cd backend && uv run uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
 ```
 
 - [ ] In a second terminal, start the frontend development server.
@@ -267,9 +272,10 @@ uv run uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 80
 cd frontend && yarn dev
 ```
 
-- [ ] Verify backend quality gates.
+- [ ] Verify backend quality gates from `backend/`.
 
 ```sh
+cd backend
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy app tests
@@ -288,4 +294,4 @@ curl -sS http://127.0.0.1:8000/health/live
 curl -sS http://127.0.0.1:8000/health/ready
 ```
 
-Expected: both return HTTP 200 with `{"status":"ok"}` once PostgreSQL is healthy and `.env` `DATABASE_URL` matches Compose credentials.
+Expected: both return HTTP 200 with `{"status":"ok"}` once PostgreSQL is healthy and `backend/.env` `DATABASE_URL` matches Compose credentials.
