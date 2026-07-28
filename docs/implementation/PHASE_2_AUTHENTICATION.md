@@ -235,11 +235,12 @@ ENABLE_DEMO_OTP=false
 
 Update `backend/app/config.py` with these contracts:
 
-- `AppEnv` is a `StrEnum` containing only `development`, `test`, and `production`; `Settings.app_env` uses that enum.
+- `AppEnv` is a `string`; `Settings.app_env` uses that enum.
 - `jwt_access_token_ttl_minutes`, `otp_ttl_seconds`, and `otp_max_attempts` are integers declared with `Field(gt=0)`.
-- `jwt_secret` and `otp_hmac_secret` are `SecretStr`; startup validation requires each UTF-8 value to contain at least 32 bytes and requires the two values to differ.
-- `enable_demo_otp` defaults to `False` and may be true only when `app_env is AppEnv.DEVELOPMENT`.
-- `cors_allowed_origins` is parsed into a non-empty list of explicit origins. Reject `*` in every profile. Outside development, reject HTTP origins and require every origin to use `https://`.
+- `jwt_secret` and `otp_hmac_secret` are `SecretStr`.
+- `enable_demo_otp` defaults to `False`; the Slice 1 composition gate controls whether the OTP is exposed.
+- `cors_allowed_origins` remains a comma-separated string with the development default `http://127.0.0.1:5173`.
+- Keep `Settings` declarative: do not add field or model validators for secret length/equality, profile combinations, or CORS origins.
 - Do not log settings or secret values.
 
 ## Slice 1 — request-otp
@@ -406,7 +407,7 @@ include_demo_otp = (
 - compute `HMAC-SHA256(OTP_HMAC_SECRET, f"{normalized_email}:{code}")` as lowercase hexadecimal;
 - compare digests with `hmac.compare_digest`.
 
-Register the auth router and shared exception handlers in `backend/app/main.py`. Configure CORS from the validated explicit origin list.
+Register the auth router and shared exception handlers in `backend/app/main.py`. Configure CORS by splitting and trimming the comma-separated `settings.cors_allowed_origins` value.
 
 ### UI
 
