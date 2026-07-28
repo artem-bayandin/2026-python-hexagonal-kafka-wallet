@@ -1,0 +1,11 @@
+---
+description: Name injected backend dependencies by role
+globs: backend/app/**/*.py
+alwaysApply: false
+---
+# Backend dependency naming
+
+- Constructor parameters for repository collaborators must use the `_repo` suffix: `users_repo: UserRepository`, `otp_challenges_repo: OtpChallengeRepository`.
+- Constructor parameters for service collaborators must use the `_service` suffix: `otp_service: OtpService`, `clock_service: ClockService`.
+- Do not use bare entity or capability names for injected collaborators, such as `users: UserRepository` or `otp: OtpService`.
+- Private instance attributes should preserve the dependency role, for example `self._users_repo` and `self._otp_service`.

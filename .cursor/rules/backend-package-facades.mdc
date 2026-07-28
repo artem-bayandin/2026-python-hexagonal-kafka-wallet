@@ -1,0 +1,12 @@
+---
+description: Require explicit backend layer package facades
+globs: backend/app/**/*.py
+alwaysApply: false
+---
+# Backend package facades
+
+- Keep `app.api`, `app.auth`, `app.db`, and `app.domain` as regular packages with an `__init__.py`.
+- Each package `__init__.py` is its public façade: re-export only symbols intended for other layers and declare them in `__all__`.
+- When code imports from another layer, import the public symbol from its façade, for example `from app.domain import Result`; do not import another layer's internal modules, such as `app.domain.entities.user`.
+- Imports within the same layer may use concrete modules when that avoids circular imports or keeps ownership clear.
+- Update the façade and its `__all__` whenever a new public cross-layer symbol is introduced. Do not re-export adapter internals or framework-specific implementation details from `app.domain`.

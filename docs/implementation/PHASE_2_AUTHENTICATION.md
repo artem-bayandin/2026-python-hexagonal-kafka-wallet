@@ -7,7 +7,7 @@ Complete Slice 0 configuration first, then implement email OTP authentication en
 3. `healthcheck`
 4. `logout`
 
-Within each feature slice, work in the strict order **API → Domain → DB → UI**. Do not run or demonstrate a feature slice until all four sections in that slice are complete.
+Within each feature slice, work in the strict order **Domain → DB → API → UI**. Do not run or demonstrate a feature slice until all four sections in that slice are complete.
 
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 
@@ -31,10 +31,12 @@ A browser can request a development demo OTP, verify it, show **Authorized**, su
 
 - `backend/app/domain/` imports only Python standard-library modules and other domain models or `Protocol` ports.
 - Domain handlers never import FastAPI, Pydantic, SQLAlchemy, PyJWT, `app.auth`, or `app.db`.
-- Every command and query handler returns the immutable generic `Result[T]` from `backend/app/domain/result.py`.
+- `app.api`, `app.auth`, `app.db`, and `app.domain` are regular packages with an `__init__.py` public façade. A different layer imports only symbols re-exported by that façade (for example, `from app.domain import Result`), never its nested implementation modules. Same-layer imports may remain concrete to avoid circular dependencies.
+- Every command and query handler returns the immutable generic `Result[T]` from `app.domain`.
 - `CurrentUser` is an immutable domain value; `CurrentUserProvider` is a domain port implemented by the API with request-scoped state.
-- `backend/app/domain/ports/services.py` owns `ClockService`, `OtpService`, and `TokenService`.
-- SQLAlchemy repositories live under `backend/app/db/` and structurally implement domain ports.
+- Domain ports are split by responsibility and main entity: `ports/services/<service>.py` for services and `ports/repositories/<entity>_repository.py` for repositories.
+- SQLAlchemy repositories live under `backend/app/db/repositories/<entity>_repository.py` and structurally implement their matching domain ports.
+- Domain use cases live under `backend/app/domain/use_cases/<entity>/`, not a shared `commands/` or `queries/` directory.
 - HMAC/`secrets` and PyJWT implementations live under `backend/app/auth/` and structurally implement domain ports.
 - `backend/app/dependencies.py` is the composition root. It opens SQLAlchemy transaction contexts, composes handlers with repositories sharing one session, invokes the handler, and returns its `Result`.
 - API routers translate HTTP DTOs to commands and successful result data to response DTOs. Result-error-code-to-HTTP mapping lives only in `backend/app/api/exception_handlers.py`.
@@ -55,10 +57,12 @@ backend/
 │   ├── env.py
 │   └── versions/
 └── app/
+    ├── __init__.py
     ├── config.py
     ├── dependencies.py
     ├── main.py
     ├── api/
+    │   ├── __init__.py
     │   ├── current_user_provider.py
     │   ├── dependencies.py
     │   ├── exception_handlers.py
@@ -70,36 +74,49 @@ backend/
     │       ├── auth.py
     │       └── errors.py
     ├── auth/
+    │   ├── __init__.py
     │   ├── jwt_service.py
     │   └── otp_service.py
     ├── db/
+    │   ├── __init__.py
     │   ├── mappers.py
     │   ├── models.py
     │   ├── session.py
     │   └── repositories/
-    │       ├── auth_repository.py
+    │       ├── auth_session_repository.py
+    │       ├── otp_challenge_repository.py
     │       └── user_repository.py
     └── domain/
+        ├── __init__.py
         ├── current_user.py
         ├── error_codes.py
         ├── result.py
         ├── token_claims.py
         ├── entities/
+        │   ├── __init__.py
         │   ├── auth_session.py
         │   ├── otp_challenge.py
         │   └── user.py
         ├── ports/
-        │   ├── command_repositories.py
+        │   ├── __init__.py
         │   ├── current_user_provider.py
-        │   ├── query_repositories.py
-        │   └── services.py
+        │   ├── repositories/
+        │   │   ├── auth_session_repository.py
+        │   │   ├── otp_challenge_repository.py
+        │   │   └── user_repository.py
+        │   └── services/
+        │       ├── clock_service.py
+        │       ├── otp_service.py
+        │       └── token_service.py
         └── use_cases/
-            ├── commands/
-            │   ├── logout.py
-            │   ├── request_otp.py
-            │   └── verify_otp.py
-            └── queries/
-                └── get_current_user.py
+            ├── __init__.py
+            ├── auth_session/
+            │   └── logout_cmd.py
+            ├── otp/
+            │   ├── request_otp_cmd.py
+            │   └── verify_otp_cmd.py
+            └── user/
+                └── get_current_user_query.py
 ```
 
 ### Shared transaction target
@@ -131,6 +148,483 @@ Update `backend/app/config.py` with these contracts:
 
 ## Slice 1 — request-otp
 
+### Domain
+
+Create `backend/app/domain/result.py`:
+
+```python
+from dataclasses import dataclass
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True, slots=True)
+class Result(Generic[T]):
+    _data: T | None = None
+    _error_code: str | None = None
+    _reason: Exception | None = None
+
+    def __post_init__(self) -> None:
+        valid_success = self._error_code is None and self._reason is None
+        valid_failure = (
+            self._error_code is not None
+            and bool(self._error_code)
+            and self._data is None
+        )
+        if not (valid_success or valid_failure):
+            raise ValueError("Invalid Result initialization.")
+
+    @classmethod
+    def success(cls, data: T | None = None) -> Result[T]:
+        return cls(_data=data)
+
+    @classmethod
+    def failure(
+        cls, error_code: str, reason: Exception | None = None
+    ) -> Result[T]:
+        return cls(_error_code=error_code, _reason=reason)
+
+    @property
+    def is_success(self) -> bool:
+        return self._error_code is None
+
+    @property
+    def data(self) -> T | None:
+        return self._data
+
+    @property
+    def error_code(self) -> str | None:
+        return self._error_code
+
+    @property
+    def reason(self) -> Exception | None:
+        return self._reason
+```
+
+Every command and query returns `Result[T]`. Expected OTP and authentication outcomes return `Result.failure`; unexpected infrastructure and programming failures remain exceptions so the SQLAlchemy transaction context rolls back. `reason` is internal diagnostic context and is never serialized, exposed to clients, or logged automatically.
+
+Create `backend/app/domain/entities/user.py`:
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from uuid import UUID
+
+
+@dataclass(frozen=True, slots=True)
+class User:
+    id: UUID
+    email: str
+    created_at: datetime
+```
+
+Create `backend/app/domain/entities/otp_challenge.py`:
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from uuid import UUID
+
+
+@dataclass(frozen=True, slots=True)
+class OtpChallenge:
+    id: UUID
+    user_id: UUID
+    otp_digest: str
+    expires_at: datetime
+    failed_attempt_count: int
+    consumed_at: datetime | None
+    invalidated_at: datetime | None
+    created_at: datetime
+```
+
+Create `backend/app/domain/ports/services/clock_service.py`:
+
+```python
+from datetime import datetime
+from typing import Protocol
+
+
+class ClockService(Protocol):
+    def now(self) -> datetime: ...
+```
+
+Create `backend/app/domain/ports/services/otp_service.py`:
+
+```python
+from typing import Protocol
+
+
+class OtpService(Protocol):
+    def generate_code(self) -> str: ...
+
+    def digest(self, normalized_email: str, code: str) -> str: ...
+
+    def matches(
+        self, normalized_email: str, code: str, expected_digest: str
+    ) -> bool: ...
+```
+
+`ClockService.now()` implementations must return timezone-aware UTC datetimes.
+
+Create `backend/app/domain/ports/repositories/user_repository.py`:
+
+```python
+from datetime import datetime
+from typing import Protocol
+from uuid import UUID
+
+from app.domain.entities.user import User
+
+
+class UserRepository(Protocol):
+    async def ensure_by_email(
+        self, email: str, user_id: UUID, created_at: datetime
+    ) -> None: ...
+
+    async def get_by_email_for_update(self, email: str) -> User: ...
+```
+
+Create `backend/app/domain/ports/repositories/otp_challenge_repository.py`:
+
+```python
+from datetime import datetime
+from typing import Protocol
+from uuid import UUID
+
+from app.domain.entities.otp_challenge import OtpChallenge
+
+
+class OtpChallengeRepository(Protocol):
+    async def invalidate_current_for_user(
+        self, user_id: UUID, invalidated_at: datetime
+    ) -> int: ...
+
+    async def add(self, challenge: OtpChallenge) -> None: ...
+```
+
+Create `backend/app/domain/use_cases/otp/request_otp_cmd.py` with `RequestOtpCommand`, `RequestOtpData`, and `RequestOtpHandler`.
+
+Normalize email once with `email.strip().casefold()`. The complete handler is:
+
+```python
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from uuid import uuid4
+
+from app.domain.entities.otp_challenge import OtpChallenge
+from app.domain.ports.repositories.otp_challenge_repository import (
+    OtpChallengeRepository,
+)
+from app.domain.ports.repositories.user_repository import UserRepository
+from app.domain.ports.services.clock_service import ClockService
+from app.domain.ports.services.otp_service import OtpService
+from app.domain.result import Result
+
+
+@dataclass(frozen=True, slots=True)
+class RequestOtpCommand:
+    email: str
+
+
+@dataclass(frozen=True, slots=True)
+class RequestOtpData:
+    expires_at: datetime
+    demo_otp: str | None
+
+
+class RequestOtpHandler:
+    def __init__(
+        self,
+        users_repo: UserRepository,
+        otp_challenges_repo: OtpChallengeRepository,
+        otp_service: OtpService,
+        clock_service: ClockService,
+        *,
+        otp_ttl_seconds: int,
+        include_demo_otp: bool,
+    ) -> None:
+        self._users_repo = users_repo
+        self._otp_challenges_repo = otp_challenges_repo
+        self._otp_service = otp_service
+        self._clock_service = clock_service
+        self._otp_ttl_seconds = otp_ttl_seconds
+        self._include_demo_otp = include_demo_otp
+
+    async def handle(self, command: RequestOtpCommand) -> Result[RequestOtpData]:
+        email = command.email.strip().casefold()
+        now = self._clock_service.now()
+        proposed_user_id = uuid4()
+
+        await self._users_repo.ensure_by_email(email, proposed_user_id, now)
+        user = await self._users_repo.get_by_email_for_update(email)
+
+        await self._otp_challenges_repo.invalidate_current_for_user(user.id, now)
+
+        code = self._otp_service.generate_code()
+        expires_at = now + timedelta(seconds=self._otp_ttl_seconds)
+        await self._otp_challenges_repo.add(
+            OtpChallenge(
+                id=uuid4(),
+                user_id=user.id,
+                otp_digest=self._otp_service.digest(email, code),
+                expires_at=expires_at,
+                failed_attempt_count=0,
+                consumed_at=None,
+                invalidated_at=None,
+                created_at=now,
+            )
+        )
+
+        return Result.success(
+            RequestOtpData(
+                expires_at=expires_at,
+                demo_otp=code if self._include_demo_otp else None,
+            )
+        )
+```
+
+The constructor receives `UserRepository`, `OtpChallengeRepository`, `OtpService`, `ClockService`, `otp_ttl_seconds`, and `include_demo_otp`.
+
+#### Package façade update
+
+Create `backend/app/domain/__init__.py` with the Slice 1 domain façade:
+
+```python
+from app.domain.entities.otp_challenge import OtpChallenge
+from app.domain.entities.user import User
+from app.domain.ports.repositories.otp_challenge_repository import (
+    OtpChallengeRepository,
+)
+from app.domain.ports.repositories.user_repository import UserRepository
+from app.domain.ports.services.clock_service import ClockService
+from app.domain.ports.services.otp_service import OtpService
+from app.domain.result import Result
+from app.domain.use_cases.otp.request_otp_cmd import (
+    RequestOtpCommand,
+    RequestOtpData,
+    RequestOtpHandler,
+)
+
+__all__ = [
+    "ClockService",
+    "OtpChallenge",
+    "OtpChallengeRepository",
+    "OtpService",
+    "RequestOtpCommand",
+    "RequestOtpData",
+    "RequestOtpHandler",
+    "Result",
+    "User",
+    "UserRepository",
+]
+```
+
+### DB
+
+Create `backend/app/db/session.py`:
+
+```python
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+
+def build_session_factory(
+    database_url: str,
+) -> async_sessionmaker[AsyncSession]:
+    engine = create_async_engine(database_url)
+    return async_sessionmaker(engine, expire_on_commit=False)
+```
+
+Create `backend/app/db/models.py`. The first authentication migration includes all three tables; this slice uses only the user and OTP-challenge behavior.
+
+```python
+from datetime import datetime
+from uuid import UUID
+
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, text
+from sqlalchemy.dialects.postgresql import UUID as UUIDType
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class UserModel(Base):
+    __tablename__ = "users"
+
+    id: Mapped[UUID] = mapped_column(UUIDType(as_uuid=True), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class OtpChallengeModel(Base):
+    __tablename__ = "otp_challenges"
+    __table_args__ = (
+        CheckConstraint(
+            "failed_attempt_count >= 0",
+            name="ck_otp_challenges_failed_attempt_count_nonnegative",
+        ),
+        Index(
+            "ix_otp_challenges_user_id_created_at",
+            "user_id",
+            text("created_at DESC"),
+        ),
+        Index(
+            "uq_otp_challenges_one_current_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text(
+                "consumed_at IS NULL AND invalidated_at IS NULL"
+            ),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUIDType(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        UUIDType(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    otp_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    failed_attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    invalidated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class AuthSessionModel(Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        Index("ix_auth_sessions_user_id", "user_id"),
+    )
+
+    jti: Mapped[UUID] = mapped_column(UUIDType(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        UUIDType(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+```
+
+“Current” deliberately ignores expiry and failed-attempt count. An expired or locked challenge remains current until it is consumed or invalidated, so request and verification can classify it correctly. The partial index guarantees at most one current row per user.
+
+Create the `User` and `OtpChallenge` domain/ORM mappers needed by this slice in `backend/app/db/mappers.py`.
+
+Implement `backend/app/db/repositories/user_repository.py`:
+
+1. `ensure_by_email` executes `INSERT INTO users (id, email, created_at) VALUES (:id, :email, :created_at) ON CONFLICT (email) DO NOTHING`.
+2. `get_by_email_for_update` selects the complete `UserModel` where `email = :email` and applies `FOR UPDATE`.
+3. The insert and select run in the same transaction. If another request is creating the same email, PostgreSQL waits for that insert to resolve; the subsequent row lock serializes challenge changes for that user.
+
+Implement `OtpChallengeRepository` in `backend/app/db/repositories/otp_challenge_repository.py`:
+
+- `invalidate_current_for_user` updates **all** rows for the user where both `consumed_at IS NULL` and `invalidated_at IS NULL`; do not filter by expiry or attempt count;
+- execute the invalidation as an explicit SQL `UPDATE` before adding the replacement row, so the partial unique predicate is cleared first;
+- `add` maps the domain entity to an ORM model and adds it to the session.
+
+This lock order is mandatory for every OTP request: atomic user insert, lock user, execute the current-challenge invalidation, insert the new challenge, then return from the handler so the transaction context commits. The user lock plus partial unique index makes concurrent requests deterministic and prevents two current challenges.
+
+Alembic belongs under `backend/` in this repository. Initialize it now:
+
+```sh
+cd backend
+uv run alembic init alembic
+```
+
+Configure `backend/alembic/env.py` to import `Base` from `app.db`, set `target_metadata = Base.metadata`, use the async migration pattern, and obtain the URL from `get_settings().database_url`. Keep `backend/alembic.ini` beside `pyproject.toml`.
+
+Generate, review, and apply the migration:
+
+```sh
+cd backend
+uv run alembic revision --autogenerate -m "add authentication tables"
+uv run alembic upgrade head
+```
+
+Confirm the generated revision contains `uq_otp_challenges_one_current_per_user` with `postgresql_where=sa.text("consumed_at IS NULL AND invalidated_at IS NULL")`. If autogenerate omits the predicate, add that `op.create_index` call over `["user_id"]` with `unique=True`.
+
+Now add the request-OTP transactional executor to `backend/app/dependencies.py`:
+
+```python
+async def execute_request_otp(
+    request: Request,
+    command: RequestOtpCommand,
+) -> Result[RequestOtpData]:
+    async with request.app.state.session_factory() as session:
+        async with session.begin():
+            handler = build_request_otp_handler(
+                session,
+                request.app.state.settings,
+            )
+            return await handler.handle(command)
+```
+
+Compose `SystemClock`, `HmacOtpService`, `UserRepository`, `OtpChallengeRepository`, and `RequestOtpHandler` inside that session. Enable the handler's demo OTP output only when both conditions are true:
+
+```python
+include_demo_otp = (
+    settings.app_env is AppEnv.DEVELOPMENT and settings.enable_demo_otp
+)
+```
+
+`HmacOtpService` in `backend/app/auth/otp_service.py` must:
+
+- generate exactly six digits with `secrets.randbelow(1_000_000)`;
+- compute `HMAC-SHA256(OTP_HMAC_SECRET, f"{normalized_email}:{code}")` as lowercase hexadecimal;
+- compare digests with `hmac.compare_digest`.
+
+In `backend/app/dependencies.py`, import cross-layer symbols from their façades: `app.auth`, `app.db`, and `app.domain`. Register the auth router and shared exception handlers in `backend/app/main.py` by importing them from `app.api`. Configure CORS by splitting and trimming the comma-separated `settings.cors_allowed_origins` value.
+
+#### Package façade updates
+
+At the end of this DB section, create `backend/app/db/__init__.py`:
+
+```python
+from app.db.models import Base
+from app.db.repositories.otp_challenge_repository import OtpChallengeRepository
+from app.db.repositories.user_repository import UserRepository
+from app.db.session import build_session_factory
+
+__all__ = [
+    "Base",
+    "build_session_factory",
+    "OtpChallengeRepository",
+    "UserRepository",
+]
+```
+
+Create `backend/app/auth/__init__.py`:
+
+```python
+from app.auth.otp_service import HmacOtpService
+
+__all__ = ["HmacOtpService"]
+```
+
 ### API
 
 Create `backend/app/api/schemas/errors.py`:
@@ -152,7 +646,7 @@ Create `backend/app/api/result_mapping.py`:
 ```python
 from typing import TypeVar, cast
 
-from app.domain.result import Result
+from app.domain import Result
 
 T = TypeVar("T")
 
@@ -285,7 +779,7 @@ from fastapi import APIRouter, Request, status
 from app.api.result_mapping import unwrap_result
 from app.api.schemas.auth import RequestOtpRequest, RequestOtpResponse
 from app.dependencies import execute_request_otp
-from app.domain.use_cases.commands.request_otp import RequestOtpCommand
+from app.domain import RequestOtpCommand
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -314,364 +808,25 @@ async def request_otp(
 
 The last setting is mandatory: when demo output is disabled, `otp` is omitted rather than serialized as `null`. Never log request-OTP response bodies.
 
-### Domain
+#### Package façade update
 
-Create `backend/app/domain/result.py`:
-
-```python
-from dataclasses import dataclass
-from typing import Generic, TypeVar
-
-T = TypeVar("T")
-
-
-@dataclass(frozen=True, slots=True)
-class Result(Generic[T]):
-    _data: T | None = None
-    _error_code: str | None = None
-    _reason: Exception | None = None
-
-    def __post_init__(self) -> None:
-        valid_success = self._error_code is None and self._reason is None
-        valid_failure = (
-            self._error_code is not None
-            and bool(self._error_code)
-            and self._data is None
-        )
-        if not (valid_success or valid_failure):
-            raise ValueError("Invalid Result initialization.")
-
-    @classmethod
-    def success(cls, data: T | None = None) -> Result[T]:
-        return cls(_data=data)
-
-    @classmethod
-    def failure(
-        cls, error_code: str, reason: Exception | None = None
-    ) -> Result[T]:
-        return cls(_error_code=error_code, _reason=reason)
-
-    @property
-    def is_success(self) -> bool:
-        return self._error_code is None
-
-    @property
-    def data(self) -> T | None:
-        return self._data
-
-    @property
-    def error_code(self) -> str | None:
-        return self._error_code
-
-    @property
-    def reason(self) -> Exception | None:
-        return self._reason
-```
-
-Every command and query returns `Result[T]`. Expected OTP and authentication outcomes return `Result.failure`; unexpected infrastructure and programming failures remain exceptions so the SQLAlchemy transaction context rolls back. `reason` is internal diagnostic context and is never serialized, exposed to clients, or logged automatically.
-
-Create `backend/app/domain/entities/user.py`:
+At the end of this API section, create `backend/app/api/__init__.py`:
 
 ```python
-from dataclasses import dataclass
-from datetime import datetime
-from uuid import UUID
-
-
-@dataclass(frozen=True, slots=True)
-class User:
-    id: UUID
-    email: str
-    created_at: datetime
-```
-
-Create `backend/app/domain/entities/otp_challenge.py`:
-
-```python
-from dataclasses import dataclass
-from datetime import datetime
-from uuid import UUID
-
-
-@dataclass(frozen=True, slots=True)
-class OtpChallenge:
-    id: UUID
-    user_id: UUID
-    otp_digest: str
-    expires_at: datetime
-    failed_attempt_count: int
-    consumed_at: datetime | None
-    invalidated_at: datetime | None
-    created_at: datetime
-```
-
-Create `backend/app/domain/ports/services.py`:
-
-```python
-from datetime import datetime
-from typing import Protocol
-
-
-class ClockService(Protocol):
-    def now(self) -> datetime: ...
-
-
-class OtpService(Protocol):
-    def generate_code(self) -> str: ...
-
-    def digest(self, normalized_email: str, code: str) -> str: ...
-
-    def matches(
-        self, normalized_email: str, code: str, expected_digest: str
-    ) -> bool: ...
-```
-
-`ClockService.now()` implementations must return timezone-aware UTC datetimes.
-
-Create `backend/app/domain/ports/command_repositories.py`:
-
-```python
-from datetime import datetime
-from typing import Protocol
-from uuid import UUID
-
-from app.domain.entities.otp_challenge import OtpChallenge
-from app.domain.entities.user import User
-
-
-class UserCommandRepository(Protocol):
-    async def ensure_by_email(
-        self, email: str, user_id: UUID, created_at: datetime
-    ) -> None: ...
-
-    async def get_by_email_for_update(self, email: str) -> User: ...
-
-
-class OtpChallengeCommandRepository(Protocol):
-    async def invalidate_current_for_user(
-        self, user_id: UUID, invalidated_at: datetime
-    ) -> int: ...
-
-    async def add(self, challenge: OtpChallenge) -> None: ...
-```
-
-Add `RequestOtpCommand(email: str)` and `RequestOtpData(expires_at: datetime, demo_otp: str | None)` to `backend/app/domain/use_cases/commands/request_otp.py`.
-
-Normalize email once with `email.strip().casefold()`. The handler algorithm is exact:
-
-```python
-async def handle(self, command: RequestOtpCommand) -> Result[RequestOtpData]:
-    email = command.email.strip().casefold()
-    now = self._clock.now()
-    proposed_user_id = uuid4()
-
-    await self._users.ensure_by_email(email, proposed_user_id, now)
-    user = await self._users.get_by_email_for_update(email)
-
-    await self._otp_challenges.invalidate_current_for_user(user.id, now)
-
-    code = self._otp.generate_code()
-    expires_at = now + timedelta(seconds=self._otp_ttl_seconds)
-    await self._otp_challenges.add(
-        OtpChallenge(
-            id=uuid4(),
-            user_id=user.id,
-            otp_digest=self._otp.digest(email, code),
-            expires_at=expires_at,
-            failed_attempt_count=0,
-            consumed_at=None,
-            invalidated_at=None,
-            created_at=now,
-        )
-    )
-
-    return Result.success(
-        RequestOtpData(
-            expires_at=expires_at,
-            demo_otp=code if self._include_demo_otp else None,
-        )
-    )
-```
-
-Imports for this module come only from `dataclasses`, `datetime`, `uuid`, domain entities, `Result`, and domain ports. The constructor receives `UserCommandRepository`, `OtpChallengeCommandRepository`, `OtpService`, `ClockService`, `otp_ttl_seconds`, and `include_demo_otp`.
-
-### DB
-
-Create `backend/app/db/session.py`:
-
-```python
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-
-def build_session_factory(
-    database_url: str,
-) -> async_sessionmaker[AsyncSession]:
-    engine = create_async_engine(database_url)
-    return async_sessionmaker(engine, expire_on_commit=False)
-```
-
-Create `backend/app/db/models.py`. The first authentication migration includes all three tables; this slice uses only the user and OTP-challenge behavior.
-
-```python
-from datetime import datetime
-from uuid import UUID
-
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, text
-from sqlalchemy.dialects.postgresql import UUID as UUIDType
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class UserModel(Base):
-    __tablename__ = "users"
-
-    id: Mapped[UUID] = mapped_column(UUIDType(as_uuid=True), primary_key=True)
-    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-
-
-class OtpChallengeModel(Base):
-    __tablename__ = "otp_challenges"
-    __table_args__ = (
-        CheckConstraint(
-            "failed_attempt_count >= 0",
-            name="ck_otp_challenges_failed_attempt_count_nonnegative",
-        ),
-        Index(
-            "ix_otp_challenges_user_id_created_at",
-            "user_id",
-            text("created_at DESC"),
-        ),
-        Index(
-            "uq_otp_challenges_one_current_per_user",
-            "user_id",
-            unique=True,
-            postgresql_where=text(
-                "consumed_at IS NULL AND invalidated_at IS NULL"
-            ),
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(UUIDType(as_uuid=True), primary_key=True)
-    user_id: Mapped[UUID] = mapped_column(
-        UUIDType(as_uuid=True),
-        ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    otp_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    failed_attempt_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
-    consumed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    invalidated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-
-
-class AuthSessionModel(Base):
-    __tablename__ = "auth_sessions"
-    __table_args__ = (
-        Index("ix_auth_sessions_user_id", "user_id"),
-    )
-
-    jti: Mapped[UUID] = mapped_column(UUIDType(as_uuid=True), primary_key=True)
-    user_id: Mapped[UUID] = mapped_column(
-        UUIDType(as_uuid=True),
-        ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-```
-
-“Current” deliberately ignores expiry and failed-attempt count. An expired or locked challenge remains current until it is consumed or invalidated, so request and verification can classify it correctly. The partial index guarantees at most one current row per user.
-
-Create the `User` and `OtpChallenge` domain/ORM mappers needed by this slice in `backend/app/db/mappers.py`.
-
-Implement `backend/app/db/repositories/user_repository.py`:
-
-1. `ensure_by_email` executes `INSERT INTO users (id, email, created_at) VALUES (:id, :email, :created_at) ON CONFLICT (email) DO NOTHING`.
-2. `get_by_email_for_update` selects the complete `UserModel` where `email = :email` and applies `FOR UPDATE`.
-3. The insert and select run in the same transaction. If another request is creating the same email, PostgreSQL waits for that insert to resolve; the subsequent row lock serializes challenge changes for that user.
-
-Implement `OtpChallengeRepository` in `backend/app/db/repositories/auth_repository.py`:
-
-- `invalidate_current_for_user` updates **all** rows for the user where both `consumed_at IS NULL` and `invalidated_at IS NULL`; do not filter by expiry or attempt count;
-- execute the invalidation as an explicit SQL `UPDATE` before adding the replacement row, so the partial unique predicate is cleared first;
-- `add` maps the domain entity to an ORM model and adds it to the session.
-
-This lock order is mandatory for every OTP request: atomic user insert, lock user, execute the current-challenge invalidation, insert the new challenge, then return from the handler so the transaction context commits. The user lock plus partial unique index makes concurrent requests deterministic and prevents two current challenges.
-
-Alembic belongs under `backend/` in this repository. Initialize it now:
-
-```sh
-cd backend
-uv run alembic init alembic
-```
-
-Configure `backend/alembic/env.py` to import `Base` from `app.db.models`, set `target_metadata = Base.metadata`, use the async migration pattern, and obtain the URL from `get_settings().database_url`. Keep `backend/alembic.ini` beside `pyproject.toml`.
-
-Generate, review, and apply the migration:
-
-```sh
-cd backend
-uv run alembic revision --autogenerate -m "add authentication tables"
-uv run alembic upgrade head
-```
-
-Confirm the generated revision contains `uq_otp_challenges_one_current_per_user` with `postgresql_where=sa.text("consumed_at IS NULL AND invalidated_at IS NULL")`. If autogenerate omits the predicate, add that `op.create_index` call over `["user_id"]` with `unique=True`.
-
-Now add the request-OTP transactional executor to `backend/app/dependencies.py`:
-
-```python
-async def execute_request_otp(
-    request: Request,
-    command: RequestOtpCommand,
-) -> Result[RequestOtpData]:
-    async with request.app.state.session_factory() as session:
-        async with session.begin():
-            handler = build_request_otp_handler(
-                session,
-                request.app.state.settings,
-            )
-            return await handler.handle(command)
-```
-
-Compose `SystemClock`, `HmacOtpService`, `UserRepository`, `OtpChallengeRepository`, and `RequestOtpHandler` inside that session. Enable the handler's demo OTP output only when both conditions are true:
-
-```python
-include_demo_otp = (
-    settings.app_env is AppEnv.DEVELOPMENT and settings.enable_demo_otp
+from app.api.exception_handlers import (
+    handle_api_result_error,
+    handle_uncaught_exception,
+    handle_validation_error,
 )
+from app.api.routers.auth import router as auth_router
+
+__all__ = [
+    "auth_router",
+    "handle_api_result_error",
+    "handle_uncaught_exception",
+    "handle_validation_error",
+]
 ```
-
-`HmacOtpService` in `backend/app/auth/otp_service.py` must:
-
-- generate exactly six digits with `secrets.randbelow(1_000_000)`;
-- compute `HMAC-SHA256(OTP_HMAC_SECRET, f"{normalized_email}:{code}")` as lowercase hexadecimal;
-- compare digests with `hmac.compare_digest`.
-
-Register the auth router and shared exception handlers in `backend/app/main.py`. Configure CORS by splitting and trimming the comma-separated `settings.cors_allowed_origins` value.
 
 ### UI
 
@@ -705,90 +860,6 @@ curl -i -X POST http://127.0.0.1:8000/auth/otp/request \
 Expect `201`, an RFC 3339 `expires_at`, and `otp` only when both development profile and demo flag are enabled. Disable the flag and confirm the `otp` property is absent.
 
 ## Slice 2 — verify-otp
-
-### API
-
-The central error mapping created in Slice 1 already maps `OTP_INVALID`, `OTP_EXPIRED`, `OTP_LOCKED`, `OTP_CONSUMED`, and `OTP_SUPERSEDED` to `422` and their safe client messages. Do not add a route-local mapping.
-
-Extend `backend/app/api/schemas/auth.py`:
-
-```python
-class VerifyOtpRequest(BaseModel):
-    email: EmailStr
-    otp: str = Field(pattern=r"^\d{6}$")
-
-
-class VerifyOtpResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_at: datetime
-```
-
-Replace `backend/app/api/routers/auth.py` with its complete updated contents:
-
-```python
-from fastapi import APIRouter, Request, status
-
-from app.api.result_mapping import unwrap_result
-from app.api.schemas.auth import (
-    RequestOtpRequest,
-    RequestOtpResponse,
-    VerifyOtpRequest,
-    VerifyOtpResponse,
-)
-from app.dependencies import execute_request_otp, execute_verify_otp
-from app.domain.use_cases.commands.request_otp import RequestOtpCommand
-from app.domain.use_cases.commands.verify_otp import VerifyOtpCommand
-
-router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-@router.post(
-    "/otp/request",
-    status_code=status.HTTP_201_CREATED,
-    response_model=RequestOtpResponse,
-    response_model_exclude_none=True,
-)
-async def request_otp(
-    payload: RequestOtpRequest,
-    request: Request,
-) -> RequestOtpResponse:
-    result = await execute_request_otp(
-        request,
-        RequestOtpCommand(email=str(payload.email)),
-    )
-    data = unwrap_result(result)
-    assert data is not None
-    return RequestOtpResponse(
-        expires_at=data.expires_at,
-        otp=data.demo_otp,
-    )
-
-
-@router.post(
-    "/otp/verify",
-    status_code=status.HTTP_200_OK,
-    response_model=VerifyOtpResponse,
-)
-async def verify_otp(
-    payload: VerifyOtpRequest,
-    request: Request,
-) -> VerifyOtpResponse:
-    result = await execute_verify_otp(
-        request,
-        VerifyOtpCommand(email=str(payload.email), otp=payload.otp),
-    )
-    data = unwrap_result(result)
-    assert data is not None
-    return VerifyOtpResponse(
-        access_token=data.access_token,
-        expires_at=data.expires_at,
-    )
-```
-
-No Bearer credential is required for either OTP route. Do not expose JWT or OTP values in logs.
-
-All five OTP failure outcomes use `ErrorEnvelope` and the error-code constants created below.
 
 ### Domain
 
@@ -835,88 +906,7 @@ class TokenClaims:
     expires_at: datetime
 ```
 
-Replace `backend/app/domain/ports/services.py` with its complete updated contents:
-
-```python
-from datetime import datetime
-from typing import Protocol
-from uuid import UUID
-
-from app.domain.result import Result
-from app.domain.token_claims import TokenClaims
-
-
-class ClockService(Protocol):
-    def now(self) -> datetime: ...
-
-
-class OtpService(Protocol):
-    def generate_code(self) -> str: ...
-
-    def digest(self, normalized_email: str, code: str) -> str: ...
-
-    def matches(
-        self, normalized_email: str, code: str, expected_digest: str
-    ) -> bool: ...
-
-
-class TokenService(Protocol):
-    def encode(
-        self, user_id: UUID, session_jti: UUID, expires_at: datetime
-    ) -> str: ...
-
-    def decode(self, token: str) -> Result[TokenClaims]: ...
-```
-
-Add `VerifyOtpCommand(email: str, otp: str)` and `VerifyOtpData(access_token: str, expires_at: datetime)` to `backend/app/domain/use_cases/commands/verify_otp.py`.
-
-Replace `backend/app/domain/ports/command_repositories.py` with its complete updated contents:
-
-```python
-from datetime import datetime
-from typing import Protocol
-from uuid import UUID
-
-from app.domain.entities.auth_session import AuthSession
-from app.domain.entities.otp_challenge import OtpChallenge
-from app.domain.entities.user import User
-
-
-class UserCommandRepository(Protocol):
-    async def ensure_by_email(
-        self, email: str, user_id: UUID, created_at: datetime
-    ) -> None: ...
-
-    async def get_by_email_for_update(self, email: str) -> User | None: ...
-
-
-class OtpChallengeCommandRepository(Protocol):
-    async def invalidate_current_for_user(
-        self, user_id: UUID, invalidated_at: datetime
-    ) -> int: ...
-
-    async def add(self, challenge: OtpChallenge) -> None: ...
-
-    async def get_current_for_user_for_update(
-        self, user_id: UUID
-    ) -> OtpChallenge | None: ...
-
-    async def get_newest_by_digest_for_update(
-        self, user_id: UUID, digest: str
-    ) -> OtpChallenge | None: ...
-
-    async def set_failed_attempt_count(
-        self, challenge_id: UUID, count: int
-    ) -> None: ...
-
-    async def mark_consumed(
-        self, challenge_id: UUID, consumed_at: datetime
-    ) -> None: ...
-
-
-class AuthSessionCommandRepository(Protocol):
-    async def add(self, session: AuthSession) -> None: ...
-```
+Create `VerifyOtpCommand(email: str, otp: str)`, `VerifyOtpData(access_token: str, expires_at: datetime)`, and `VerifyOtpHandler` in `backend/app/domain/use_cases/otp/verify_otp_cmd.py`.
 
 Verification always locks in this order: user, current challenge, newest digest-matching challenge. “Current” means `consumed_at IS NULL AND invalidated_at IS NULL`, with no expiry or attempt filter. “Newest digest-matching” searches every challenge for that user, including consumed, invalidated, expired, and locked rows, ordered by `created_at DESC, id DESC`, and returns one row. This lets an old submitted code map to its real state.
 
@@ -1007,7 +997,106 @@ async def handle(self, command: VerifyOtpCommand) -> Result[VerifyOtpData]:
     return Result.failure(OTP_INVALID)
 ```
 
-The constructor receives `UserCommandRepository`, `OtpChallengeCommandRepository`, `AuthSessionCommandRepository`, `OtpService`, `TokenService`, `ClockService`, `otp_max_attempts`, and `access_token_ttl_minutes`. The handler imports only domain entities, result/error definitions, and ports. Truncating the token expiry to whole seconds before both session persistence and JWT encoding keeps the database value equal to the integer JWT `exp`.
+The constructor receives `UserRepository`, `OtpChallengeRepository`, `AuthSessionRepository`, `OtpService`, `TokenService`, `ClockService`, `otp_max_attempts`, and `access_token_ttl_minutes`. The handler imports only domain entities, result/error definitions, and ports. Truncating the token expiry to whole seconds before both session persistence and JWT encoding keeps the database value equal to the integer JWT `exp`.
+
+#### File updates
+
+At the end of this Domain section, create `backend/app/domain/ports/services/token_service.py`:
+
+```python
+from uuid import UUID
+
+from app.domain.result import Result
+from app.domain.token_claims import TokenClaims
+
+
+class TokenService(Protocol):
+    def encode(
+        self, user_id: UUID, session_jti: UUID, expires_at: datetime
+    ) -> str: ...
+
+    def decode(self, token: str) -> Result[TokenClaims]: ...
+```
+
+Alter `backend/app/domain/ports/repositories/user_repository.py`:
+
+```python
+async def get_by_email_for_update(self, email: str) -> User | None: ...
+```
+
+Alter `backend/app/domain/ports/repositories/otp_challenge_repository.py`:
+
+```python
+async def get_current_for_user_for_update(
+    self, user_id: UUID
+) -> OtpChallenge | None: ...
+
+async def get_newest_by_digest_for_update(
+    self, user_id: UUID, digest: str
+) -> OtpChallenge | None: ...
+
+async def set_failed_attempt_count(
+    self, challenge_id: UUID, count: int
+) -> None: ...
+
+async def mark_consumed(
+    self, challenge_id: UUID, consumed_at: datetime
+) -> None: ...
+```
+
+Create `backend/app/domain/ports/repositories/auth_session_repository.py`:
+
+```python
+from typing import Protocol
+
+from app.domain.entities.auth_session import AuthSession
+
+
+class AuthSessionRepository(Protocol):
+    async def add(self, session: AuthSession) -> None: ...
+```
+
+#### Package façade update
+
+At the end of this Domain section, alter `backend/app/domain/__init__.py`:
+
+```python
+from app.domain.entities.auth_session import AuthSession
+from app.domain.error_codes import (
+    AUTHENTICATION_FAILED,
+    OTP_CONSUMED,
+    OTP_EXPIRED,
+    OTP_INVALID,
+    OTP_LOCKED,
+    OTP_SUPERSEDED,
+)
+from app.domain.ports.repositories.auth_session_repository import (
+    AuthSessionRepository,
+)
+from app.domain.ports.services.token_service import TokenService
+from app.domain.token_claims import TokenClaims
+from app.domain.use_cases.otp.verify_otp_cmd import (
+    VerifyOtpCommand,
+    VerifyOtpData,
+    VerifyOtpHandler,
+)
+
+__all__ += [
+    "AUTHENTICATION_FAILED",
+    "AuthSession",
+    "AuthSessionRepository",
+    "OTP_CONSUMED",
+    "OTP_EXPIRED",
+    "OTP_INVALID",
+    "OTP_LOCKED",
+    "OTP_SUPERSEDED",
+    "TokenClaims",
+    "TokenService",
+    "VerifyOtpCommand",
+    "VerifyOtpData",
+    "VerifyOtpHandler",
+]
+```
 
 ### DB
 
@@ -1021,7 +1110,7 @@ Implement challenge lookups with SQLAlchemy `select(OtpChallengeModel).with_for_
 
 The user row lock serializes request and verify operations for one identity. The challenge row locks protect against accidental callers that bypass that convention. Do not combine current-state filters with expiry or attempt filters because doing so loses the distinction between expired, locked, and invalid.
 
-Extend `backend/app/db/repositories/auth_repository.py` with `AuthSessionRepository` and add the `AuthSession` mapper. Keep the two repository classes separate because they implement different domain ports; only their adapter module is shared. No migration change is required because `auth_sessions` was created in Slice 1.
+Create `backend/app/db/repositories/auth_session_repository.py` with `AuthSessionRepository` and add the `AuthSession` mapper. No migration change is required because `auth_sessions` was created in Slice 1.
 
 Implement `PyJwtTokenService` in `backend/app/auth/jwt_service.py`:
 
@@ -1032,7 +1121,86 @@ Implement `PyJwtTokenService` in `backend/app/auth/jwt_service.py`:
 - translate every decode or claim-conversion failure to `Result.failure(AUTHENTICATION_FAILED, reason=error)`;
 - return `Result.success(TokenClaims(...))` for valid claims and never leak PyJWT exceptions.
 
-Implement the verify-OTP transactional executor in `backend/app/dependencies.py`; compose `PyJwtTokenService`, all three command repositories, and `VerifyOtpHandler` inside one session transaction.
+Implement the verify-OTP transactional executor in `backend/app/dependencies.py`; compose `PyJwtTokenService`, all three command repositories, and `VerifyOtpHandler` inside one session transaction. Import those cross-layer symbols from `app.auth`, `app.db`, and `app.domain`.
+
+#### Package façade updates
+
+At the end of this DB section, alter `backend/app/db/__init__.py`:
+
+```python
+from app.db.repositories.auth_session_repository import (
+    # previous exports ...
+    AuthSessionRepository,
+)
+
+__all__ += ["AuthSessionRepository"]
+```
+
+Alter `backend/app/auth/__init__.py`:
+
+```python
+from app.auth.jwt_service import PyJwtTokenService
+
+__all__ += ["PyJwtTokenService"]
+```
+
+### API
+
+The central error mapping created in Slice 1 already maps `OTP_INVALID`, `OTP_EXPIRED`, `OTP_LOCKED`, `OTP_CONSUMED`, and `OTP_SUPERSEDED` to `422` and their safe client messages. Do not add a route-local mapping.
+
+Extend `backend/app/api/schemas/auth.py`:
+
+```python
+class VerifyOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(pattern=r"^\d{6}$")
+
+
+class VerifyOtpResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+```
+
+At the end of this API section, alter `backend/app/api/routers/auth.py`:
+
+```python
+from app.api.schemas.auth import (
+    # previous DTOs ...
+    VerifyOtpRequest,
+    VerifyOtpResponse,
+)
+from app.dependencies import (
+    # previous executor ...
+    execute_verify_otp,
+)
+from app.domain import VerifyOtpCommand
+
+
+@router.post(
+    "/otp/verify",
+    status_code=status.HTTP_200_OK,
+    response_model=VerifyOtpResponse,
+)
+async def verify_otp(
+    payload: VerifyOtpRequest,
+    request: Request,
+) -> VerifyOtpResponse:
+    result = await execute_verify_otp(
+        request,
+        VerifyOtpCommand(email=str(payload.email), otp=payload.otp),
+    )
+    data = unwrap_result(result)
+    assert data is not None
+    return VerifyOtpResponse(
+        access_token=data.access_token,
+        expires_at=data.expires_at,
+    )
+```
+
+No Bearer credential is required for either OTP route. Do not expose JWT or OTP values in logs.
+
+All five OTP failure outcomes use `ErrorEnvelope` and the error-code constants created below.
 
 ### UI
 
@@ -1068,6 +1236,123 @@ Inspect the database after wrong attempts to prove the count committed despite t
 
 ## Slice 3 — healthcheck
 
+### Domain
+
+Create `backend/app/domain/current_user.py`:
+
+```python
+from dataclasses import dataclass
+from uuid import UUID
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentUser:
+    id: UUID
+    email: str
+    session_jti: UUID
+```
+
+Create `backend/app/domain/ports/current_user_provider.py`:
+
+```python
+from typing import Protocol
+
+from app.domain.current_user import CurrentUser
+
+
+class CurrentUserProvider(Protocol):
+    def get(self) -> CurrentUser: ...
+```
+
+`CurrentUser` is the value; `CurrentUserProvider` is the behavior. Domain code never sets the provider and never imports `ContextVar` or the API implementation. Only handlers that require an authenticated HTTP principal receive this port.
+
+Alter `backend/app/domain/ports/repositories/auth_session_repository.py`:
+
+```python
+from uuid import UUID
+
+from app.domain.entities.auth_session import AuthSession
+
+
+async def get_by_jti(self, jti: UUID) -> AuthSession | None: ...
+```
+
+Alter `backend/app/domain/ports/repositories/user_repository.py`:
+
+```python
+async def get_by_id(self, user_id: UUID) -> User | None: ...
+```
+
+Create `GetCurrentUserQuery(token: str)` and `GetCurrentUserHandler` in `backend/app/domain/use_cases/user/get_current_user_query.py`. The handler depends only on `TokenService`, `ClockService`, `AuthSessionRepository`, and `UserRepository`:
+
+```python
+async def handle(self, query: GetCurrentUserQuery) -> Result[CurrentUser]:
+    claims_result = self._tokens.decode(query.token)
+    if not claims_result.is_success:
+        return Result.failure(
+            AUTHENTICATION_FAILED,
+            reason=claims_result.reason,
+        )
+    claims = claims_result.data
+    assert claims is not None
+
+    now = self._clock.now()
+    session = await self._sessions.get_by_jti(claims.session_jti)
+    if session is None:
+        return Result.failure(AUTHENTICATION_FAILED)
+    if session.user_id != claims.user_id:
+        return Result.failure(AUTHENTICATION_FAILED)
+    if session.revoked_at is not None or session.expires_at <= now:
+        return Result.failure(AUTHENTICATION_FAILED)
+    if session.expires_at != claims.expires_at:
+        return Result.failure(AUTHENTICATION_FAILED)
+
+    user = await self._users.get_by_id(claims.user_id)
+    if user is None:
+        return Result.failure(AUTHENTICATION_FAILED)
+    return Result.success(
+        CurrentUser(
+            id=user.id,
+            email=user.email,
+            session_jti=session.jti,
+        )
+    )
+```
+
+This query decodes once, validates the active database session, and loads a fresh user row on every protected request. It creates `CurrentUser` but does not bind or read `CurrentUserProvider`; binding belongs to the incoming API adapter.
+
+#### Package façade update
+
+At the end of this Domain section, alter `backend/app/domain/__init__.py`:
+
+```python
+from app.domain.current_user import CurrentUser
+from app.domain.ports.current_user_provider import CurrentUserProvider
+from app.domain.use_cases.user.get_current_user_query import (
+    GetCurrentUserHandler,
+    GetCurrentUserQuery,
+)
+
+__all__ += [
+    "CurrentUser",
+    "CurrentUserProvider",
+    "GetCurrentUserHandler",
+    "GetCurrentUserQuery",
+]
+```
+
+### DB
+
+Extend `AuthSessionRepository` in `backend/app/db/repositories/auth_session_repository.py` with the session query operation, and extend `UserRepository` in `backend/app/db/repositories/user_repository.py` with the user query operation:
+
+- session lookup selects by primary-key `jti` without hiding revoked or expired rows; the domain query performs the active-state decision;
+- user lookup selects the fresh user by primary key;
+- both return domain entities and never expose ORM models to the handler.
+
+The current-user query executor uses one short-lived `AsyncSession`, wires the query repositories and `GetCurrentUserHandler`, and closes the session without committing. Any implicit read transaction is rolled back on close. Composition exposes the single `ContextVarCurrentUserProvider` instance to the API binding dependency.
+
+Keep the server-side session check even though PyJWT validates `exp`: logout and administrative revocation are database state, and the JWT alone cannot represent them.
+
 ### API
 
 The central error mapping created in Slice 1 already maps `AUTHENTICATION_FAILED` to `401` with its safe client message. Do not add a route-local mapping.
@@ -1077,7 +1362,7 @@ Create `backend/app/api/current_user_provider.py`:
 ```python
 from contextvars import ContextVar, Token
 
-from app.domain.current_user import CurrentUser
+from app.domain import CurrentUser
 
 
 class ContextVarCurrentUserProvider:
@@ -1158,103 +1443,15 @@ async def health_authenticated() -> dict[str, str]:
 
 Register the health router in `backend/app/main.py`. The endpoint returns `200 {"status":"ok"}` only after the complete current-user query succeeds and its result is bound for the request.
 
-### Domain
+#### Package façade update
 
-Create `backend/app/domain/current_user.py`:
-
-```python
-from dataclasses import dataclass
-from uuid import UUID
-
-
-@dataclass(frozen=True, slots=True)
-class CurrentUser:
-    id: UUID
-    email: str
-    session_jti: UUID
-```
-
-Create `backend/app/domain/ports/current_user_provider.py`:
+At the end of this API section, alter `backend/app/api/__init__.py`:
 
 ```python
-from typing import Protocol
+from app.api.routers.health import router as health_router
 
-from app.domain.current_user import CurrentUser
-
-
-class CurrentUserProvider(Protocol):
-    def get(self) -> CurrentUser: ...
+__all__ += ["health_router"]
 ```
-
-`CurrentUser` is the value; `CurrentUserProvider` is the behavior. Domain code never sets the provider and never imports `ContextVar` or the API implementation. Only handlers that require an authenticated HTTP principal receive this port.
-
-Create `backend/app/domain/ports/query_repositories.py`:
-
-```python
-from typing import Protocol
-from uuid import UUID
-
-from app.domain.entities.auth_session import AuthSession
-from app.domain.entities.user import User
-
-
-class AuthSessionQueryRepository(Protocol):
-    async def get_by_jti(self, jti: UUID) -> AuthSession | None: ...
-
-
-class UserQueryRepository(Protocol):
-    async def get_by_id(self, user_id: UUID) -> User | None: ...
-```
-
-Add `GetCurrentUserQuery(token: str)` and `GetCurrentUserHandler` in `backend/app/domain/use_cases/queries/get_current_user.py`. The handler depends only on `TokenService`, `ClockService`, `AuthSessionQueryRepository`, and `UserQueryRepository`:
-
-```python
-async def handle(self, query: GetCurrentUserQuery) -> Result[CurrentUser]:
-    claims_result = self._tokens.decode(query.token)
-    if not claims_result.is_success:
-        return Result.failure(
-            AUTHENTICATION_FAILED,
-            reason=claims_result.reason,
-        )
-    claims = claims_result.data
-    assert claims is not None
-
-    now = self._clock.now()
-    session = await self._sessions.get_by_jti(claims.session_jti)
-    if session is None:
-        return Result.failure(AUTHENTICATION_FAILED)
-    if session.user_id != claims.user_id:
-        return Result.failure(AUTHENTICATION_FAILED)
-    if session.revoked_at is not None or session.expires_at <= now:
-        return Result.failure(AUTHENTICATION_FAILED)
-    if session.expires_at != claims.expires_at:
-        return Result.failure(AUTHENTICATION_FAILED)
-
-    user = await self._users.get_by_id(claims.user_id)
-    if user is None:
-        return Result.failure(AUTHENTICATION_FAILED)
-    return Result.success(
-        CurrentUser(
-            id=user.id,
-            email=user.email,
-            session_jti=session.jti,
-        )
-    )
-```
-
-This query decodes once, validates the active database session, and loads a fresh user row on every protected request. It creates `CurrentUser` but does not bind or read `CurrentUserProvider`; binding belongs to the incoming API adapter.
-
-### DB
-
-Extend `AuthSessionRepository` in `backend/app/db/repositories/auth_repository.py` with the session query operation, and extend `UserRepository` in `user_repository.py` with the user query operation:
-
-- session lookup selects by primary-key `jti` without hiding revoked or expired rows; the domain query performs the active-state decision;
-- user lookup selects the fresh user by primary key;
-- both return domain entities and never expose ORM models to the handler.
-
-The current-user query executor uses one short-lived `AsyncSession`, wires the query repositories and `GetCurrentUserHandler`, and closes the session without committing. Any implicit read transaction is rolled back on close. Composition exposes the single `ContextVarCurrentUserProvider` instance to the API binding dependency.
-
-Keep the server-side session check even though PyJWT validates `exp`: logout and administrative revocation are database state, and the JWT alone cannot represent them.
 
 ### UI
 
@@ -1289,149 +1486,9 @@ The first two responses are `401` with `code`, `message`, and `details`; the val
 
 ## Slice 4 — logout
 
-### API
-
-Replace `backend/app/api/routers/auth.py` with its final contents:
-
-```python
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Request, Response, status
-
-from app.api.dependencies import bind_current_user
-from app.api.result_mapping import unwrap_result
-from app.api.schemas.auth import (
-    RequestOtpRequest,
-    RequestOtpResponse,
-    VerifyOtpRequest,
-    VerifyOtpResponse,
-)
-from app.dependencies import (
-    LogoutExecutor,
-    execute_request_otp,
-    execute_verify_otp,
-    get_logout_executor,
-)
-from app.domain.use_cases.commands.logout import LogoutCommand
-from app.domain.use_cases.commands.request_otp import RequestOtpCommand
-from app.domain.use_cases.commands.verify_otp import VerifyOtpCommand
-
-router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-@router.post(
-    "/otp/request",
-    status_code=status.HTTP_201_CREATED,
-    response_model=RequestOtpResponse,
-    response_model_exclude_none=True,
-)
-async def request_otp(
-    payload: RequestOtpRequest,
-    request: Request,
-) -> RequestOtpResponse:
-    result = await execute_request_otp(
-        request,
-        RequestOtpCommand(email=str(payload.email)),
-    )
-    data = unwrap_result(result)
-    assert data is not None
-    return RequestOtpResponse(
-        expires_at=data.expires_at,
-        otp=data.demo_otp,
-    )
-
-
-@router.post(
-    "/otp/verify",
-    status_code=status.HTTP_200_OK,
-    response_model=VerifyOtpResponse,
-)
-async def verify_otp(
-    payload: VerifyOtpRequest,
-    request: Request,
-) -> VerifyOtpResponse:
-    result = await execute_verify_otp(
-        request,
-        VerifyOtpCommand(email=str(payload.email), otp=payload.otp),
-    )
-    data = unwrap_result(result)
-    assert data is not None
-    return VerifyOtpResponse(
-        access_token=data.access_token,
-        expires_at=data.expires_at,
-    )
-
-
-@router.post(
-    "/logout",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(bind_current_user)],
-)
-async def logout(
-    executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
-) -> Response:
-    result = await executor(LogoutCommand())
-    unwrap_result(result)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-```
-
-The authentication dependency validates the token once and binds `CurrentUser` for the request. The route does not receive the value, raw credentials, or `session_jti`; the domain handler obtains it through `CurrentUserProvider`. A missing, malformed, expired, or already-revoked session returns the same standard `401` envelope as healthcheck.
-
 ### Domain
 
-Add fieldless `LogoutCommand` and `LogoutHandler` in `backend/app/domain/use_cases/commands/logout.py`.
-
-Replace `backend/app/domain/ports/command_repositories.py` with its final contents:
-
-```python
-from datetime import datetime
-from typing import Protocol
-from uuid import UUID
-
-from app.domain.entities.auth_session import AuthSession
-from app.domain.entities.otp_challenge import OtpChallenge
-from app.domain.entities.user import User
-
-
-class UserCommandRepository(Protocol):
-    async def ensure_by_email(
-        self, email: str, user_id: UUID, created_at: datetime
-    ) -> None: ...
-
-    async def get_by_email_for_update(self, email: str) -> User | None: ...
-
-
-class OtpChallengeCommandRepository(Protocol):
-    async def invalidate_current_for_user(
-        self, user_id: UUID, invalidated_at: datetime
-    ) -> int: ...
-
-    async def add(self, challenge: OtpChallenge) -> None: ...
-
-    async def get_current_for_user_for_update(
-        self, user_id: UUID
-    ) -> OtpChallenge | None: ...
-
-    async def get_newest_by_digest_for_update(
-        self, user_id: UUID, digest: str
-    ) -> OtpChallenge | None: ...
-
-    async def set_failed_attempt_count(
-        self, challenge_id: UUID, count: int
-    ) -> None: ...
-
-    async def mark_consumed(
-        self, challenge_id: UUID, consumed_at: datetime
-    ) -> None: ...
-
-
-class AuthSessionCommandRepository(Protocol):
-    async def add(self, session: AuthSession) -> None: ...
-
-    async def revoke(
-        self, jti: UUID, revoked_at: datetime
-    ) -> bool: ...
-```
+Create fieldless `LogoutCommand` and `LogoutHandler` in `backend/app/domain/use_cases/auth_session/logout_cmd.py`.
 
 The exact handler is:
 
@@ -1446,7 +1503,28 @@ async def handle(self, command: LogoutCommand) -> Result[None]:
     return Result.success()
 ```
 
-The handler depends on `CurrentUserProvider`, `AuthSessionCommandRepository`, and `ClockService`. The provider is a constructor dependency, not a global import. The handler revokes one `jti`; it never updates every session belonging to the user.
+The handler depends on `CurrentUserProvider`, `AuthSessionRepository`, and `ClockService`. The provider is a constructor dependency, not a global import. The handler revokes one `jti`; it never updates every session belonging to the user.
+
+#### File update
+
+At the end of this Domain section, add this method to `AuthSessionRepository` in `backend/app/domain/ports/repositories/auth_session_repository.py`:
+
+```python
+async def revoke(self, jti: UUID, revoked_at: datetime) -> bool: ...
+```
+
+#### Package façade update
+
+At the end of this Domain section, alter `backend/app/domain/__init__.py`:
+
+```python
+from app.domain.use_cases.auth_session.logout_cmd import (
+    LogoutCommand,
+    LogoutHandler,
+)
+
+__all__ += ["LogoutCommand", "LogoutHandler"]
+```
 
 ### DB
 
@@ -1463,6 +1541,35 @@ WHERE jti = :jti
 Return `rowcount == 1`. Do not filter or update by `user_id`. No schema migration is required.
 
 Implement the logout transactional executor in `backend/app/dependencies.py` using the shared `ContextVarCurrentUserProvider` instance, `AuthSessionRepository`, and the shared clock. The API authentication dependency and logout executor may use separate short-lived database sessions; the former binds `CurrentUser`, while the guarded update makes the command safe if revocation occurs between those operations.
+
+### API
+
+At the end of this API section, alter `backend/app/api/routers/auth.py`:
+
+```python
+from typing import Annotated
+
+from fastapi import Depends, Response
+
+from app.api.dependencies import bind_current_user
+from app.dependencies import LogoutExecutor, get_logout_executor
+from app.domain import LogoutCommand
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(bind_current_user)],
+)
+async def logout(
+    executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
+) -> Response:
+    result = await executor(LogoutCommand())
+    unwrap_result(result)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+```
+
+The authentication dependency validates the token once and binds `CurrentUser` for the request. The route does not receive the value, raw credentials, or `session_jti`; the domain handler obtains it through `CurrentUserProvider`. A missing, malformed, expired, or already-revoked session returns the same standard `401` envelope as healthcheck.
 
 ### UI
 
