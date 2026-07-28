@@ -202,6 +202,10 @@ All handled application errors use this envelope:
 
 `message` is safe for clients. `details` is optional, must be non-sensitive, and is intended only for structured validation metadata.
 
+Internally, command and query handlers return `Result[T]`. The API's generic `unwrap_result(result)` helper returns successful data or raises an API-layer exception carrying only the failed result's stable `error_code`. The central API exception handler maps that code to the status and safe envelope below. An unknown code is returned only as `500 INTERNAL_ERROR`; its original value is not exposed.
+
+`unwrap_result` does not choose successful status codes: each route retains the explicit status documented in its section. Request-validation failures remain `422 VALIDATION_ERROR`, and uncaught exceptions remain `500 INTERNAL_ERROR`. `Result.reason`, when present, is internal diagnostic context and must never be serialized into the response. Neither `Result[T]` nor the API-layer exception is part of the HTTP contract.
+
 | Outcome | HTTP status | Error code |
 | --- | --- | --- |
 | Malformed request or field validation | 422 | `VALIDATION_ERROR` |

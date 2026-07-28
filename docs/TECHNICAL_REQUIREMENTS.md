@@ -80,8 +80,8 @@ Use Hexagonal Architecture with a logical CQRS split:
 - incoming adapters translate HTTP or Kafka messages into commands/queries;
 - outgoing ports describe persistence, token, OTP, clock, and messaging needs;
 - PostgreSQL, FastAPI, PyJWT, and Kafka are outer adapters;
-- command handlers mutate state;
-- query handlers return dedicated frozen read models and never mutate state.
+- command handlers mutate state and return `Result[T]`;
+- query handlers return `Result[T]` containing dedicated frozen read models and never mutate state.
 
 CQRS does not mean event sourcing, separate databases, or a mediator library. Commands and queries use different ports and models but share PostgreSQL.
 
@@ -122,25 +122,28 @@ project-root/
 │   │   │   │   └── money.py
 │   │   │   ├── enums.py
 │   │   │   ├── current_user.py
-│   │   │   ├── exceptions.py
+│   │   │   ├── error_codes.py
+│   │   │   ├── result.py
 │   │   │   ├── read_models.py
 │   │   │   ├── ports/
 │   │   │   │   ├── command_repositories.py
+│   │   │   │   ├── current_user_provider.py
 │   │   │   │   ├── query_repositories.py
 │   │   │   │   ├── services.py
-│   │   │   │   ├── unit_of_work.py
 │   │   │   │   └── messaging.py
 │   │   │   └── use_cases/
 │   │   │       ├── commands/
 │   │   │       └── queries/
 │   │   ├── api/
+│   │   │   ├── current_user_provider.py
 │   │   │   ├── routers/
 │   │   │   │   ├── auth.py
 │   │   │   │   ├── wallet.py
 │   │   │   │   └── admin.py
 │   │   │   ├── schemas/
 │   │   │   ├── mappers.py
-│   │   │   └── exception_handlers.py
+│   │   │   ├── exception_handlers.py
+│   │   │   └── result_mapping.py
 │   │   ├── auth/
 │   │   │   ├── jwt_service.py
 │   │   │   └── otp_service.py
@@ -233,7 +236,7 @@ OTP digests use a keyed one-way digest so the six-digit value is not stored in p
 
 ### 5.1 Commands
 
-Commands are plain dataclasses and handlers are async. Handlers depend only on domain types and outgoing ports.
+Commands are plain dataclasses and handlers are async. Handlers depend only on domain types and outgoing ports. Every handler returns `Result[T]`, using `Result[None]` when success has no payload.
 
 Version 1 command handlers include:
 
@@ -253,7 +256,7 @@ Version 2 separates submission from execution for wallet mutations:
 
 ### 5.2 Queries
 
-Query handlers return frozen, use-case-specific read models:
+Query handlers return `Result[T]` containing frozen, use-case-specific read models:
 
 - current user's balances;
 - admin balances;
@@ -263,6 +266,21 @@ Query handlers return frozen, use-case-specific read models:
 - Kafka diagnostics messages through the isolated diagnostics module.
 
 Query repositories project only required columns. They do not load write aggregates merely to shape responses.
+
+### 5.3 Result contract
+
+`domain/result.py` defines one immutable, generic `Result[T]` used by every command and query handler:
+
+- `Result.success(data: T | None = None)` creates a successful result;
+- `Result.failure(error_code: str, reason: Exception | None = None)` creates a failed result;
+- read-only properties expose `is_success`, `data`, `error_code`, and `reason`;
+- a successful result has no error code or reason;
+- a failed result has a non-empty error code and no data;
+- post-initialization validation enforces these invariants and raises `ValueError("Invalid Result initialization.")` for an invalid combination.
+
+Expected business, authorization, and not-found outcomes return `Result.failure(...)`. Error codes are stable machine-readable strings defined centrally rather than repeated as ad hoc literals. The optional `reason` is internal diagnostic context: it is never serialized, exposed to clients, or logged automatically.
+
+Unexpected infrastructure and programming failures are not converted to `Result.failure`. They propagate as exceptions so the active transaction rolls back and the API or worker can apply its unexpected-failure policy.
 
 ## 6. Persistence and transactions
 
@@ -278,13 +296,15 @@ Domain entities, Pydantic DTOs, and SQLAlchemy ORM models are separate:
 
 Use one async SQLAlchemy session per HTTP command or consumed Kafka message:
 
-1. create/yield the session;
+1. open the session and `session.begin()` transaction context;
 2. execute all repositories for the command using that session;
-3. commit on success, or explicitly commit a documented state change that must survive an expected business failure;
-4. rollback uncommitted state and re-raise on failure;
-5. close always.
+3. return `Result.success(...)` or `Result.failure(...)` normally so the context commits;
+4. allow unexpected exceptions to escape so the context rolls back;
+5. close the session always.
 
-The session dependency or worker message scope normally supplies the transaction boundary. A command that must persist state before returning an expected business failure may depend on a small domain `UnitOfWork` Protocol and commit explicitly. OTP verification uses this exception: a wrong attempt is saved and committed before `OTP_INVALID` or `OTP_LOCKED` is raised, so the outer rollback cannot erase the attempt.
+The session dependency, command executor, or worker message scope supplies the transaction boundary. Domain handlers depend directly on repository Protocols and do not receive SQLAlchemy sessions or a custom Unit of Work. Every repository participating in one command shares the same session.
+
+A failed `Result` is an expected outcome, not a transaction failure. Therefore, any changes made before returning it are committed and must be intentional. OTP verification relies on this rule: a wrong attempt increments the counter and returns `Result.failure("OTP_INVALID")` or `Result.failure("OTP_LOCKED")`; normal transaction exit commits the increment. Wallet handlers perform business validation under their locks before mutation unless a persisted rejection is explicitly part of the use case.
 
 ### 6.3 Concurrency
 
@@ -332,7 +352,7 @@ All schema changes use reviewed Alembic migrations.
 - PyJWT, HS256, Bearer header only.
 - Claims include `sub`, `jti`, and `exp`.
 - JWT expiry and secret come from settings.
-- Decode failures become typed domain/authentication exceptions rather than leaking PyJWT exceptions.
+- Decode failures become `Result.failure("AUTHENTICATION_FAILED", reason=...)` rather than leaking PyJWT exceptions.
 
 ### 7.3 Current-user pipeline
 
@@ -340,9 +360,23 @@ All schema changes use reviewed Alembic migrations.
 2. `TokenService` validates and decodes it.
 3. The auth-session repository confirms that `jti` is active.
 4. The user repository loads fresh user state.
-5. A frozen `CurrentUser` containing the session `jti` is injected into the route/handler.
+5. The current-user query returns a frozen `CurrentUser` containing the session `jti`.
+6. The API binds that value to the request-scoped current-user provider before invoking protected handlers and resets the binding in `finally`.
 
 Logout revokes only the current `jti`.
+
+`CurrentUser` is a domain value, not a port. `domain/ports/current_user_provider.py` defines the behavior required by authenticated use cases:
+
+```python
+class CurrentUserProvider(Protocol):
+    def get(self) -> CurrentUser: ...
+```
+
+`api/current_user_provider.py` implements the port with request-scoped `ContextVar` state. Its adapter-only bind/reset operations are not part of the domain Protocol. The authentication dependency binds the validated `CurrentUser`, yields control to the route, and always resets the exact context token afterward. Calling `get()` without a bound user is a wiring error and raises an unexpected exception; it is not an `AUTHENTICATION_FAILED` business result.
+
+Handlers that require an authenticated HTTP principal receive `CurrentUserProvider` through constructor injection and call `get()` when needed. Commands and queries do not repeat `current_user` fields. There is no mutable global current-user singleton, and domain code never imports the API implementation, FastAPI request state, or `ContextVar`.
+
+Only authenticated HTTP use cases use this provider. OTP request/verification, development admin operations, Kafka workers, and other non-request execution paths receive identity explicitly from their own inputs when needed. Do not let detached/background tasks depend on the request provider because Python task creation can copy `ContextVar` state; pass any required identity explicitly instead.
 
 ### 7.4 Admin API key
 
@@ -392,9 +426,22 @@ The canonical request/response, pagination, status, error, and compatibility rul
 - `GET /health/ready`
 - `GET /health/authenticated`
 
+### 8.6 Result unwrapping
+
+`api/result_mapping.py` owns the generic `unwrap_result(result: Result[T]) -> T` helper and an API-layer result exception carrying only `error_code`. For a no-content success, `T` is `None`.
+
+- for success, `unwrap_result` returns `result.data`;
+- for failure, it raises the API-layer exception using `result.error_code`;
+- it never includes or exposes `result.reason`;
+- routers call it only after a transactional command executor has returned, so raising the API-layer exception cannot roll back a committed expected outcome;
+- `api/exception_handlers.py` maps the API-layer exception's error code to the status and safe `ErrorEnvelope` message defined in [API_CONTRACT.md](API_CONTRACT.md);
+- an unmapped error code is treated as `500 INTERNAL_ERROR`, not exposed verbatim, and logged as an application defect.
+
+Success status codes remain route-specific (`200`, `201`, `202`, or `204`) and are not selected by `unwrap_result`. Request-validation failures bypass `Result[T]` and remain `422 VALIDATION_ERROR`; uncaught exceptions remain `500 INTERNAL_ERROR`.
+
 Version 1 wallet commands return completed results. Version 2 deposit, exchange, and withdrawal submissions return `202 Accepted` and an operation identifier. HTTP idempotency keys are deferred to the roadmap's final optional hardening phase.
 
-Pydantic handles request shape, types, email format, and basic precision. Use cases handle authorization and business rules. Domain exceptions are translated to HTTP responses only in `api/exception_handlers.py`.
+Pydantic handles request shape, types, email format, and basic precision. Use cases handle authorization and business rules. The API maps command/query `Result.failure` error codes to HTTP responses in one central location; domain code never imports HTTP types.
 
 ## 9. Version 2 messaging
 
@@ -453,7 +500,7 @@ The frontend contains Login, Wallet, History, Admin, and version-2 Kafka pages.
 
 ## 11. Error handling
 
-Domain/use-case failures use distinct plain Python exceptions, for example:
+Expected domain/use-case failures use stable `Result.failure` error codes, for example:
 
 - invalid/expired/consumed OTP;
 - invalid/expired/revoked token;
@@ -465,9 +512,9 @@ Domain/use-case failures use distinct plain Python exceptions, for example:
 - invalid balance bucket;
 - invalid operation transition.
 
-`api/exception_handlers.py` is the sole HTTP mapping location. Domain code never imports or raises `HTTPException`.
+The API's central error mapping is the sole translation from `Result.failure` codes to HTTP status and safe response messages. The optional `Result.reason` is not part of the HTTP contract. Domain code never imports or raises `HTTPException`.
 
-Worker business failures become `REJECTED` outcomes with safe reason codes. Unexpected failures become `FAILED`, are logged, and remain eligible for retry.
+Worker business failures returned through `Result.failure` become `REJECTED` outcomes with safe reason codes. Unexpected exceptions become `FAILED`, are logged safely, and remain eligible for retry.
 
 ## 12. Testing
 
@@ -475,8 +522,9 @@ Worker business failures become `REJECTED` outcomes with safe reason codes. Unex
 
 - Domain entities and `Money` invariants.
 - OTP and auth-session behavior.
-- Command handlers with fake command repositories/services.
-- Query handlers with fake query repositories.
+- Current-user-provider behavior with a fake provider, plus API integration coverage proving request binding is reset and isolated.
+- Command handlers with fake command repositories/services, asserting successful and failed `Result` values.
+- Query handlers with fake query repositories, asserting successful and failed `Result` values.
 - Version 2 state transitions and duplicate-message handling.
 - No FastAPI, SQLAlchemy, PostgreSQL, or Kafka is needed.
 

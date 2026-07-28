@@ -32,15 +32,17 @@ All Python/backend paths below are relative to `backend/`.
 
 ## Step 2 — Establish domain conventions and CQRS boundaries
 
-- [ ] Create framework-free domain packages for entities, value objects, enums, exceptions, ports, command handlers, query handlers, and read models.
+- [ ] Create framework-free domain packages for entities, value objects, enums, the generic `Result[T]`, ports, command handlers, query handlers, and read models.
 - [ ] Implement `Asset` with initial values `USDT` and `USD`.
 - [ ] Implement a `Money` value object using `Decimal`.
 - [ ] Enforce positive command amounts, non-negative stored balances, USDT scale 8, USD scale 2, and no implicit rounding.
-- [ ] Define typed domain exceptions for invalid amount, unsupported asset, invalid precision, and invalid state.
+- [ ] Define stable error-code constants for invalid amount, unsupported asset, invalid precision, and invalid state.
 - [ ] Define the CQRS convention:
-      - command DTO plus one async command handler;
-      - query DTO plus one async query handler returning frozen read models;
+      - command DTO plus one async command handler returning `Result[T]`;
+      - query DTO plus one async query handler returning `Result[T]` containing a frozen read model;
       - separate command-repository and query-repository Protocols.
+- [ ] Implement immutable `Result[T]` with validated `success(data=None)` and `failure(error_code, reason=None)` factories and read-only `is_success`, `data`, `error_code`, and `reason` properties.
+- [ ] Return failed results for expected outcomes; allow unexpected exceptions to propagate.
 - [ ] Do not add a mediator or generic command bus; handlers are wired manually.
 - [ ] Unit-test all money and precision behavior, including an amount that cannot be represented by the destination asset.
 
@@ -50,8 +52,9 @@ All Python/backend paths below are relative to `backend/`.
 
 - [ ] Add the `User`, `OtpChallenge`, and `AuthSession` domain entities.
 - [ ] Add frozen `CurrentUser` with user ID, normalized email, and current authentication-session `jti`.
+- [ ] Define `CurrentUserProvider.get() -> CurrentUser` as a domain port; domain code reads it but never sets request context.
 - [ ] Define OTP lifecycle behavior: 6 digits, 5-minute expiry, single use, invalidation by a newer challenge, and lock after 5 failed attempts.
-- [ ] Define auth exceptions for invalid, expired, locked, consumed, and superseded OTPs plus invalid, expired, and revoked tokens.
+- [ ] Define stable error codes for invalid, expired, locked, consumed, and superseded OTPs plus authentication failure.
 - [ ] Define command repository ports for users, OTP challenges, and auth sessions.
 - [ ] Define service ports for clock/time, OTP generation/digest, and JWT encode/decode where abstraction improves deterministic testing.
 - [ ] Keep concrete OTP and PyJWT adapters outside `domain/`; command/query handlers import only the service Protocols.
@@ -79,7 +82,7 @@ All Python/backend paths below are relative to `backend/`.
 ## Step 5 — Build the PostgreSQL persistence adapter
 
 - [ ] Create the async SQLAlchemy engine and sessionmaker from settings.
-- [ ] Implement the session lifecycle: commit on success, rollback on failure, and close always.
+- [ ] Implement the session lifecycle with `AsyncSession.begin()`: commit whenever a handler returns a `Result`, roll back when an unexpected exception escapes, and close always.
 - [ ] Add SQLAlchemy models for users, accounts, balances, transactions, OTP challenges, and authentication sessions.
 - [ ] Store money in PostgreSQL fixed-precision `NUMERIC`, with application and database constraints appropriate to asset precision and non-negative balances.
 - [ ] Add unique constraints for account ownership, account/asset/bucket balances, OTP/session identity, and other domain uniqueness rules, including at most one current unconsumed/uninvalidated OTP challenge per user.
@@ -97,7 +100,7 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Implement cryptographically secure six-digit OTP generation.
 - [ ] Implement a keyed OTP digest so codes are not persisted in plain text.
 - [ ] Implement PyJWT HS256 encode/decode with `sub`, `jti`, and `exp`.
-- [ ] Translate PyJWT failures into typed application/domain auth exceptions.
+- [ ] Translate PyJWT decode and claim failures into `Result.failure("AUTHENTICATION_FAILED", reason=...)` without exposing adapter exceptions.
 - [ ] Unit-test OTP format/digest behavior and JWT round trips, expiry, tampering, and invalid claims.
 - [ ] Ensure OTPs, JWTs, admin keys, and secrets are excluded from normal logs.
 
@@ -114,19 +117,21 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Implement the verify-OTP command:
       - load the current and digest-matching challenges under the user lock;
       - distinguish invalid, expired, locked, consumed, and superseded challenges;
-      - count and commit failed attempts before returning the expected OTP error;
+      - count failed attempts and return the expected failed `Result`, allowing normal transaction exit to commit the count;
       - consume a valid challenge;
       - create an auth session;
       - return the Bearer JWT.
-- [ ] Add the minimal Unit of Work port required to commit a failed OTP attempt before raising its typed domain error.
-- [ ] Implement logout to revoke the current `jti`.
+- [ ] Inject repository Protocols directly into handlers; keep SQLAlchemy sessions and transaction management outside `domain/` and do not add a custom Unit of Work.
+- [ ] Implement logout so its handler obtains `CurrentUser` through an injected `CurrentUserProvider` and revokes that session's `jti`; do not copy the principal into `LogoutCommand`.
 - [ ] Implement current-user loading that validates token, active auth session, and fresh user state.
-- [ ] Unit-test each command handler using fake ports, including every failure branch and multiple independent sessions.
+- [ ] Unit-test each command handler using fake repositories, services, and current-user providers, including every failure branch and multiple independent sessions.
 
 **Done when:** command-handler tests prove that OTPs are single-use and logout revokes only the current session.
 
 ## Step 8 — Implement synchronous wallet commands and queries
 
+- [ ] Return `Result[T]` from every wallet command and query; represent expected validation, authorization, not-found, conflict, and insufficient-funds outcomes with stable failed-result error codes.
+- [ ] Inject `CurrentUserProvider` into authenticated HTTP wallet handlers instead of repeating `current_user` fields in their command/query DTOs; keep admin and worker identity explicit to their own inputs.
 - [ ] Implement admin mock deposit:
       - find the target by normalized email;
       - create/lock the user's balance;
@@ -146,7 +151,7 @@ All Python/backend paths below are relative to `backend/`.
       - debit user and credit admin;
       - add one completed withdrawal transaction.
 - [ ] Implement balance and transaction query handlers for users and admin.
-- [ ] Unit-test command handlers with fake repositories.
+- [ ] Unit-test command and query handlers with fake repositories, asserting `is_success`, `data`, and `error_code`.
 - [ ] Integration-test each handler with real PostgreSQL transactions.
 - [ ] Add a concurrent-withdrawal/exchange test proving the same balance cannot be overspent.
 
@@ -157,7 +162,13 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Add Pydantic request/response schemas for auth, wallet, admin, balances, transactions, errors, and pagination.
 - [ ] Implement the request, response, HTTP-status, error-envelope, and cursor-pagination contracts in `API_CONTRACT.md`.
 - [ ] Keep DTO-to-command and read-model-to-response mapping in `app/api/`.
-- [ ] Add exception handlers as the only domain-to-HTTP error mapping.
+- [ ] Add `api/result_mapping.py` with generic `unwrap_result(Result[T]) -> T`; return successful data and raise an API-layer result exception carrying only `error_code` for failure, using `T = None` for no-content commands.
+- [ ] Add one central mapping from the API-layer result exception to HTTP status and safe error envelopes; treat unmapped codes and unexpected exceptions as `500 INTERNAL_ERROR`.
+- [ ] Keep successful status codes route-specific and keep request validation as `422 VALIDATION_ERROR`; never derive either from `unwrap_result`.
+- [ ] Never expose or automatically log `Result.reason` through the API layer.
+- [ ] Implement the domain `CurrentUserProvider` port in `api/current_user_provider.py` with request-scoped `ContextVar` storage and adapter-only bind/reset operations.
+- [ ] Authenticate each protected request once, bind the validated `CurrentUser`, and reset the exact context token in `finally`; use the same provider instance for binding and protected-handler injection.
+- [ ] Treat provider access without a bound user as an unexpected wiring error, and do not use the HTTP current-user provider in admin or Kafka worker execution paths.
 - [ ] Add composition providers for settings, sessions, repositories, services, command handlers, and query handlers.
 - [ ] Use `HTTPBearer(auto_error=False)` for protected user routes and Swagger Bearer authorization support; map missing credentials to the standard 401 envelope.
 - [ ] Add timing-safe `X-Admin-Key` validation for `/admin/*`; do not require user JWT there.
@@ -176,7 +187,7 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Add `GET /health/live` and `GET /health/ready`.
 - [ ] Register routers and exception handlers in the app factory.
 
-**Done when:** routers only translate HTTP to/from handlers, malformed DTOs produce 422, domain errors have the documented envelope, health endpoints report accurately, and Swagger can exercise all version-1 flows.
+**Done when:** routers only translate HTTP to/from handlers, `unwrap_result` preserves successful payloads and maps every documented failure code to the correct status/envelope, malformed DTOs produce 422, unknown codes produce a safe 500, authenticated request context is reset without cross-request leakage, health endpoints report accurately, and Swagger can exercise all version-1 flows.
 
 ## Step 10 — Build the version-1 React UI
 
@@ -208,12 +219,13 @@ All Python/backend paths below are relative to `backend/`.
 
 - [ ] Run Alembic migrations in each testcontainers PostgreSQL instance.
 - [ ] Cover OTP request and first-time user registration.
-- [ ] Cover invalid, expired, locked, and reused OTPs.
+- [ ] Cover invalid, expired, locked, and reused OTPs through their failed-result error codes; prove a wrong-attempt increment persists despite the error response.
 - [ ] Cover protected routes and server-side logout revocation.
+- [ ] Cover request-scoped current-user binding/reset and prove one request's principal cannot leak into another request or a background execution path.
 - [ ] Cover admin-key rejection and success.
 - [ ] Cover USDT scale 8, USD scale 2, and non-representable exchanges.
 - [ ] Cover deposit, both exchange directions, both withdrawal assets, admin balances, and user/admin history.
-- [ ] Cover transaction rollback and concurrent balance safety.
+- [ ] Cover automatic transaction commit for returned results, rollback when an unexpected exception escapes, and concurrent balance safety.
 - [ ] Run ruff, mypy, unit tests, integration tests, frontend tests, and frontend production build.
 
 **Done when:** version 1 is reproducible from a fresh clone and all checks pass. Tag or otherwise mark this point before starting version 2.
@@ -275,7 +287,8 @@ All Python/backend paths below are relative to `backend/`.
       - atomically debit user and credit admin;
       - reject pending-bucket requests.
 - [ ] Mark business outcomes `COMPLETED` or `REJECTED`.
-- [ ] Mark unexpected infrastructure outcomes `FAILED` and keep them retryable.
+- [ ] Map expected worker-handler `Result.failure(error_code)` outcomes to `REJECTED` with a safe reason code.
+- [ ] Let unexpected exceptions escape the handler, then mark their operations `FAILED` and keep them retryable.
 - [ ] Make duplicate delivery return the stored outcome without applying money twice.
 - [ ] Preserve per-user command order through Kafka keying and consumer design.
 
@@ -318,7 +331,7 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Cover independent processing for different users.
 - [ ] Cover an exchange/withdrawal accepted by HTTP but later rejected for insufficient funds.
 - [ ] Cover approved and rejected deposits and withdrawals from rejected funds.
-- [ ] Cover infrastructure `FAILED` separately from business `REJECTED`.
+- [ ] Cover raised infrastructure exceptions becoming `FAILED` separately from failed `Result` business outcomes becoming `REJECTED`.
 - [ ] Cover worker restart and recovery of unfinished messages.
 - [ ] Cover Kafka diagnostics filtering, timestamps, payloads, and sanitization.
 - [ ] Run all backend/frontend quality checks and verify the startup, demo, release, rollback, backup, and incident procedures in `README.md` and `OPERATIONS.md`.
@@ -330,7 +343,7 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Add pre-commit checks for ruff, mypy, and fast unit tests.
 - [ ] Add CI for backend lint/typecheck/tests, frontend typecheck/tests/build, PostgreSQL integration tests, and version-2 Kafka integration tests.
 - [ ] Add dependency vulnerability scanning and a recurring dependency-review process.
-- [ ] Add architecture decision records for CQRS, PostgreSQL, OTP sessions, outbox/duplicate-message handling, and the removable Kafka diagnostics adapter.
+- [ ] Add architecture decision records for CQRS, generic `Result[T]` plus automatic transaction contexts, PostgreSQL, OTP sessions, outbox/duplicate-message handling, and the removable Kafka diagnostics adapter.
 
 ## Optional final phase — HTTP request idempotency
 
