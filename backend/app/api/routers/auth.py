@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Request, status
 
-from app.api.result_mapping import unwrap_result
-from app.api.schemas.auth import RequestOtpRequest, RequestOtpResponse
 from app.dependencies import execute_request_otp
 from app.domain import RequestOtpCommand
+
+from ..result_mapping import unwrap_result
+from ..schemas import RequestOtpRequest, RequestOtpResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

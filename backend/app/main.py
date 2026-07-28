@@ -2,15 +2,26 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from app.api import (
+    auth_router,
+    handle_api_result_error,
+    handle_uncaught_exception,
+    handle_validation_error,
+    ApiResultError,
+)
 from app.config import Settings, get_settings
+from app.db import build_session_factory
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or get_settings()
     engine: AsyncEngine = create_async_engine(resolved.database_url)
+    session_factory = build_session_factory(engine)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -20,6 +31,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await engine.dispose()
 
     app = FastAPI(title="Wallet Sample", lifespan=lifespan)
+    app.state.settings = resolved
+    app.state.session_factory = session_factory
+
+    cors_origins = [
+        origin.strip()
+        for origin in resolved.cors_allowed_origins.split(",")
+        if origin.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.add_exception_handler(RequestValidationError, handle_validation_error)
+    app.add_exception_handler(ApiResultError, handle_api_result_error)
+    app.add_exception_handler(Exception, handle_uncaught_exception)
+
+    app.include_router(auth_router)
 
     @app.get("/health/live")
     async def health_live() -> dict[str, str]:

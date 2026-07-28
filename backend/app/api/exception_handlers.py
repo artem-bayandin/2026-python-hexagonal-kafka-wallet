@@ -4,7 +4,7 @@ from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.result_mapping import ApiResultError
+from .result_mapping import ApiResultError
 
 ERROR_RESPONSES: dict[str, tuple[int, str]] = {
     "OTP_INVALID": (
@@ -50,7 +50,9 @@ def error_response(
     )
 
 
-async def handle_validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
+async def handle_validation_error(_: Request, error: Exception) -> JSONResponse:
+    if not isinstance(error, RequestValidationError):
+        raise error
     return error_response(
         status.HTTP_422_UNPROCESSABLE_CONTENT,
         "VALIDATION_ERROR",
@@ -59,7 +61,9 @@ async def handle_validation_error(_: Request, error: RequestValidationError) -> 
     )
 
 
-async def handle_api_result_error(_: Request, error: ApiResultError) -> JSONResponse:
+async def handle_api_result_error(_: Request, error: Exception) -> JSONResponse:
+    if not isinstance(error, ApiResultError):
+        raise error
     mapped = ERROR_RESPONSES.get(error.error_code)
     if mapped is None:
         return error_response(
