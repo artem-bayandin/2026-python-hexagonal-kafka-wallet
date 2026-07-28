@@ -896,6 +896,64 @@ curl -i -X POST http://127.0.0.1:8000/auth/otp/request \
 
 Expect `201`, an RFC 3339 `expires_at`, and `otp` only when both development profile and demo flag are enabled. Disable the flag and confirm the `otp` property is absent.
 
+### Manual verification.
+
+1. Enable demo OTP (so the UI can show the code) in `/backend/.env` file
+2. Start everything
+Terminal 1 — Postgres (skip if already running):
+`docker compose --env-file backend/.env up -d postgres`
+
+Terminal 2 — Backend:
+```
+cd backend
+uv sync --all-groups
+uv run alembic upgrade head
+uv run uvicorn app.main:create_app --factory --reload
+```
+
+Terminal 3 — Frontend:
+```
+cd frontend
+yarn install --immutable
+yarn dev
+```
+
+Open: http://127.0.0.1:5173
+
+3. Verify in the browser
+Enter an email (e.g. demo@example.com) and click Request code.
+In DevTools → Network, you should see:
+POST http://127.0.0.1:8000/auth/otp/request
+Status 201
+Response like:
+{"expires_at":"2026-07-28T20:40:11.212405Z","otp":"123456"}
+(otp only with demo flag enabled)
+The UI should move to Enter verification code, showing:
+the email
+expiry time
+Demo OTP: 123456 (when demo mode is on)
+
+4. Verify in the database
+The OTP is stored as an HMAC digest, not plaintext — so you confirm persistence, not the exact code:
+```
+docker exec py-hex-aied-2-postgres-1 psql -U wallet_user -d wallet_db -c "
+SELECT u.email,
+       oc.expires_at,
+       oc.failed_attempt_count,
+       oc.consumed_at IS NULL AND oc.invalidated_at IS NULL AS is_current,
+       LEFT(oc.otp_digest, 12) AS digest_prefix
+FROM users u
+JOIN otp_challenges oc ON oc.user_id = u.id
+WHERE u.email = 'demo@example.com'
+ORDER BY oc.created_at DESC
+LIMIT 3;"
+```
+
+After a successful request you should see:
+
+- a row in users (created on first OTP request)
+- a row in otp_challenges with is_current = t and a non-empty digest_prefix
+
 ## Slice 2 — verify-otp
 
 ### Domain

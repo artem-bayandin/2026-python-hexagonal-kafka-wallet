@@ -1,121 +1,92 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { type FormEvent, useState } from 'react'
+import { ApiError, requestOtp } from './api/client'
 import './App.css'
 
+type OtpStepState = {
+  email: string
+  expiresAt: string
+  demoOtp?: string
+}
+
+function formatExpiry(iso: string): string {
+  return new Date(iso).toLocaleString()
+}
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [email, setEmail] = useState('')
+  const [otpStep, setOtpStep] = useState<OtpStepState | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setErrorMessage(null)
+    setIsSubmitting(true)
+
+    try {
+      const result = await requestOtp(email)
+      setOtpStep({
+        email,
+        expiresAt: result.expires_at,
+        demoOtp: result.otp,
+      })
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setErrorMessage(error.envelope.message)
+      } else {
+        setErrorMessage('Unable to request an OTP. Please try again.')
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (otpStep !== null) {
+    return (
+      <main className="auth">
+        <h1>Enter verification code</h1>
+        <p className="auth-detail">
+          Code sent to <strong>{otpStep.email}</strong>
+        </p>
+        <p className="auth-detail">Expires at {formatExpiry(otpStep.expiresAt)}</p>
+        {otpStep.demoOtp !== undefined && (
+          <p className="auth-demo">
+            Demo OTP: <code>{otpStep.demoOtp}</code>
+          </p>
+        )}
+        <section className="otp-shell" aria-label="OTP entry" />
+      </main>
+    )
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+    <main className="auth">
+      <h1>Sign in</h1>
+      <p className="auth-detail">Enter your email to receive a one-time code.</p>
+      <form className="auth-form" onSubmit={handleEmailSubmit}>
+        <label className="auth-label" htmlFor="email">
+          Email
+        </label>
+        <input
+          id="email"
+          className="auth-input"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          disabled={isSubmitting}
+        />
+        {errorMessage !== null && (
+          <p className="auth-error" role="alert">
+            {errorMessage}
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
+        )}
+        <button className="auth-button" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Sending…' : 'Request code'}
         </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      </form>
+    </main>
   )
 }
 
