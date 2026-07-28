@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Self
 
 T = TypeVar("T")
 
@@ -20,14 +20,16 @@ class Result(Generic[T]):
         if not (valid_success or valid_failure):
             raise ValueError("Invalid Result initialization.")
 
+    # -> Result[T] fails with "Result is not defined"
+    # possible tweaks:
+    # -> Self           => seems to work (from typing import Self)
+    # -> "Result[T]"    => works with no additional code
     @classmethod
-    def success(cls, data: T | None = None) -> Result[T]:
+    def success(cls, data: T | None = None) -> Self:
         return cls(_data=data)
 
     @classmethod
-    def failure(
-        cls, error_code: str, reason: Exception | None = None
-    ) -> Result[T]:
+    def failure(cls, error_code: str, reason: Exception | None = None) -> Self:
         return cls(_error_code=error_code, _reason=reason)
 
     @property

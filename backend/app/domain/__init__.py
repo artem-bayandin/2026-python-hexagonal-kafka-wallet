@@ -4,11 +4,7 @@ from .ports import OtpChallengeRepository, UserRepository, ClockService, OtpServ
 
 from .result import Result
 
-from .use_cases import (
-    RequestOtpCommand,
-    RequestOtpData,
-    RequestOtpHandler,
-)
+from .use_cases import RequestOtpCommand, RequestOtpData, RequestOtpHandler
 
 __all__ = [
     "OtpChallenge",

@@ -20,14 +20,14 @@ class RequestOtpData:
 
 class RequestOtpHandler:
     def __init__(
-        self,
-        users_repo: UserRepository,
-        otp_challenges_repo: OtpChallengeRepository,
-        otp_service: OtpService,
-        clock_service: ClockService,
-        *,
-        otp_ttl_seconds: int,
-        include_demo_otp: bool,
+        self
+        , users_repo: UserRepository
+        , otp_challenges_repo: OtpChallengeRepository
+        , otp_service: OtpService
+        , clock_service: ClockService
+        , *
+        , otp_ttl_seconds: int
+        , include_demo_otp: bool
     ) -> None:
         self._users_repo = users_repo
         self._otp_challenges_repo = otp_challenges_repo
