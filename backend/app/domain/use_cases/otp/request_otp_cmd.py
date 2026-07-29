@@ -43,6 +43,7 @@ class RequestOtpHandler:
 
         await self._users_repo.ensure_by_email(email, proposed_user_id, now)
         user = await self._users_repo.get_by_email_for_update(email)
+        assert user is not None
 
         await self._otp_challenges_repo.invalidate_current_for_user(user.id, now)
 

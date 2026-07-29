@@ -1,13 +1,22 @@
 from .models import Base
 
-from .repositories import OtpChallengeRepositoryImpl, UserRepositoryImpl
+from .repositories import (
+    AuthSessionRepositoryImpl,
+    OtpChallengeRepositoryImpl,
+    UserRepositoryImpl,
+)
 
 from .session import AsyncSession, build_session_factory
 
 __all__ = [
-    "AsyncSession",
     "Base",
-    "build_session_factory",
+
+    # Repositories
+    "AuthSessionRepositoryImpl",
     "OtpChallengeRepositoryImpl",
     "UserRepositoryImpl",
+
+    # Session
+    "AsyncSession",
+    "build_session_factory",
 ]

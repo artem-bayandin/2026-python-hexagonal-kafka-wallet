@@ -28,11 +28,14 @@ class UserRepositoryImpl(UserRepository):
         )
         await self.session.execute(stmt)
 
-    async def get_by_email_for_update(self, email: str) -> User:
+    async def get_by_email_for_update(self, email: str) -> User | None:
         stmt = (
             select(UserModel)
             .where(UserModel.email == email)
             .with_for_update()
         )
         result = await self.session.execute(stmt)
-        return user_to_domain(result.scalar_one())
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return user_to_domain(model)

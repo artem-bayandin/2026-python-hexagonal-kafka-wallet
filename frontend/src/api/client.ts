@@ -1,4 +1,4 @@
-import type { ErrorEnvelope, RequestOtpResponse } from '../types/auth'
+import type { ErrorEnvelope, RequestOtpResponse, VerifyOtpResponse } from '../types/auth'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
@@ -38,4 +38,23 @@ export async function requestOtp(email: string): Promise<RequestOtpResponse> {
   }
 
   return response.json() as Promise<RequestOtpResponse>
+}
+
+export async function verifyOtp(
+  email: string,
+  otp: string,
+): Promise<VerifyOtpResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/otp/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, otp }),
+  })
+
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+
+  const result = (await response.json()) as VerifyOtpResponse
+  sessionStorage.setItem('access_token', result.access_token)
+  return result
 }

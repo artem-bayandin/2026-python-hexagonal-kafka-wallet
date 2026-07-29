@@ -82,6 +82,12 @@
   padding: 16px;
   border: 1px dashed var(--border);
   border-radius: 8px;
+  text-align: left;
+}
+
+.otp-input {
+  letter-spacing: 0.25em;
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 

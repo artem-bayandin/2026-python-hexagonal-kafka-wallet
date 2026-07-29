@@ -3,6 +3,12 @@ export type RequestOtpResponse = {
   otp?: string
 }
 
+export type VerifyOtpResponse = {
+  access_token: string
+  token_type: 'bearer'
+  expires_at: string
+}
+
 export type ErrorEnvelope = {
   code: string
   message: string

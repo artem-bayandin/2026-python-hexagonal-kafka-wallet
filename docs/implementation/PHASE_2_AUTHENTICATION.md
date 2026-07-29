@@ -12,9 +12,9 @@ Within each feature slice, work in the strict order **Domain → DB → API → 
 ## Current implementation status
 
 - **Slice 0 — configuration:** complete.
-- **Slice 1 — Domain:** complete.
-- **Slice 1 — DB persistence:** complete through the generated and reviewed Alembic revision, including the users, OTP-challenge, and authentication-session schema.
-- **Next:** complete Slice 1 application composition from `backend/app/dependencies.py`, then finish its API and UI sections. Existing API scaffold files are not a completed or runnable API until that work is done.
+- **Slice 1** complete.
+- **Slice 2** complete.
+- **Next:** implement Slice 3.
 
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 
@@ -908,6 +908,10 @@ Terminal 2 — Backend:
 cd backend
 uv sync --all-groups
 uv run alembic upgrade head
+// find on port:    lsof -nP -iTCP:8000 -sTCP:LISTEN
+// kill by pid:     kill <PID>
+// kill otherwise:  kill -9 <PID>
+// kill oneliner:   kill $(lsof -t -iTCP:8000 -sTCP:LISTEN)
 uv run uvicorn app.main:create_app --factory --reload
 ```
 
