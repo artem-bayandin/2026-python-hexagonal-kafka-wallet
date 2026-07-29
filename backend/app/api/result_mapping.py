@@ -1,8 +1,6 @@
-from typing import TypeVar, cast
+from typing import cast
 
 from app.domain import Result
-
-T = TypeVar("T")
 
 
 class ApiResultError(Exception):
@@ -10,7 +8,8 @@ class ApiResultError(Exception):
         self.error_code = error_code
         super().__init__(error_code)
 
-def unwrap_result(result: Result[T]) -> T:
+
+def unwrap_result[T](result: Result[T]) -> T:
     if result.is_success:
         return cast("T", result.data)
     assert result.error_code is not None

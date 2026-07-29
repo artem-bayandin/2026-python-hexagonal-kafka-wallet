@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from ...entities import OtpChallenge
-from ...ports import OtpChallengeRepository, UserRepository, ClockService, OtpService
+from ...ports import ClockService, OtpChallengeRepository, OtpService, UserRepository
 from ...result import Result
 
 
@@ -13,21 +13,21 @@ class RequestOtpCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class RequestOtpData:
+class RequestOtpResult:
     expires_at: datetime
     demo_otp: str | None
 
 
 class RequestOtpHandler:
     def __init__(
-        self
-        , users_repo: UserRepository
-        , otp_challenges_repo: OtpChallengeRepository
-        , otp_service: OtpService
-        , clock_service: ClockService
-        , *
-        , otp_ttl_seconds: int
-        , include_demo_otp: bool
+        self,
+        users_repo: UserRepository,
+        otp_challenges_repo: OtpChallengeRepository,
+        otp_service: OtpService,
+        clock_service: ClockService,
+        *,
+        otp_ttl_seconds: int,
+        include_demo_otp: bool,
     ) -> None:
         self._users_repo = users_repo
         self._otp_challenges_repo = otp_challenges_repo
@@ -36,7 +36,7 @@ class RequestOtpHandler:
         self._otp_ttl_seconds = otp_ttl_seconds
         self._include_demo_otp = include_demo_otp
 
-    async def handle(self, command: RequestOtpCommand) -> Result[RequestOtpData]:
+    async def handle(self, command: RequestOtpCommand) -> Result[RequestOtpResult]:
         email = command.email.strip().casefold()
         now = self._clock_service.now()
         proposed_user_id = uuid4()
@@ -63,7 +63,7 @@ class RequestOtpHandler:
         )
 
         return Result.success(
-            RequestOtpData(
+            RequestOtpResult(
                 expires_at=expires_at,
                 demo_otp=code if self._include_demo_otp else None,
             )

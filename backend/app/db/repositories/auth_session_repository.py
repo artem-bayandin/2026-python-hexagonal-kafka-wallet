@@ -13,7 +13,7 @@ from ..session import AsyncSession
 
 
 class AuthSessionRepositoryImpl(AuthSessionRepository):
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def add(self, session: AuthSession) -> None:

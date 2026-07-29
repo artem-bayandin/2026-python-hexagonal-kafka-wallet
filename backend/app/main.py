@@ -8,12 +8,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.api import (
-    auth_router,
-    health_router,
     ApiResultError,
+    auth_router,
     handle_api_result_error,
     handle_uncaught_exception,
     handle_validation_error,
+    health_router,
 )
 from app.config import Settings, get_settings
 from app.db import build_session_factory
@@ -36,9 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
 
     cors_origins = [
-        origin.strip()
-        for origin in resolved.cors_allowed_origins.split(",")
-        if origin.strip()
+        origin.strip() for origin in resolved.cors_allowed_origins.split(",") if origin.strip()
     ]
     app.add_middleware(
         CORSMiddleware,

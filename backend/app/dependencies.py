@@ -17,15 +17,16 @@ from app.domain import (
     GetCurrentUserHandler,
     LogoutHandler,
     RequestOtpCommand,
-    RequestOtpData,
+    RequestOtpResult,
     RequestOtpHandler,
     Result,
     VerifyOtpCommand,
-    VerifyOtpData,
     VerifyOtpHandler,
+    VerifyOtpResult,
 )
 
 # GetCurrentUser
+
 
 def build_get_current_user_handler(
     session: AsyncSession,
@@ -41,6 +42,7 @@ def build_get_current_user_handler(
 
 # Logout
 
+
 def build_logout_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
@@ -54,13 +56,12 @@ def build_logout_handler(
 
 # RequestOTP
 
+
 def build_request_otp_handler(
     session: AsyncSession,
     settings: Settings,
 ) -> RequestOtpHandler:
-    include_demo_otp = (
-        settings.app_env == "development" and settings.enable_demo_otp
-    )
+    include_demo_otp = settings.app_env == "development" and settings.enable_demo_otp
     return RequestOtpHandler(
         UserRepositoryImpl(session),
         OtpChallengeRepositoryImpl(session),
@@ -74,7 +75,7 @@ def build_request_otp_handler(
 async def execute_request_otp(
     request: Request,
     command: RequestOtpCommand,
-) -> Result[RequestOtpData]:
+) -> Result[RequestOtpResult]:
     async with request.app.state.session_factory() as session, session.begin():
         handler = build_request_otp_handler(
             session,
@@ -84,6 +85,7 @@ async def execute_request_otp(
 
 
 # VerifyOTP
+
 
 def build_verify_otp_handler(
     session: AsyncSession,
@@ -104,7 +106,7 @@ def build_verify_otp_handler(
 async def execute_verify_otp(
     request: Request,
     command: VerifyOtpCommand,
-) -> Result[VerifyOtpData]:
+) -> Result[VerifyOtpResult]:
     async with request.app.state.session_factory() as session, session.begin():
         handler = build_verify_otp_handler(
             session,

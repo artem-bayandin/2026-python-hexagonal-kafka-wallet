@@ -13,14 +13,10 @@ from ..session import AsyncSession
 
 
 class OtpChallengeRepositoryImpl(OtpChallengeRepository):
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def invalidate_current_for_user(
-        self
-        , user_id: UUID
-        , invalidated_at: datetime
-    ) -> int:
+    async def invalidate_current_for_user(self, user_id: UUID, invalidated_at: datetime) -> int:
         stmt = (
             update(OtpChallengeModel)
             .where(
@@ -39,9 +35,7 @@ class OtpChallengeRepositoryImpl(OtpChallengeRepository):
     async def add(self, challenge: OtpChallenge) -> None:
         self.session.add(otp_challenge_to_model(challenge))
 
-    async def get_current_for_user_for_update(
-        self, user_id: UUID
-    ) -> OtpChallenge | None:
+    async def get_current_for_user_for_update(self, user_id: UUID) -> OtpChallenge | None:
         stmt = (
             select(OtpChallengeModel)
             .where(
@@ -79,9 +73,7 @@ class OtpChallengeRepositoryImpl(OtpChallengeRepository):
             return None
         return otp_challenge_to_domain(model)
 
-    async def set_failed_attempt_count(
-        self, challenge_id: UUID, count: int
-    ) -> None:
+    async def set_failed_attempt_count(self, challenge_id: UUID, count: int) -> None:
         stmt = (
             update(OtpChallengeModel)
             .where(OtpChallengeModel.id == challenge_id)
@@ -89,9 +81,7 @@ class OtpChallengeRepositoryImpl(OtpChallengeRepository):
         )
         await self.session.execute(stmt)
 
-    async def mark_consumed(
-        self, challenge_id: UUID, consumed_at: datetime
-    ) -> None:
+    async def mark_consumed(self, challenge_id: UUID, consumed_at: datetime) -> None:
         stmt = (
             update(OtpChallengeModel)
             .where(OtpChallengeModel.id == challenge_id)

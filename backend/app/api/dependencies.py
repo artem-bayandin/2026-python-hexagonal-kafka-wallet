@@ -26,9 +26,7 @@ _current_user_provider = ContextVarCurrentUserProvider()
 
 # Current user executor
 
-GetCurrentUserExecutor = Callable[
-    [GetCurrentUserQuery], Awaitable[Result[CurrentUser]]
-]
+GetCurrentUserExecutor = Callable[[GetCurrentUserQuery], Awaitable[Result[CurrentUser]]]
 
 
 def get_current_user_provider() -> ContextVarCurrentUserProvider:
@@ -66,13 +64,10 @@ def get_logout_executor(request: Request) -> LogoutExecutor:
 
 # Authenticated request binding
 
+
 async def bind_current_user(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
-    ],
-    executor: Annotated[
-        GetCurrentUserExecutor, Depends(get_current_user_executor)
-    ],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    executor: Annotated[GetCurrentUserExecutor, Depends(get_current_user_executor)],
     provider: Annotated[
         ContextVarCurrentUserProvider,
         Depends(get_current_user_provider),
@@ -81,9 +76,7 @@ async def bind_current_user(
     if credentials is None or credentials.scheme.casefold() != "bearer":
         unwrap_result(Result.failure(AUTHENTICATION_FAILED))
     assert credentials is not None
-    result = await executor(
-        GetCurrentUserQuery(token=credentials.credentials)
-    )
+    result = await executor(GetCurrentUserQuery(token=credentials.credentials))
     current_user = unwrap_result(result)
     # store user in a ContextVar for this request
     token = provider.bind(current_user)

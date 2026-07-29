@@ -12,15 +12,10 @@ from ..session import AsyncSession
 
 
 class UserRepositoryImpl(UserRepository):
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def ensure_by_email(
-        self
-        , email: str
-        , user_id: UUID
-        , created_at: datetime
-    ) -> None:
+    async def ensure_by_email(self, email: str, user_id: UUID, created_at: datetime) -> None:
         stmt = (
             insert(UserModel)
             .values(id=user_id, email=email, created_at=created_at)
@@ -29,11 +24,7 @@ class UserRepositoryImpl(UserRepository):
         await self.session.execute(stmt)
 
     async def get_by_email_for_update(self, email: str) -> User | None:
-        stmt = (
-            select(UserModel)
-            .where(UserModel.email == email)
-            .with_for_update()
-        )
+        stmt = select(UserModel).where(UserModel.email == email).with_for_update()
         result = await self.session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:

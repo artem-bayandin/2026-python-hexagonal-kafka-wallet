@@ -12,10 +12,11 @@ router = APIRouter(prefix="/health", tags=["health"])
 async def health_authenticated() -> dict[str, str]:
     return {"status": "ok"}
 
+
 @router.get("/live")
 async def health_live() -> dict[str, str]:
     return {"status": "ok"}
 
+
 # @router.get("/ready")
 # lives in main.py as it requires a direct db conneciton
-

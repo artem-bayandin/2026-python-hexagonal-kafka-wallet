@@ -12,11 +12,11 @@ from ...error_codes import (
 )
 from ...ports import (
     AuthSessionRepository,
-    OtpChallengeRepository,
-    UserRepository,
     ClockService,
+    OtpChallengeRepository,
     OtpService,
     TokenService,
+    UserRepository,
 )
 from ...result import Result
 
@@ -28,7 +28,7 @@ class VerifyOtpCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class VerifyOtpData:
+class VerifyOtpResult:
     access_token: str
     expires_at: datetime
 
@@ -55,7 +55,7 @@ class VerifyOtpHandler:
         self._otp_max_attempts = otp_max_attempts
         self._access_token_ttl_minutes = access_token_ttl_minutes
 
-    async def handle(self, command: VerifyOtpCommand) -> Result[VerifyOtpData]:
+    async def handle(self, command: VerifyOtpCommand) -> Result[VerifyOtpResult]:
         email = command.email.strip().casefold()
         now = self._clock_service.now()
         user = await self._users_repo.get_by_email_for_update(email)
@@ -67,7 +67,6 @@ class VerifyOtpHandler:
         matching_otp_challenge = await self._otp_challenges_repo.get_newest_by_digest_for_update(
             user.id, submitted_digest
         )
-        
 
         if matching_otp_challenge is not None:
             if matching_otp_challenge.consumed_at is not None:
@@ -82,9 +81,9 @@ class VerifyOtpHandler:
                 return Result.failure(OTP_SUPERSEDED)
 
             session_jti = uuid4()
-            token_expires_at = (
-                now + timedelta(minutes=self._access_token_ttl_minutes)
-            ).replace(microsecond=0)
+            token_expires_at = (now + timedelta(minutes=self._access_token_ttl_minutes)).replace(
+                microsecond=0
+            )
             await self._otp_challenges_repo.mark_consumed(matching_otp_challenge.id, now)
             await self._auth_sessions_repo.add(
                 AuthSession(
@@ -95,11 +94,9 @@ class VerifyOtpHandler:
                     created_at=now,
                 )
             )
-            access_token = self._token_service.encode(
-                user.id, session_jti, token_expires_at
-            )
+            access_token = self._token_service.encode(user.id, session_jti, token_expires_at)
             return Result.success(
-                VerifyOtpData(
+                VerifyOtpResult(
                     access_token=access_token,
                     expires_at=token_expires_at,
                 )
@@ -113,9 +110,7 @@ class VerifyOtpHandler:
             return Result.failure(OTP_EXPIRED)
 
         new_count = current_user.failed_attempt_count + 1
-        await self._otp_challenges_repo.set_failed_attempt_count(
-            current_user.id, new_count
-        )
+        await self._otp_challenges_repo.set_failed_attempt_count(current_user.id, new_count)
         if new_count >= self._otp_max_attempts:
             return Result.failure(OTP_LOCKED)
         return Result.failure(OTP_INVALID)

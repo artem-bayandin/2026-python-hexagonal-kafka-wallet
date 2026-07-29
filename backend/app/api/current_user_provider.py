@@ -5,9 +5,7 @@ from app.domain import CurrentUser
 
 class ContextVarCurrentUserProvider:
     def __init__(self) -> None:
-        self._current_user: ContextVar[CurrentUser] = ContextVar(
-            "current_user"
-        )
+        self._current_user: ContextVar[CurrentUser] = ContextVar("current_user")
 
     def bind(self, current_user: CurrentUser) -> Token[CurrentUser]:
         return self._current_user.set(current_user)

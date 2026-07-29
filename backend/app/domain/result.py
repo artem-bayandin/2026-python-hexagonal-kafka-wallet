@@ -1,11 +1,9 @@
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Self
-
-T = TypeVar("T")
+from typing import Self
 
 
 @dataclass(frozen=True, slots=True)
-class Result(Generic[T]):
+class Result[T]:
     _data: T | None = None
     _error_code: str | None = None
     _reason: Exception | None = None
@@ -13,9 +11,7 @@ class Result(Generic[T]):
     def __post_init__(self) -> None:
         valid_success = self._error_code is None and self._reason is None
         valid_failure = (
-            self._error_code is not None
-            and bool(self._error_code)
-            and self._data is None
+            self._error_code is not None and bool(self._error_code) and self._data is None
         )
         if not (valid_success or valid_failure):
             raise ValueError("Invalid Result initialization.")

@@ -1,7 +1,5 @@
 from .current_user import CurrentUser
-
 from .entities import AuthSession, OtpChallenge, User
-
 from .error_codes import (
     AUTHENTICATION_FAILED,
     OTP_CONSUMED,
@@ -10,7 +8,6 @@ from .error_codes import (
     OTP_LOCKED,
     OTP_SUPERSEDED,
 )
-
 from .ports import (
     # Providers
     CurrentUserProvider,
@@ -23,11 +20,8 @@ from .ports import (
     OtpService,
     TokenService,
 )
-
 from .result import Result
-
 from .token_claims import TokenClaims
-
 from .use_cases import (
     # CurrentUser
     GetCurrentUserHandler,
@@ -37,11 +31,11 @@ from .use_cases import (
     LogoutHandler,
     # RequestOTP
     RequestOtpCommand,
-    RequestOtpData,
+    RequestOtpResult,
     RequestOtpHandler,
     # VerifyOTP
     VerifyOtpCommand,
-    VerifyOtpData,
+    VerifyOtpResult,
     VerifyOtpHandler,
 )
 
@@ -77,9 +71,9 @@ __all__ = [
     "LogoutCommand",
     "LogoutHandler",
     "RequestOtpCommand",
-    "RequestOtpData",
+    "RequestOtpResult",
     "RequestOtpHandler",
     "VerifyOtpCommand",
-    "VerifyOtpData",
+    "VerifyOtpResult",
     "VerifyOtpHandler",
 ]
