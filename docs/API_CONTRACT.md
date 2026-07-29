@@ -100,7 +100,7 @@ Response: `200 OK`.
 {
   "items": [
     { "asset": "USDT", "available": "12.50000000" },
-    { "asset": "USD", "available": "4.00" }
+    { "asset": "USD", "available": "4.0000" }
   ]
 }
 ```
@@ -153,6 +153,25 @@ Response: `200 OK`.
 ### `GET /me/operations/{operation_id}`
 
 Available in version 2. Returns `200 OK` with an operation representation for the current user, or `404 OPERATION_NOT_FOUND` when the operation does not exist or is not owned by that user.
+
+## Reference
+
+Read-only catalog data. No authentication required.
+
+### `GET /reference/currencies`
+
+Returns `200 OK` and all rows from the `currencies` catalog, ordered by `label` ascending.
+
+```json
+{
+  "items": [
+    { "label": "USD", "name": "US Dollar", "type": "fiat", "precision": 4 },
+    { "label": "USDT", "name": "Tether USD", "type": "crypto", "precision": 8 }
+  ]
+}
+```
+
+`label` is the value sent as `asset` in deposit, exchange, and withdrawal requests. `precision` drives amount input validation and formatting in the UI.
 
 ## Admin
 

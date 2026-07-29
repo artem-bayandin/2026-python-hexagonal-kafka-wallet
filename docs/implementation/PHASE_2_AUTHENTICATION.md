@@ -26,7 +26,7 @@ This phase includes OTP request and verification, Bearer access tokens, server-s
 
 This phase deliberately excludes:
 
-- wallet `accounts`; add them in roadmap **Step 4 — Model accounts, balances, and transactions**;
+- wallet tables (`currencies`, `user_wallets`, `admin_wallets`, `transactions`); add them in roadmap **Step 4 — Model currencies, wallets, and transactions**;
 - automated tests; complete the deferred authentication unit tests from roadmap Steps 3, 6, and 7 together with the integration coverage in **Step 11 — Complete version-1 integration coverage**;
 - HTTP idempotency; it is deferred entirely to the roadmap's final optional hardening phase.
 

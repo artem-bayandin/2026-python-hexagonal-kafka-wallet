@@ -34,7 +34,7 @@ project-root/
 | Area | Version 1 | Version 2 |
 | --- | --- | --- |
 | Wallet mutations | Execute synchronously and return completed results. | Submit an operation and return `202 Accepted`; the worker later completes, rejects, or fails it. |
-| Balances | `AVAILABLE` only. | `AVAILABLE`, `PENDING`, and `REJECTED` user buckets. |
+| Balances | Single amount per wallet row. | Pending/rejected amounts per currency (strategy TBD). |
 | Infrastructure | PostgreSQL. | PostgreSQL, Kafka, outbox relay, and worker. |
 | Wallet feedback | Immediate result or error. | Pending operation ID and polling feedback. |
 | Kafka diagnostics | Not present. | Development-only diagnostics, disabled outside development. |

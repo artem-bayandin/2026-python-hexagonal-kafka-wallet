@@ -187,42 +187,43 @@ Files may be split further when they become large, but layer boundaries and depe
 ### 4.1 Identity and ownership
 
 - `User.id` is a UUID.
-- Each user owns one wallet account.
-- The application has one singleton admin account.
+- Each user may hold at most one wallet per currency (`user_wallets` row keyed by `user_id` + `currency_id`).
+- Admin custody is represented by `admin_wallets` — one row per currency.
 - Admin API-key access is not represented as a user role.
 - Other persisted entities use UUIDs where they cross process boundaries.
 
 ### 4.2 Money
 
-`Money` is a framework-free value object containing an asset and `Decimal` amount.
+`Money` is a framework-free value object containing a currency label and `Decimal` amount.
 
 - PostgreSQL stores amounts as fixed-precision `NUMERIC`, never float.
 - A suitable common column type is `NUMERIC(28, 8)`.
-- USDT permits at most 8 decimal places.
-- USD permits at most 2 decimal places.
-- Values must be positive for commands and non-negative for balances.
+- Per-currency decimal precision is defined in the `currencies` table (`precision` column). Initial seed: USD 4, USDT 8.
+- Values must be positive for commands and non-negative for wallet balances.
 - Mapping and validation must not silently round.
-- A 1:1 exchange must be exactly representable in the destination asset.
+- A 1:1 exchange must be exactly representable at the destination currency's precision.
 
-### 4.3 Balances
+### 4.3 Wallets and balances
 
-Balances are rows uniquely identified by account, asset, and balance bucket.
+User balances live on `user_wallets.amount`. Admin balances live on `admin_wallets.amount`.
 
-- Version 1 uses only the `AVAILABLE` bucket.
-- Version 2 supports `AVAILABLE`, `PENDING`, and `REJECTED` for users.
-- Admin balances use `AVAILABLE`.
-- Missing supported-asset balances may be represented as zero by query read models, while command repositories create rows when mutation requires them.
+- Version 1 stores a single amount per wallet row.
+- Version 2 may add balance buckets or equivalent columns — strategy TBD when Kafka work starts ([PHASE_6_KAFKA.md](implementation/PHASE_6_KAFKA.md)).
+- Missing `user_wallets` rows may be represented as zero by query read models; command repositories create rows when a mutation requires them.
+- Supported assets are rows in `currencies`, initially USD and USDT.
 
 ### 4.4 Business transactions
 
-Transaction types are `DEPOSIT`, `EXCHANGE`, and `WITHDRAWAL`.
+Transaction types are `deposit`, `exchange`, `withdrawal`, and `transfer` (schema-ready; transfer HTTP API is optional in Version 1).
 
-The operation's financial terms are immutable after creation. Its lifecycle status and timestamps may transition through controlled methods:
+Each row records a transfer between wallet endpoints: nullable `source_wallet_id` and `dest_wallet_id` reference `user_wallets.id`; NULL means admin/system (mint on deposit, sink on withdrawal). `source_amount` and `dest_amount` are always populated.
 
-- version 1: `COMPLETED`;
-- version 2: `PENDING`, `COMPLETED`, `REJECTED`, or `FAILED`.
+The operation's financial terms are immutable after creation. Its lifecycle status may transition through controlled methods:
 
-Transactions contain the fields relevant to their type, including owner, source/destination asset and amount, source bucket where applicable, safe failure reason, and timestamps.
+- version 1: `completed` or `failed`;
+- version 2: additional statuses such as `pending`, `rejected`.
+
+User transaction history is scoped by wallet ownership (`source_wallet_id` or `dest_wallet_id` in the user's wallet IDs). Phase 5 query repositories use a CTE + `IN` pattern (see [PHASE_3_WALLET_SCHEMA.md](implementation/PHASE_3_WALLET_SCHEMA.md)). Admin transaction listing queries all rows.
 
 ### 4.5 Authentication entities
 
@@ -310,10 +311,10 @@ A failed `Result` is an expected outcome, not a transaction failure. Therefore, 
 
 Balance-changing handlers:
 
-- lock all affected rows with `SELECT ... FOR UPDATE`;
-- acquire locks in deterministic account/asset/bucket order;
+- lock all affected wallet rows with `SELECT ... FOR UPDATE`;
+- acquire locks in deterministic order (by wallet `id` or `(user_id, currency_id)` as appropriate);
 - check funds after locks are acquired;
-- update balances and transaction history in the same database transaction.
+- update wallet amounts and transaction history in the same database transaction.
 
 Integration tests must cover concurrent debit attempts and prove that balances cannot become negative.
 
@@ -324,8 +325,9 @@ Authentication handlers also require concurrency control. Request and verificati
 Version 1 requires tables for:
 
 - users;
-- accounts;
-- balances;
+- currencies;
+- user wallets;
+- admin wallets;
 - business transactions;
 - OTP challenges;
 - authentication sessions.
@@ -400,7 +402,11 @@ The canonical request/response, pagination, status, error, and compatibility rul
 - `POST /auth/otp/verify`
 - `POST /auth/logout`
 
-### 8.2 User wallet
+### 8.2 Reference
+
+- `GET /reference/currencies` — no authentication
+
+### 8.3 User wallet
 
 - `GET /me/balances`
 - `POST /me/exchanges`
@@ -408,19 +414,19 @@ The canonical request/response, pagination, status, error, and compatibility rul
 - `GET /me/transactions`
 - `GET /me/operations/{operation_id}` in version 2
 
-### 8.3 Admin
+### 8.4 Admin
 
 - `POST /admin/deposits`
 - `GET /admin/balances`
 - `GET /admin/transactions`
 - `GET /admin/operations/{operation_id}` in version 2
 
-### 8.4 Kafka diagnostics
+### 8.5 Kafka diagnostics
 
 - `GET /kafka/messages`
 - `GET /kafka/messages/{message_id}`
 
-### 8.5 Health
+### 8.6 Health
 
 - `GET /health/live`
 - `GET /health/ready`

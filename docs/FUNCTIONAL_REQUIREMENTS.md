@@ -23,7 +23,7 @@ The admin can create mock deposits, view the application/admin balances, and vie
 - The initial supported assets are `USDT` and `USD`.
 - User and admin balances are collections keyed by asset, not hard-coded `crypto_balance` and `fiat_balance` fields.
 - USDT supports at most 8 decimal places.
-- USD supports at most 2 decimal places.
+- USD supports at most 4 decimal places.
 - Amounts must be positive and are never represented using binary floating point.
 - The sample exchange rate is fixed at `1 USDT = 1 USD`.
 - Source and destination assets must differ.

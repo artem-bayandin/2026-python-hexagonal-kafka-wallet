@@ -33,9 +33,9 @@ All Python/backend paths below are relative to `backend/`.
 ## Step 2 — Establish domain conventions and CQRS boundaries
 
 - [ ] Create framework-free domain packages for entities, value objects, enums, the generic `Result[T]`, ports, command handlers, query handlers, and read models.
-- [ ] Implement `Asset` with initial values `USDT` and `USD`.
+- [ ] Implement `Asset` with initial values `USDT` and `USD` (precision loaded from `currencies` in persistence layers).
 - [ ] Implement a `Money` value object using `Decimal`.
-- [ ] Enforce positive command amounts, non-negative stored balances, USDT scale 8, USD scale 2, and no implicit rounding.
+- [ ] Enforce positive command amounts, non-negative stored balances, per-currency precision from the catalog (USD 4, USDT 8), and no implicit rounding.
 - [ ] Define stable error-code constants for invalid amount, unsupported asset, invalid precision, and invalid state.
 - [ ] Define the CQRS convention:
       - command DTO plus one async command handler returning `Result[T]`;
@@ -62,13 +62,13 @@ All Python/backend paths below are relative to `backend/`.
 
 **Done when:** authentication lifecycle rules are fully demonstrated by pure unit tests without HTTP, JWT, or database adapters.
 
-## Step 4 — Model accounts, balances, and transactions
+## Step 4 — Model currencies, wallets, and transactions
 
-- [ ] Add a user wallet account and singleton admin account model.
-- [ ] Add `Balance`, initially with the `AVAILABLE` bucket only.
-- [ ] Add `DEPOSIT`, `EXCHANGE`, and `WITHDRAWAL` transaction types.
-- [ ] Add version-1 `COMPLETED` transaction behavior and immutable financial terms.
-- [ ] Define command repository methods needed to lock/create balances and persist business transactions.
+- [ ] Add `Currency` with type, name, label, and precision (seed USD 4, USDT 8).
+- [ ] Add `UserWallet` (one row per user per currency) and `AdminWallet` (one row per currency).
+- [ ] Add `deposit`, `exchange`, `withdrawal`, and `transfer` transaction types.
+- [ ] Add version-1 `completed` / `failed` transaction behavior and immutable financial terms.
+- [ ] Define command repository methods needed to lock/create user wallets, lock admin wallets, and persist business transactions.
 - [ ] Define query ports and frozen read models for:
       - current-user balances;
       - admin balances;
@@ -83,12 +83,12 @@ All Python/backend paths below are relative to `backend/`.
 
 - [ ] Create the async SQLAlchemy engine and sessionmaker from settings.
 - [ ] Implement the session lifecycle with `AsyncSession.begin()`: commit whenever a handler returns a `Result`, roll back when an unexpected exception escapes, and close always.
-- [ ] Add SQLAlchemy models for users, accounts, balances, transactions, OTP challenges, and authentication sessions.
-- [ ] Store money in PostgreSQL fixed-precision `NUMERIC`, with application and database constraints appropriate to asset precision and non-negative balances.
-- [ ] Add unique constraints for account ownership, account/asset/bucket balances, OTP/session identity, and other domain uniqueness rules, including at most one current unconsumed/uninvalidated OTP challenge per user.
-- [ ] Seed or deterministically create the singleton admin account.
+- [ ] Add SQLAlchemy models for users, currencies, user wallets, admin wallets, transactions, OTP challenges, and authentication sessions.
+- [ ] Store money in PostgreSQL fixed-precision `NUMERIC`, with application and database constraints appropriate to currency precision and non-negative wallet amounts.
+- [ ] Add unique constraints for `(user_id, currency_id)` on user wallets, one admin wallet per currency, OTP/session identity, and other domain uniqueness rules, including at most one current unconsumed/uninvalidated OTP challenge per user.
+- [ ] Seed currencies and admin wallets deterministically in the migration.
 - [ ] Implement domain/ORM mappers under `app/db/`.
-- [ ] Implement command repositories, including deterministic `SELECT ... FOR UPDATE` balance locking.
+- [ ] Implement command repositories, including deterministic `SELECT ... FOR UPDATE` wallet locking.
 - [ ] Implement query repositories as direct projections to frozen read models, with pagination.
 - [ ] Initialize Alembic under `backend/`, connect metadata/settings, generate the initial migration, review it manually, and apply it.
 - [ ] Add repository integration tests using PostgreSQL from testcontainers.
@@ -134,23 +134,23 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Inject `CurrentUserProvider` into authenticated HTTP wallet handlers instead of repeating `current_user` fields in their command/query DTOs; keep admin and worker identity explicit to their own inputs.
 - [ ] Implement admin mock deposit:
       - find the target by normalized email;
-      - create/lock the user's balance;
-      - credit available funds;
+      - create/lock the user's wallet for the currency;
+      - credit wallet amount;
       - add a completed deposit transaction;
       - do not debit admin.
 - [ ] Implement exchange:
-      - require different supported assets;
+      - require different supported currencies;
       - require exact destination precision;
-      - lock both balances in deterministic order;
+      - lock both user wallets in deterministic order;
       - verify source funds;
       - debit/credit at 1:1;
       - add one completed exchange transaction with both sides.
 - [ ] Implement withdrawal:
-      - lock user and admin balances in deterministic order;
+      - lock user wallet and matching admin wallet in deterministic order;
       - validate available funds;
       - debit user and credit admin;
       - add one completed withdrawal transaction.
-- [ ] Implement balance and transaction query handlers for users and admin.
+- [ ] Implement balance, currency catalog, and transaction query handlers for users and admin.
 - [ ] Unit-test command and query handlers with fake repositories, asserting `is_success`, `data`, and `error_code`.
 - [ ] Integration-test each handler with real PostgreSQL transactions.
 - [ ] Add a concurrent-withdrawal/exchange test proving the same balance cannot be overspent.
@@ -181,6 +181,7 @@ All Python/backend paths below are relative to `backend/`.
       - `POST /me/exchanges`;
       - `POST /me/withdrawals`;
       - `GET /me/transactions`;
+      - `GET /reference/currencies`;
       - `POST /admin/deposits`;
       - `GET /admin/balances`;
       - `GET /admin/transactions`.
@@ -207,7 +208,8 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Build History with pagination.
 - [ ] Build the development-only Admin page without requiring user login:
       - capture the admin key;
-      - create USDT/USD deposits;
+      - load currencies for the deposit selector;
+      - create deposits;
       - show admin balances;
       - show all-user transaction history.
 - [ ] Keep styling deliberately simple and accessible.
@@ -223,7 +225,7 @@ All Python/backend paths below are relative to `backend/`.
 - [ ] Cover protected routes and server-side logout revocation.
 - [ ] Cover request-scoped current-user binding/reset and prove one request's principal cannot leak into another request or a background execution path.
 - [ ] Cover admin-key rejection and success.
-- [ ] Cover USDT scale 8, USD scale 2, and non-representable exchanges.
+- [ ] Cover USDT precision 8, USD precision 4, and non-representable exchanges.
 - [ ] Cover deposit, both exchange directions, both withdrawal assets, admin balances, and user/admin history.
 - [ ] Cover automatic transaction commit for returned results, rollback when an unexpected exception escapes, and concurrent balance safety.
 - [ ] Run ruff, mypy, unit tests, integration tests, frontend tests, and frontend production build.
@@ -232,10 +234,10 @@ All Python/backend paths below are relative to `backend/`.
 
 ## Version 2 — Kafka-executed commands
 
-## Step 12 — Evolve balance and operation persistence
+## Step 12 — Evolve wallet and operation persistence
 
-- [ ] Add `PENDING` and `REJECTED` user balance buckets.
-- [ ] Add transaction statuses `PENDING`, `REJECTED`, and `FAILED` while retaining `COMPLETED`.
+- [ ] Add Version 2 pending/rejected balance representation (strategy TBD against `user_wallets` — see [PHASE_6_KAFKA.md](implementation/PHASE_6_KAFKA.md)).
+- [ ] Add transaction statuses `pending`, `rejected`, and additional failure states while retaining `completed`.
 - [ ] Add safe failure/result fields and lifecycle timestamps.
 - [ ] Add outbox, inbox/processed-message, and Kafka diagnostics message persistence.
 - [ ] Add unique message/operation constraints preventing duplicate application.
