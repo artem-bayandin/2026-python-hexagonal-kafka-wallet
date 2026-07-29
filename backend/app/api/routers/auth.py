@@ -1,8 +1,15 @@
-from fastapi import APIRouter, Request, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from app.dependencies import execute_request_otp, execute_verify_otp
-from app.domain import RequestOtpCommand, VerifyOtpCommand
+from app.domain import LogoutCommand, RequestOtpCommand, VerifyOtpCommand
 
+from ..dependencies import (
+    LogoutExecutor,
+    bind_current_user,
+    get_logout_executor,
+)
 from ..result_mapping import unwrap_result
 from ..schemas import (
     RequestOtpRequest,
@@ -56,3 +63,16 @@ async def verify_otp(
         token_type="bearer",
         expires_at=data.expires_at,
     )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(bind_current_user)],
+)
+async def logout(
+    executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
+) -> Response:
+    result = await executor(LogoutCommand())
+    unwrap_result(result)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -13,7 +13,9 @@ from app.db import (
     UserRepositoryImpl,
 )
 from app.domain import (
+    CurrentUserProvider,
     GetCurrentUserHandler,
+    LogoutHandler,
     RequestOtpCommand,
     RequestOtpData,
     RequestOtpHandler,
@@ -22,7 +24,6 @@ from app.domain import (
     VerifyOtpData,
     VerifyOtpHandler,
 )
-
 
 # GetCurrentUser
 
@@ -35,6 +36,19 @@ def build_get_current_user_handler(
         SystemClock(),
         AuthSessionRepositoryImpl(session),
         UserRepositoryImpl(session),
+    )
+
+
+# Logout
+
+def build_logout_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> LogoutHandler:
+    return LogoutHandler(
+        current_user_provider,
+        AuthSessionRepositoryImpl(session),
+        SystemClock(),
     )
 
 

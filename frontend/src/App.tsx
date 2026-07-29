@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { ApiError, checkAuthenticated, requestOtp, verifyOtp } from './api/client'
+import { ApiError, checkAuthenticated, logout, requestOtp, verifyOtp } from './api/client'
 import './App.css'
 
 type OtpStepState = {
@@ -113,6 +113,32 @@ function App() {
     }
   }
 
+  async function handleLogout() {
+    setErrorMessage(null)
+    setIsSubmitting(true)
+
+    try {
+      await logout()
+      setEmail('')
+      setOtpStep(null)
+      setOtp('')
+      setAuthStatus('unauthenticated')
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setEmail('')
+        setOtpStep(null)
+        setOtp('')
+        setAuthStatus('unauthenticated')
+      } else if (error instanceof ApiError) {
+        setErrorMessage(error.envelope.message)
+      } else {
+        setErrorMessage('Unable to log out. Please try again.')
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   if (authStatus === 'checking') {
     return (
       <main className="auth">
@@ -142,6 +168,19 @@ function App() {
       <main className="auth">
         <h1>Authorized</h1>
         <p className="auth-detail">You are signed in.</p>
+        {errorMessage !== null && (
+          <p className="auth-error" role="alert">
+            {errorMessage}
+          </p>
+        )}
+        <button
+          className="auth-button"
+          type="button"
+          onClick={handleLogout}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? 'Logging out…' : 'Logout'}
+        </button>
       </main>
     )
   }

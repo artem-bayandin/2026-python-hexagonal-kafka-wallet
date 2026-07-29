@@ -90,3 +90,18 @@ export async function checkAuthenticated(): Promise<{ status: string }> {
 
   return response.json() as Promise<{ status: string }>
 }
+
+export async function logout(): Promise<void> {
+  const response = await authenticatedFetch('/auth/logout', {
+    method: 'POST',
+  })
+
+  if (response.status === 204) {
+    sessionStorage.removeItem('access_token')
+    return
+  }
+
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+}

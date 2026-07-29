@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -9,4 +10,7 @@ class AuthSessionRepository(Protocol):
         ...
 
     async def get_by_jti(self, jti: UUID) -> AuthSession | None:
+        ...
+
+    async def revoke(self, jti: UUID, revoked_at: datetime) -> bool:
         ...

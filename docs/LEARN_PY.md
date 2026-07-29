@@ -178,6 +178,86 @@ response sent
 
 ---
 
+### `POST /auth/logout` — two `Depends` on one route
+
+File: `backend/app/api/routers/auth.py`
+
+```python
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(bind_current_user)],
+)
+async def logout(
+    executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
+) -> Response:
+    result = await executor(LogoutCommand())
+    unwrap_result(result)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+```
+
+This route uses **two** dependency mechanisms. They look similar but do different jobs.
+
+| # | Where | Dependency | What it does |
+|---|---|---|---|
+| 1 | `dependencies=[Depends(bind_current_user)]` on the decorator | Auth gate + request context | Validates Bearer token, loads `CurrentUser`, stores it in a `ContextVar`, cleans up in `finally` |
+| 2 | `executor: Annotated[..., Depends(get_logout_executor)]` on the handler parameter | Command executor | Returns the async closure that opens a DB transaction and runs `LogoutHandler` |
+
+#### Why not one `Depends`?
+
+Each dependency answers a different question:
+
+- **`bind_current_user`** — *"Is this request authenticated, and who is the caller?"*
+- **`get_logout_executor`** — *"How do I run the logout command for this HTTP request?"*
+
+They must run in order: auth and binding happen **before** the handler body. The handler then calls `executor(LogoutCommand())`, and the domain handler reads `session_jti` through `CurrentUserProvider.get()` — not from a route parameter.
+
+That separation is intentional hexagonal design: the route never sees `CurrentUser`, `session_jti`, or the raw JWT. Auth binding is an incoming-adapter concern; command execution is composition wiring.
+
+#### Why `bind_current_user` is on the decorator, not a parameter
+
+`bind_current_user` yields `None` — its value is useless to the handler. The handler only needs the **side effect** (user bound in the `ContextVar`).
+
+Putting it in `dependencies=[...]` on the decorator:
+
+- runs it as a gate before the handler;
+- avoids a dummy parameter like `_auth: Annotated[None, Depends(bind_current_user)]`;
+- matches `/health/authenticated`, which uses the same pattern.
+
+`get_logout_executor` **does** produce something the handler uses (the callable), so it belongs as a **parameter** dependency.
+
+#### Execution order
+
+```
+POST /auth/logout + Authorization: Bearer ...
+        │
+        ▼
+bind_current_user (route dependency)
+        │ parse Bearer → validate JWT + session
+        │ provider.bind(current_user)  ← LogoutHandler reads this later
+        ▼
+get_logout_executor (parameter dependency)
+        │ returns execute() closure wired to Request + session_factory
+        ▼
+logout() handler body
+        │ executor(LogoutCommand())
+        │   └─► build_logout_handler(..., get_current_user_provider())
+        │       └─► LogoutHandler.handle() → revoke session_jti
+        ▼
+bind_current_user finally: provider.reset()
+        │
+        ▼
+204 No Content
+```
+
+Note: `bind_current_user` and `get_logout_executor` each open their **own** short-lived DB session. That is safe here because logout uses a guarded `UPDATE` (`revoked_at IS NULL AND expires_at > :now`); even if auth read and revoke write are separate transactions, the write still fails cleanly when the session is already invalid.
+
+#### Compared to OTP routes
+
+`/auth/otp/request` and `/auth/otp/verify` have **no** auth dependency — they are public. Only logout (and authenticated health) combine route-level auth binding with handler-level executors.
+
+---
+
 ### Big picture
 
 ```mermaid
@@ -200,3 +280,4 @@ flowchart TD
 - `bind_current_user`'s parameters come from FastAPI's DI, not the client.
 - `Annotated[..., Depends(...)]` splits type vs injection.
 - `dependencies=[...]` on the route runs auth as a gate without adding parameters to the handler.
+- Logout uses **two** dependencies: decorator-level `bind_current_user` (auth + ContextVar side effect) and parameter-level `get_logout_executor` (injected command runner).

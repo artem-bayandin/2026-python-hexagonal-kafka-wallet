@@ -15,7 +15,7 @@ Within each feature slice, work in the strict order **Domain → DB → API → 
 - **Slice 1** complete.
 - **Slice 2** complete.
 - **Slice 3** complete.
-- **Next:** implement Slice 4.
+- **Slice 4** complete.
 
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 
@@ -46,7 +46,8 @@ A browser can request a development demo OTP, verify it, show **Authorized**, su
 - SQLAlchemy repositories live under `backend/app/db/repositories/<entity>_repository.py` and structurally implement their matching domain ports. Concrete classes use the `*Impl` suffix (for example `UserRepositoryImpl`) so they do not collide with domain Protocol names when re-exported from `app.db`.
 - Domain use cases live under `backend/app/domain/use_cases/<entity>/`, not a shared `commands/` or `queries/` directory.
 - HMAC/`secrets`, clock, and PyJWT implementations live under `backend/app/auth/` and structurally implement domain ports.
-- `backend/app/dependencies.py` is the composition root. It opens SQLAlchemy transaction contexts, composes handlers with repositories sharing one session, invokes the handler, and returns its `Result`.
+- `backend/app/dependencies.py` is the composition root. It composes domain handlers with inward adapters (`app.auth`, `app.db`, `app.domain`) and opens SQLAlchemy transaction contexts for commands that do not depend on HTTP request-scoped state.
+- `backend/app/api/dependencies.py` wires incoming-adapter concerns: Bearer extraction, request-scoped `CurrentUserProvider` binding, and FastAPI executors that need `Request` or the shared provider instance. It imports handler builders from `app.dependencies`; `app.dependencies` must never import from `app.api`.
 - API routers translate HTTP DTOs to commands and successful result data to response DTOs. Result-error-code-to-HTTP mapping lives only in `backend/app/api/exception_handlers.py`.
 - Every command executes inside `AsyncSession.begin()`. A returned `Result`, whether successful or failed, exits normally and commits; an unexpected exception escapes and rolls back.
 
@@ -1487,16 +1488,15 @@ It structurally implements the domain `CurrentUserProvider.get() -> CurrentUser`
 
 Create one provider instance in application composition and reuse that instance for request binding and handler injection. The stored value is task-local request context, not a process-global mutable user.
 
-In `backend/app/dependencies.py`, add:
+In `backend/app/dependencies.py`, add `build_get_current_user_handler(session, settings)` that wires `PyJwtTokenService`, `SystemClock`, `AuthSessionRepositoryImpl`, `UserRepositoryImpl`, and `GetCurrentUserHandler`.
+
+In `backend/app/api/dependencies.py`, add:
 
 - a module-level `ContextVarCurrentUserProvider` instance;
 - `get_current_user_provider()` that returns that same instance;
-- `build_get_current_user_handler(session)` that wires `PyJwtTokenService`, `SystemClock`, `AuthSessionRepositoryImpl`, `UserRepositoryImpl`, and `GetCurrentUserHandler`;
-- `execute_get_current_user(request, query)` that opens one short-lived `AsyncSession` from `request.app.state.session_factory`, invokes the handler, and closes the session without committing. Any implicit read transaction rolls back on close.
+- `GetCurrentUserExecutor` and `get_current_user_executor(request)`, which opens one short-lived `AsyncSession` from `request.app.state.session_factory`, invokes `build_get_current_user_handler`, and closes the session without committing. Any implicit read transaction rolls back on close.
 
-`GetCurrentUserExecutor` is the callable type of that executor. Expose it to FastAPI through `get_current_user_executor`, which returns `execute_get_current_user` (or an equivalent callable bound to app state).
-
-Add Bearer extraction and request binding to `backend/app/api/dependencies.py`:
+Add Bearer extraction and request binding to the same file:
 
 ```python
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -1648,9 +1648,29 @@ WHERE jti = :jti
 
 Return `rowcount == 1`. Do not filter or update by `user_id`. No schema migration is required.
 
-Implement `build_logout_handler` and `execute_logout` in `backend/app/dependencies.py` using the shared `ContextVarCurrentUserProvider` instance, `AuthSessionRepositoryImpl`, and the shared `SystemClock`. `LogoutExecutor` is the callable type of that executor; expose it through `get_logout_executor`. The API authentication dependency and logout executor may use separate short-lived database sessions; the former binds `CurrentUser`, while the guarded update makes the command safe if revocation occurs between those operations.
+In `backend/app/dependencies.py`, add `build_logout_handler(session, current_user_provider)` that wires the shared `CurrentUserProvider` port, `AuthSessionRepositoryImpl`, and `SystemClock`. Keep this module free of FastAPI `Request` objects and of imports from `app.api`.
+
+In `backend/app/api/dependencies.py`, add `LogoutExecutor` and `get_logout_executor(request)`. The executor opens its own short-lived `session.begin()` transaction, calls `build_logout_handler(session, get_current_user_provider())`, and invokes the handler. Mirror the Slice 3 `get_current_user_executor` pattern: request-scoped composition stays in the API layer so the composition root never depends upward on incoming adapters. The authentication dependency and logout executor may use separate short-lived database sessions; the former binds `CurrentUser`, while the guarded update makes the command safe if revocation occurs between those operations.
 
 ### API
+
+At the end of this API section, add logout wiring to `backend/app/api/dependencies.py`:
+
+```python
+LogoutExecutor = Callable[[LogoutCommand], Awaitable[Result[None]]]
+
+
+def get_logout_executor(request: Request) -> LogoutExecutor:
+    async def execute(command: LogoutCommand) -> Result[None]:
+        async with request.app.state.session_factory() as session, session.begin():
+            handler = build_logout_handler(
+                session,
+                get_current_user_provider(),
+            )
+            return await handler.handle(command)
+
+    return execute
+```
 
 At the end of this API section, alter `backend/app/api/routers/auth.py`:
 
@@ -1659,8 +1679,11 @@ from typing import Annotated
 
 from fastapi import Depends, Response
 
-from app.api.dependencies import bind_current_user
-from app.dependencies import LogoutExecutor, get_logout_executor
+from app.api.dependencies import (
+    LogoutExecutor,
+    bind_current_user,
+    get_logout_executor,
+)
 from app.domain import LogoutCommand
 
 

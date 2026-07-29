@@ -32,6 +32,9 @@ from .use_cases import (
     # CurrentUser
     GetCurrentUserHandler,
     GetCurrentUserQuery,
+    # Logout
+    LogoutCommand,
+    LogoutHandler,
     # RequestOTP
     RequestOtpCommand,
     RequestOtpData,
@@ -71,6 +74,8 @@ __all__ = [
     # Use cases
     "GetCurrentUserHandler",
     "GetCurrentUserQuery",
+    "LogoutCommand",
+    "LogoutHandler",
     "RequestOtpCommand",
     "RequestOtpData",
     "RequestOtpHandler",

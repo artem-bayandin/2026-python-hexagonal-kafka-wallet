@@ -4,19 +4,27 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .current_user_provider import ContextVarCurrentUserProvider
-from .result_mapping import unwrap_result
-from app.dependencies import build_get_current_user_handler
+from app.dependencies import build_get_current_user_handler, build_logout_handler
 from app.domain import (
     AUTHENTICATION_FAILED,
     CurrentUser,
     GetCurrentUserQuery,
+    LogoutCommand,
     Result,
 )
 
+from .current_user_provider import ContextVarCurrentUserProvider
+from .result_mapping import unwrap_result
+
+# Bearer scheme
+
 bearer_scheme = HTTPBearer(auto_error=False)
 
+# Current user provider
+
 _current_user_provider = ContextVarCurrentUserProvider()
+
+# Current user executor
 
 GetCurrentUserExecutor = Callable[
     [GetCurrentUserQuery], Awaitable[Result[CurrentUser]]
@@ -38,6 +46,25 @@ def get_current_user_executor(request: Request) -> GetCurrentUserExecutor:
 
     return execute
 
+
+# Logout executor
+
+LogoutExecutor = Callable[[LogoutCommand], Awaitable[Result[None]]]
+
+
+def get_logout_executor(request: Request) -> LogoutExecutor:
+    async def execute(command: LogoutCommand) -> Result[None]:
+        async with request.app.state.session_factory() as session, session.begin():
+            handler = build_logout_handler(
+                session,
+                get_current_user_provider(),
+            )
+            return await handler.handle(command)
+
+    return execute
+
+
+# Authenticated request binding
 
 async def bind_current_user(
     credentials: Annotated[
