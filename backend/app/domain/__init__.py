@@ -1,3 +1,5 @@
+from .current_user import CurrentUser
+
 from .entities import AuthSession, OtpChallenge, User
 
 from .error_codes import (
@@ -10,9 +12,13 @@ from .error_codes import (
 )
 
 from .ports import (
+    # Providers
+    CurrentUserProvider,
+    # Repositories
     AuthSessionRepository,
     OtpChallengeRepository,
     UserRepository,
+    # Services
     ClockService,
     OtpService,
     TokenService,
@@ -23,9 +29,14 @@ from .result import Result
 from .token_claims import TokenClaims
 
 from .use_cases import (
+    # CurrentUser
+    GetCurrentUserHandler,
+    GetCurrentUserQuery,
+    # RequestOTP
     RequestOtpCommand,
     RequestOtpData,
     RequestOtpHandler,
+    # VerifyOTP
     VerifyOtpCommand,
     VerifyOtpData,
     VerifyOtpHandler,
@@ -39,27 +50,27 @@ __all__ = [
     "OTP_INVALID",
     "OTP_LOCKED",
     "OTP_SUPERSEDED",
-
+    # Current user
+    "CurrentUser",
     # Entities
     "AuthSession",
     "OtpChallenge",
     "User",
-
     # Ports
+    "CurrentUserProvider",
     "AuthSessionRepository",
     "OtpChallengeRepository",
     "UserRepository",
     "ClockService",
     "OtpService",
     "TokenService",
-
     # Result
     "Result",
-
     # Token claims
     "TokenClaims",
-
     # Use cases
+    "GetCurrentUserHandler",
+    "GetCurrentUserQuery",
     "RequestOtpCommand",
     "RequestOtpData",
     "RequestOtpHandler",

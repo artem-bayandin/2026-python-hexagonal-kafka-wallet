@@ -13,6 +13,7 @@ from app.db import (
     UserRepositoryImpl,
 )
 from app.domain import (
+    GetCurrentUserHandler,
     RequestOtpCommand,
     RequestOtpData,
     RequestOtpHandler,
@@ -22,6 +23,22 @@ from app.domain import (
     VerifyOtpHandler,
 )
 
+
+# GetCurrentUser
+
+def build_get_current_user_handler(
+    session: AsyncSession,
+    settings: Settings,
+) -> GetCurrentUserHandler:
+    return GetCurrentUserHandler(
+        PyJwtTokenService(settings.jwt_secret),
+        SystemClock(),
+        AuthSessionRepositoryImpl(session),
+        UserRepositoryImpl(session),
+    )
+
+
+# RequestOTP
 
 def build_request_otp_handler(
     session: AsyncSession,
@@ -44,14 +61,15 @@ async def execute_request_otp(
     request: Request,
     command: RequestOtpCommand,
 ) -> Result[RequestOtpData]:
-    async with request.app.state.session_factory() as session:
-        async with session.begin():
-            handler = build_request_otp_handler(
-                session,
-                request.app.state.settings,
-            )
-            return await handler.handle(command)
+    async with request.app.state.session_factory() as session, session.begin():
+        handler = build_request_otp_handler(
+            session,
+            request.app.state.settings,
+        )
+        return await handler.handle(command)
 
+
+# VerifyOTP
 
 def build_verify_otp_handler(
     session: AsyncSession,
@@ -73,10 +91,9 @@ async def execute_verify_otp(
     request: Request,
     command: VerifyOtpCommand,
 ) -> Result[VerifyOtpData]:
-    async with request.app.state.session_factory() as session:
-        async with session.begin():
-            handler = build_verify_otp_handler(
-                session,
-                request.app.state.settings,
-            )
-            return await handler.handle(command)
+    async with request.app.state.session_factory() as session, session.begin():
+        handler = build_verify_otp_handler(
+            session,
+            request.app.state.settings,
+        )
+        return await handler.handle(command)

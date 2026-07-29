@@ -1,3 +1,5 @@
+from .current_user_provider import CurrentUserProvider
+
 from .repositories.auth_session_repository import AuthSessionRepository
 from .repositories.otp_challenge_repository import OtpChallengeRepository
 from .repositories.user_repository import UserRepository
@@ -7,6 +9,7 @@ from .services.otp_service import OtpService
 from .services.token_service import TokenService
 
 __all__ = [
+    "CurrentUserProvider",
     "AuthSessionRepository",
     "OtpChallengeRepository",
     "UserRepository",

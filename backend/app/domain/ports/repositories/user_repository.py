@@ -16,3 +16,6 @@ class UserRepository(Protocol):
 
     async def get_by_email_for_update(self, email: str) -> User | None:
         ...
+
+    async def get_by_id(self, user_id: UUID) -> User | None:
+        ...

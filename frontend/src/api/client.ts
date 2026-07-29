@@ -26,6 +26,28 @@ async function parseErrorResponse(response: Response): Promise<ApiError> {
   }
 }
 
+async function authenticatedFetch(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const token = sessionStorage.getItem('access_token')
+  const headers = new Headers(init.headers)
+  if (token !== null) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers,
+  })
+
+  if (response.status === 401) {
+    sessionStorage.removeItem('access_token')
+  }
+
+  return response
+}
+
 export async function requestOtp(email: string): Promise<RequestOtpResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/otp/request`, {
     method: 'POST',
@@ -57,4 +79,14 @@ export async function verifyOtp(
   const result = (await response.json()) as VerifyOtpResponse
   sessionStorage.setItem('access_token', result.access_token)
   return result
+}
+
+export async function checkAuthenticated(): Promise<{ status: string }> {
+  const response = await authenticatedFetch('/health/authenticated')
+
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+
+  return response.json() as Promise<{ status: string }>
 }

@@ -1,5 +1,5 @@
-import { type FormEvent, useState } from 'react'
-import { ApiError, requestOtp, verifyOtp } from './api/client'
+import { type FormEvent, useEffect, useState } from 'react'
+import { ApiError, checkAuthenticated, requestOtp, verifyOtp } from './api/client'
 import './App.css'
 
 type OtpStepState = {
@@ -7,6 +7,8 @@ type OtpStepState = {
   expiresAt: string
   demoOtp?: string
 }
+
+type AuthStatus = 'checking' | 'authorized' | 'unauthenticated' | 'check-error'
 
 function formatExpiry(iso: string): string {
   return new Date(iso).toLocaleString()
@@ -18,7 +20,41 @@ function App() {
   const [otp, setOtp] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isAuthorized, setIsAuthorized] = useState(false)
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
+    sessionStorage.getItem('access_token') ? 'checking' : 'unauthenticated',
+  )
+
+  useEffect(() => {
+    if (authStatus !== 'checking') {
+      return
+    }
+
+    let cancelled = false
+
+    async function validateSession() {
+      try {
+        await checkAuthenticated()
+        if (!cancelled) {
+          setAuthStatus('authorized')
+        }
+      } catch (error) {
+        if (cancelled) {
+          return
+        }
+        if (error instanceof ApiError && error.status === 401) {
+          setAuthStatus('unauthenticated')
+        } else {
+          setAuthStatus('check-error')
+        }
+      }
+    }
+
+    void validateSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [authStatus])
 
   async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -57,7 +93,7 @@ function App() {
       await verifyOtp(otpStep.email, otp)
       setOtpStep(null)
       setOtp('')
-      setIsAuthorized(true)
+      setAuthStatus('authorized')
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -69,7 +105,39 @@ function App() {
     }
   }
 
-  if (isAuthorized) {
+  function handleRetryAuthCheck() {
+    if (sessionStorage.getItem('access_token')) {
+      setAuthStatus('checking')
+    } else {
+      setAuthStatus('unauthenticated')
+    }
+  }
+
+  if (authStatus === 'checking') {
+    return (
+      <main className="auth">
+        <h1>Checking session…</h1>
+        <p className="auth-detail">Verifying your sign-in status.</p>
+      </main>
+    )
+  }
+
+  if (authStatus === 'check-error') {
+    return (
+      <main className="auth">
+        <h1>Session check failed</h1>
+        <p className="auth-detail">
+          We could not verify your session. Your sign-in token was kept so you can
+          try again.
+        </p>
+        <button className="auth-button" type="button" onClick={handleRetryAuthCheck}>
+          Retry
+        </button>
+      </main>
+    )
+  }
+
+  if (authStatus === 'authorized') {
     return (
       <main className="auth">
         <h1>Authorized</h1>

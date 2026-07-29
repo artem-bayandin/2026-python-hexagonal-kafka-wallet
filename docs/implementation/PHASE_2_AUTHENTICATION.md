@@ -14,7 +14,8 @@ Within each feature slice, work in the strict order **Domain → DB → API → 
 - **Slice 0 — configuration:** complete.
 - **Slice 1** complete.
 - **Slice 2** complete.
-- **Next:** implement Slice 3.
+- **Slice 3** complete.
+- **Next:** implement Slice 4.
 
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 

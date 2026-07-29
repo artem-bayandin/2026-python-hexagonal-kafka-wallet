@@ -39,3 +39,11 @@ class UserRepositoryImpl(UserRepository):
         if model is None:
             return None
         return user_to_domain(model)
+
+    async def get_by_id(self, user_id: UUID) -> User | None:
+        stmt = select(UserModel).where(UserModel.id == user_id)
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return user_to_domain(model)
