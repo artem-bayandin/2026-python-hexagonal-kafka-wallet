@@ -180,8 +180,10 @@ All Python/backend paths below are relative to `backend/`.
       - `GET /me/balances`;
       - `POST /me/exchanges`;
       - `POST /me/withdrawals`;
+      - `POST /me/transfers`;
       - `GET /me/transactions`;
       - `GET /reference/currencies`;
+      - `GET /reference/users`;
       - `POST /admin/deposits`;
       - `GET /admin/balances`;
       - `GET /admin/transactions`.
@@ -203,12 +205,14 @@ All Python/backend paths below are relative to `backend/`.
       - list USDT/USD balances;
       - exchange in either direction;
       - withdraw either asset;
+      - transfer to another user (recipient selector from `GET /reference/users` — emails only; submit `email`);
       - show immediate completed results and errors;
       - log out.
 - [ ] Build History with pagination.
 - [ ] Build the development-only Admin page without requiring user login:
       - capture the admin key;
-      - load currencies for the deposit selector;
+      - load currencies for the deposit asset selector;
+      - load users for the deposit recipient selector (`GET /reference/users` — emails only; submit `email`);
       - create deposits;
       - show admin balances;
       - show all-user transaction history.

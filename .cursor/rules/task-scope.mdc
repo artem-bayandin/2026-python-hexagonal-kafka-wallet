@@ -1,0 +1,41 @@
+---
+description: Do only what the user explicitly requested — doc, code, or a named slice
+alwaysApply: true
+---
+# Task scope — do only what was requested
+
+Before creating or editing files, classify the request into one scope. Do not expand beyond it unless the user asks.
+
+## Scope modes
+
+| Mode | User intent | Do | Do not |
+| --- | --- | --- | --- |
+| **Doc only** | Review, expand, append, or align a guide | Edit docs under `docs/` (or named doc paths) | Add or change application code, tests, or config |
+| **Code only** | Implement, fix, refactor named code | Edit the named layers/files | Rewrite phase guides unless asked |
+| **Doc + code** | Both are explicitly requested | Both, in the order stated | Extra “helpful” work outside scope |
+| **Advise only** | Explain, review, compare, plan | Answer in chat; cite code/docs | Edit files unless asked to apply changes |
+
+## Partial vs full work
+
+- **Full phase** — only when the user says to implement a whole phase (e.g. “implement Phase 4”).
+- **Named slice** — only that slice and its four layers if the user names it (e.g. “Slice 2 admin deposit”).
+- **Single layer** — only that layer (e.g. “add the domain handler for deposits”).
+- **Append doc with slices** — expand the phase guide with step-by-step slice sections (Phase 2 style); status may stay “not started” unless the user says implementation is done.
+
+If scope is ambiguous (doc vs code, full phase vs one slice, which files), **ask one clarifying question** instead of guessing.
+
+## Signal words
+
+- **Doc only:** “review”, “append”, “update the doc”, “expand the guide”, “align documentation”, “write the phase doc”.
+- **Code:** “implement”, “build”, “add endpoint”, “wire up”, “fix the bug in …”.
+- **Append ≠ implement:** “append `PHASE_4.md` with implementation of Slices” means document the slices in that file, not ship the phase in the repo.
+
+## Example (Phase 4)
+
+- Request: *Review `PHASE_4_ADMIN_WALLET.md` and append it with implementation of Slices in order Domain → DB → API → UI.*
+- **Correct:** Expand the markdown with slice sections, file paths, and checklists; no backend/frontend code.
+- **Wrong:** Implement handlers, repositories, routes, and Admin UI because the phase doc describes them.
+
+## After classifying
+
+State the chosen scope in one line, then execute only within that boundary.

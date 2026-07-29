@@ -214,7 +214,7 @@ User balances live on `user_wallets.amount`. Admin balances live on `admin_walle
 
 ### 4.4 Business transactions
 
-Transaction types are `deposit`, `exchange`, `withdrawal`, and `transfer` (schema-ready; transfer HTTP API is optional in Version 1).
+Transaction types are `deposit`, `exchange`, `withdrawal`, and `transfer`. The transfer HTTP API is implemented in Phase 5 (Version 1).
 
 Each row records a transfer between wallet endpoints: nullable `source_wallet_id` and `dest_wallet_id` reference `user_wallets.id`; NULL means admin/system (mint on deposit, sink on withdrawal). `source_amount` and `dest_amount` are always populated.
 
@@ -404,13 +404,15 @@ The canonical request/response, pagination, status, error, and compatibility rul
 
 ### 8.2 Reference
 
-- `GET /reference/currencies` — no authentication
+- `GET /reference/currencies` — `X-Admin-Key` or Bearer JWT
+- `GET /reference/users` — `X-Admin-Key` or Bearer JWT
 
 ### 8.3 User wallet
 
 - `GET /me/balances`
 - `POST /me/exchanges`
 - `POST /me/withdrawals`
+- `POST /me/transfers`
 - `GET /me/transactions`
 - `GET /me/operations/{operation_id}` in version 2
 

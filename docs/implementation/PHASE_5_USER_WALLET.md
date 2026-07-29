@@ -6,7 +6,7 @@ Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for architecture rules. Requir
 
 ## Purpose
 
-Deliver the **authenticated user** wallet experience for Version 1: view balances, exchange USDT↔USD at 1:1, withdraw to admin custody, and view personal transaction history. Completes synchronous Version 1 wallet behavior.
+Deliver the **authenticated user** wallet experience for Version 1: view balances, exchange USDT↔USD at 1:1, withdraw to admin custody, transfer to another user (same currency, 1:1), and view personal transaction history. Completes synchronous Version 1 wallet behavior.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ Deliver the **authenticated user** wallet experience for Version 1: view balance
 ### In scope
 
 - user wallet command and query handlers;
-- repository methods for exchange and withdrawal with deterministic wallet locking;
+- repository methods for exchange, withdrawal, and transfer with deterministic wallet locking;
 - HTTP user wallet routes and schemas;
 - Wallet React page replacing the Phase 2 temporary **Authorized** stub;
 - manual verification and static quality checks.
@@ -29,6 +29,7 @@ Deliver the **authenticated user** wallet experience for Version 1: view balance
 | --- | --- | --- |
 | `POST` | `/me/exchanges` | 1:1 exchange; different currencies; exact destination precision; lock both user wallets; `201 Created` |
 | `POST` | `/me/withdrawals` | Debit user wallet, credit matching `admin_wallets` row; `201 Created` |
+| `POST` | `/me/transfers` | Debit current user wallet, credit recipient wallet (same currency); resolve recipient by **email**; `201 Created` |
 | `GET` | `/me/transactions` | User's paginated history (via wallet ownership) |
 | `GET` | `/me/balances` | Per-currency amounts (USDT, USD) |
 
@@ -37,7 +38,6 @@ Request/response shapes: [API_CONTRACT.md](../API_CONTRACT.md) § User wallet.
 ### Out of scope
 
 - Admin routes (Phase 4);
-- User-to-user `transfer` HTTP API — `transfer` type exists in schema; endpoint deferred until explicitly scoped;
 - Kafka / async behavior (Phase 6);
 - automated tests (Phase 7).
 
@@ -51,12 +51,13 @@ Suggested slice order:
 2. **User transactions** — `GET /me/transactions`
 3. **Exchange** — `POST /me/exchanges`
 4. **Withdrawal** — `POST /me/withdrawals`
+5. **Transfer** — `POST /me/transfers`
 
 Queries can precede mutations so the UI has read endpoints before forms.
 
 ### Domain
 
-- command handlers: execute exchange, execute withdrawal;
+- command handlers: execute exchange, execute withdrawal, execute transfer;
 - query handlers: current-user balances, current-user transactions;
 - inject `CurrentUserProvider` — no `current_user` on command DTOs;
 - enforce: positive amounts, supported currencies, distinct exchange currencies, sufficient funds, exact destination precision, 1:1 rate.
@@ -75,7 +76,7 @@ Queries can precede mutations so the UI has read endpoints before forms.
 
 ### UI
 
-- Wallet page: balance list, exchange form (currencies from `GET /reference/currencies`), withdrawal form, link or section for history;
+- Wallet page: balance list, exchange form (currencies from `GET /reference/currencies`), withdrawal form, transfer form (recipient selector from `GET /reference/users` — show emails only; submit selected **email**, not `user_id`), link or section for history;
 - History page or embedded list with cursor pagination;
 - replace minimal **Authorized** state from Phase 2 with navigation to Wallet;
 - keep login/logout flow unchanged.
@@ -85,13 +86,14 @@ Queries can precede mutations so the UI has read endpoints before forms.
 From [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md) §5:
 
 - Exchange rate fixed at 1 USDT = 1 USD.
+- Transfer is same-currency, 1:1; recipient resolved by email.
 - Withdrawal credits the matching `admin_wallets` row — after this phase, admin balances become non-zero.
-- One immutable business transaction per deposit, exchange, or withdrawal.
+- One immutable business transaction per deposit, exchange, withdrawal, or transfer.
 - Insufficient funds → `409 INSUFFICIENT_FUNDS`.
 
 ## Done when (target)
 
-A logged-in user can view balances, exchange between USDT and USD, withdraw to admin, and page through their history. Admin balances reflect withdrawals. Concurrent exchange/withdraw attempts cannot drive wallet amounts negative (verified manually until Phase 7). Backend ruff/mypy and frontend lint/typecheck pass.
+A logged-in user can view balances, exchange between USDT and USD, withdraw to admin, transfer to another user by email, and page through their history. Admin balances reflect withdrawals. Concurrent exchange/withdraw/transfer attempts cannot drive wallet amounts negative (verified manually until Phase 7). Backend ruff/mypy and frontend lint/typecheck pass.
 
 ## What comes next
 

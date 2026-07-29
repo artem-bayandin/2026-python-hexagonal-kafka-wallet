@@ -131,6 +131,20 @@ Request:
 
 In version 2, the request also contains `source_bucket`, which is `AVAILABLE` or `REJECTED`. The status behavior is the same as exchanges.
 
+### `POST /me/transfers`
+
+Request:
+
+```json
+{
+  "email": "recipient@example.com",
+  "asset": "USDT",
+  "amount": "1.00000000"
+}
+```
+
+Same-currency 1:1 transfer to another user; recipient resolved by email. Returns `201 Created` in version 1.
+
 ### `GET /me/transactions`
 
 ### `GET /admin/transactions`
@@ -156,11 +170,11 @@ Available in version 2. Returns `200 OK` with an operation representation for th
 
 ## Reference
 
-Read-only catalog data. No authentication required.
+Read-only catalog data. Both routes require `X-Admin-Key` or `Authorization: Bearer`.
 
 ### `GET /reference/currencies`
 
-Returns `200 OK` and all rows from the `currencies` catalog, ordered by `label` ascending.
+Requires `X-Admin-Key` or `Authorization: Bearer`. Returns `200 OK` and all rows from the `currencies` catalog, ordered by `label` ascending.
 
 ```json
 {
@@ -172,6 +186,21 @@ Returns `200 OK` and all rows from the `currencies` catalog, ordered by `label` 
 ```
 
 `label` is the value sent as `asset` in deposit, exchange, and withdrawal requests. `precision` drives amount input validation and formatting in the UI.
+
+### `GET /reference/users`
+
+Requires `X-Admin-Key` or `Authorization: Bearer`. Returns `200 OK` and all registered users, ordered by `email` ascending.
+
+```json
+{
+  "items": [
+    { "user_id": "b17e3a12-3395-4b1c-82a5-2e57632fe6b4", "email": "alice@example.com" },
+    { "user_id": "c28f4b23-4406-5c2d-93b6-3f68743ff7c5", "email": "bob@example.com" }
+  ]
+}
+```
+
+The UI displays and selects by **email only** (ignores `user_id` for now). Deposit and transfer requests send `email`, not `user_id`.
 
 ## Admin
 

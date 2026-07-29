@@ -28,7 +28,8 @@ Deliver the **admin operator** wallet experience for Version 1: mock deposits, a
 
 | Method | Path | Version 1 behavior |
 | --- | --- | --- |
-| `GET` | `/reference/currencies` | List all supported currencies (public; used by admin deposit selector) |
+| `GET` | `/reference/currencies` | List all supported currencies, ordered by `label` asc; requires `X-Admin-Key` or Bearer JWT; used by admin deposit currency selector (Phase 4) and user exchange currency selector (Phase 5) |
+| `GET` | `/reference/users` | List registered users as `{ user_id, email }`, ordered by `email` asc; requires `X-Admin-Key` or Bearer JWT; used by admin deposit recipient selector (Phase 4) and user transfer recipient selector (Phase 5) |
 | `POST` | `/admin/deposits` | Credit target user's wallet for the currency; record `completed` deposit; **does not debit admin** |
 | `GET` | `/admin/transactions` | Paginated all-user history (`created_at DESC, id DESC`) |
 | `GET` | `/admin/balances` | Admin wallet amounts per currency — likely zero until Phase 5 withdrawals credit admin |
@@ -48,7 +49,8 @@ Follow Phase 2's vertical-slice flow. Work feature-by-feature in strict order **
 
 Suggested slice order:
 
-1. **Reference currencies** — `GET /reference/currencies` (public router; no admin key)
+1a. **Reference currencies** — `GET /reference/currencies`
+1b. **Reference users** — `GET /reference/users`
 2. **Admin deposit** — `POST /admin/deposits`
 3. **Admin balances** — `GET /admin/balances`
 4. **Admin transactions** — `GET /admin/transactions`
@@ -61,32 +63,32 @@ Within each slice: domain handler and ports first, then repository/mapper method
 - wallet error codes in `domain/error_codes.py` (`INSUFFICIENT_FUNDS`, `ADMIN_ACCESS_DENIED`, validation codes per [API_CONTRACT.md](../API_CONTRACT.md));
 - frozen read models for balance lists and transaction pages;
 - command handlers: create admin deposit;
-- query handlers: list currencies (reference), admin balances, admin all-user transactions;
+- query handlers: list currencies (reference), list users (reference), admin balances, admin all-user transactions;
 - separate command vs query repository ports per [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md).
 
 ### DB (extends Phase 3)
 
 - mappers: currency, user wallet, admin wallet, transaction ↔ domain;
 - command repositories: lock/create user wallets, persist transactions, resolve user by email, resolve currency by label, lock admin wallet on withdrawal path;
-- query repositories: list currencies from `currencies`, project balance list (join `admin_wallets` → `currencies`), and paginated transaction history;
+- query repositories: list currencies from `currencies`, list users from `users`, project balance list (join `admin_wallets` → `currencies`), and paginated transaction history;
 - `SELECT … FOR UPDATE` on user wallets for deposit path (future-proofing for Phase 5 concurrency).
 
 ### API
 
 - new router `backend/app/api/routers/admin.py` for admin-key routes;
-- new router `backend/app/api/routers/reference.py` for unauthenticated catalog routes (`GET /reference/currencies`);
+- new router `backend/app/api/routers/reference.py` for catalog routes (`GET /reference/currencies`, `GET /reference/users`; both with auth dependency accepting admin key or bearer);
 - admin key validation dependency (development only; `ADMIN_API_KEY` from settings);
 - register router in `main.py`;
 - extend `exception_handlers.py` with wallet error codes as handlers return them.
 
 ### UI
 
-- development-only Admin page: enter admin key (stored in `sessionStorage`), deposit form (email, currency selected from `GET /reference/currencies`, amount), balances display, transaction list;
+- development-only Admin page: enter admin key (stored in `sessionStorage`), deposit form (recipient email selected from `GET /reference/users` — show emails only; submit selected **email** to `POST /admin/deposits`, not `user_id`; currency from `GET /reference/currencies`; amount), balances display, transaction list;
 - attach `X-Admin-Key` on admin API calls via shared client helper.
 
 ## Done when (target)
 
-An operator can open the Admin page in development, load the currency list for the deposit selector, submit a deposit to a user email, see the deposit in admin transaction history, and see admin balances (still zero for currencies not yet received via withdrawal). Invalid admin key returns `403 ADMIN_ACCESS_DENIED`. Backend ruff/mypy and frontend lint/typecheck pass.
+An operator can open the Admin page in development, enter admin key, load the currency list and user list for the deposit selectors, submit a deposit to a selected user email, see the deposit in admin transaction history, and see admin balances (still zero for currencies not yet received via withdrawal). Invalid admin key returns `403 ADMIN_ACCESS_DENIED`. Backend ruff/mypy and frontend lint/typecheck pass.
 
 ## What comes next
 
