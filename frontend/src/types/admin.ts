@@ -39,6 +39,9 @@ export type TransactionItem = {
   id: string
   type: string
   status: string
+  source_asset: string | null
+  dest_asset: string | null
+  amount: string
   created_at: string
 }
 

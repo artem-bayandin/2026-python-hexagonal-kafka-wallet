@@ -1,5 +1,6 @@
 from .models import Base
 from .repositories import (
+    AdminWalletCommandRepositoryImpl,
     AdminWalletQueryRepositoryImpl,
     AuthSessionCommandRepositoryImpl,
     AuthSessionQueryRepositoryImpl,
@@ -10,12 +11,14 @@ from .repositories import (
     UserCommandRepositoryImpl,
     UserQueryRepositoryImpl,
     UserWalletCommandRepositoryImpl,
+    UserWalletQueryRepositoryImpl,
 )
 from .session import AsyncSession, build_session_factory
 
 __all__ = [
     "Base",
     # Repositories
+    "AdminWalletCommandRepositoryImpl",
     "AdminWalletQueryRepositoryImpl",
     "AuthSessionCommandRepositoryImpl",
     "AuthSessionQueryRepositoryImpl",
@@ -26,6 +29,7 @@ __all__ = [
     "UserCommandRepositoryImpl",
     "UserQueryRepositoryImpl",
     "UserWalletCommandRepositoryImpl",
+    "UserWalletQueryRepositoryImpl",
     # Session
     "AsyncSession",
     "build_session_factory",

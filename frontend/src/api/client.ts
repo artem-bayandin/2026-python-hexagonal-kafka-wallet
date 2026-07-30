@@ -1,4 +1,5 @@
 import type { ErrorEnvelope, RequestOtpResponse, VerifyOtpResponse } from '../types/auth'
+import { normalizeEmail } from '../utils/email'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
@@ -26,7 +27,7 @@ async function parseErrorResponse(response: Response): Promise<ApiError> {
   }
 }
 
-async function authenticatedFetch(
+export async function authenticatedFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
@@ -43,6 +44,7 @@ async function authenticatedFetch(
 
   if (response.status === 401) {
     sessionStorage.removeItem('access_token')
+    sessionStorage.removeItem('user_email')
   }
 
   return response
@@ -78,6 +80,10 @@ export async function verifyOtp(
 
   const result = (await response.json()) as VerifyOtpResponse
   sessionStorage.setItem('access_token', result.access_token)
+  const normalizedEmail = normalizeEmail(email)
+  if (normalizedEmail !== undefined) {
+    sessionStorage.setItem('user_email', normalizedEmail)
+  }
   return result
 }
 
@@ -98,6 +104,7 @@ export async function logout(): Promise<void> {
 
   if (response.status === 204) {
     sessionStorage.removeItem('access_token')
+    sessionStorage.removeItem('user_email')
     return
   }
 

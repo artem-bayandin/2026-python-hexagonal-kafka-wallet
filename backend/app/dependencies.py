@@ -5,6 +5,7 @@ from app.auth import (
 )
 from app.config import Settings
 from app.db import (
+    AdminWalletCommandRepositoryImpl,
     AdminWalletQueryRepositoryImpl,
     AsyncSession,
     AuthSessionCommandRepositoryImpl,
@@ -16,18 +17,24 @@ from app.db import (
     UserCommandRepositoryImpl,
     UserQueryRepositoryImpl,
     UserWalletCommandRepositoryImpl,
+    UserWalletQueryRepositoryImpl,
 )
 from app.domain import (
     AdminDepositHandler,
     CurrentUserProvider,
+    ExchangeHandler,
     GetAdminBalancesHandler,
     GetCurrentUserHandler,
+    GetUserBalancesHandler,
     ListAdminTransactionsHandler,
     ListCurrenciesHandler,
+    ListUserTransactionsHandler,
     ListUsersHandler,
     LogoutHandler,
     RequestOtpHandler,
+    TransferHandler,
     VerifyOtpHandler,
+    WithdrawHandler,
 )
 
 # GetCurrentUser
@@ -141,3 +148,79 @@ def build_list_admin_transactions_handler(
     session: AsyncSession,
 ) -> ListAdminTransactionsHandler:
     return ListAdminTransactionsHandler(TransactionQueryRepositoryImpl(session))
+
+
+# GetUserBalances
+
+
+def build_get_user_balances_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> GetUserBalancesHandler:
+    return GetUserBalancesHandler(
+        current_user_provider,
+        UserWalletQueryRepositoryImpl(session),
+    )
+
+
+# ListUserTransactions
+
+
+def build_list_user_transactions_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> ListUserTransactionsHandler:
+    return ListUserTransactionsHandler(
+        current_user_provider,
+        TransactionQueryRepositoryImpl(session),
+    )
+
+
+# Exchange
+
+
+def build_exchange_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> ExchangeHandler:
+    return ExchangeHandler(
+        current_user_provider,
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
+    )
+
+
+# Withdraw
+
+
+def build_withdraw_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> WithdrawHandler:
+    return WithdrawHandler(
+        current_user_provider,
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        AdminWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
+    )
+
+
+# Transfer
+
+
+def build_transfer_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> TransferHandler:
+    return TransferHandler(
+        current_user_provider,
+        UserCommandRepositoryImpl(session),
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
+    )

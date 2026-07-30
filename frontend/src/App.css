@@ -10,6 +10,71 @@
   margin: 0 auto;
 }
 
+.wallet-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-items: stretch;
+  flex-grow: 1;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.wallet-page > h1 {
+  text-align: center;
+  margin-top: 0;
+}
+
+.wallet-page > .auth-detail {
+  text-align: center;
+}
+
+.wallet-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.wallet-operations {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+.wallet-operation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.wallet-operation-card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.wallet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .wallet-operations {
+    grid-template-columns: 1fr;
+  }
+}
+
 .auth-detail {
   color: var(--text);
 }

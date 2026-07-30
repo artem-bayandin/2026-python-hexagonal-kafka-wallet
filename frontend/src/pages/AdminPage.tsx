@@ -15,6 +15,7 @@ import type {
   TransactionItem,
   UserReferenceItem,
 } from '../types/admin'
+import { formatTransactionAsset } from '../utils/transaction'
 
 type AdminPageProps = {
   onBack: () => void
@@ -55,6 +56,9 @@ export function AdminPage({ onBack }: AdminPageProps) {
   const selectedCurrency = currencies.find(
     (currency) => currency.label === selectedCurrencyLabel,
   )
+
+  const isBusy =
+    isLoading || isSubmittingDeposit || isLoadingMoreTransactions
 
   async function loadWalletData() {
     const [balanceResult, transactionResult] = await Promise.all([
@@ -172,7 +176,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
   }
 
   return (
-    <main className="auth">
+    <main className="wallet-page">
       <h1>Admin</h1>
       <p className="auth-detail">Development-only admin operator page.</p>
 
@@ -188,13 +192,9 @@ export function AdminPage({ onBack }: AdminPageProps) {
           required
           value={adminKeyInput}
           onChange={(event) => setAdminKeyInput(event.target.value)}
-          disabled={isLoading || isSubmittingDeposit || isLoadingMoreTransactions}
+          disabled={isBusy}
         />
-        <button
-          className="auth-button"
-          type="submit"
-          disabled={isLoading || isSubmittingDeposit || isLoadingMoreTransactions}
-        >
+        <button className="auth-button" type="submit" disabled={isBusy}>
           {isLoading ? 'Loading…' : 'Save key and load data'}
         </button>
       </form>
@@ -213,10 +213,12 @@ export function AdminPage({ onBack }: AdminPageProps) {
 
       {dataLoaded && (
         <>
-          <section className="auth-form">
-            <h2 className="auth-label">Admin balances</h2>
-            {balances.length === 0 ? (
-              <p className="auth-detail">Balances: no data</p>
+          <section className="wallet-section">
+            <h2 className="auth-label">Balances</h2>
+            {isLoading ? (
+              <p className="auth-detail">Loading balances…</p>
+            ) : balances.length === 0 ? (
+              <p className="auth-detail">No balances yet.</p>
             ) : (
               <table className="auth-table">
                 <thead>
@@ -237,60 +239,23 @@ export function AdminPage({ onBack }: AdminPageProps) {
             )}
           </section>
 
-          <section className="auth-form">
-            <h2 className="auth-label">Transaction history</h2>
-            {transactions.length === 0 ? (
-              <p className="auth-detail">Transactions: no data</p>
-            ) : (
-              <table className="auth-table">
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((transaction) => (
-                    <tr key={transaction.id}>
-                      <td>{transaction.type}</td>
-                      <td>{transaction.status}</td>
-                      <td>{formatTimestamp(transaction.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {transactions.length < transactionsTotalItems && (
-              <button
-                className="auth-button"
-                type="button"
-                onClick={handleLoadMoreTransactions}
-                disabled={
-                  isLoading ||
-                  isSubmittingDeposit ||
-                  isLoadingMoreTransactions
-                }
-              >
-                {isLoadingMoreTransactions ? 'Loading…' : 'Load more'}
-              </button>
-            )}
-          </section>
-
-          <section className="auth-form">
+          <form className="wallet-operation-card" onSubmit={handleDepositSubmit}>
+            <h2>Deposit</h2>
             <label className="auth-label" htmlFor="currency-select">
               Currency
             </label>
             {currencies.length === 0 ? (
-              <p className="auth-detail">Currencies: no data</p>
+              <p className="auth-detail">No currencies available.</p>
             ) : (
               <div className="auth-select-wrap">
                 <select
                   id="currency-select"
                   className="auth-input"
                   value={selectedCurrencyLabel}
-                  onChange={(event) => setSelectedCurrencyLabel(event.target.value)}
-                  disabled={isLoading || isSubmittingDeposit}
+                  onChange={(event) =>
+                    setSelectedCurrencyLabel(event.target.value)
+                  }
+                  disabled={isBusy}
                 >
                   {currencies.map((currency) => (
                     <option key={currency.label} value={currency.label}>
@@ -300,14 +265,11 @@ export function AdminPage({ onBack }: AdminPageProps) {
                 </select>
               </div>
             )}
-          </section>
-
-          <section className="auth-form">
             <label className="auth-label" htmlFor="user-select">
               Recipient user
             </label>
             {users.length === 0 ? (
-              <p className="auth-detail">Users: no data</p>
+              <p className="auth-detail">No users available.</p>
             ) : (
               <div className="auth-select-wrap">
                 <select
@@ -315,7 +277,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
                   className="auth-input"
                   value={selectedUserEmail}
                   onChange={(event) => setSelectedUserEmail(event.target.value)}
-                  disabled={isLoading || isSubmittingDeposit}
+                  disabled={isBusy}
                 >
                   {users.map((user) => (
                     <option key={user.user_id} value={user.email}>
@@ -325,9 +287,6 @@ export function AdminPage({ onBack }: AdminPageProps) {
                 </select>
               </div>
             )}
-          </section>
-
-          <form className="auth-form" onSubmit={handleDepositSubmit}>
             <label className="auth-label" htmlFor="deposit-amount">
               Amount
             </label>
@@ -340,10 +299,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
               disabled={
-                isLoading ||
-                isSubmittingDeposit ||
-                users.length === 0 ||
-                currencies.length === 0
+                isBusy || users.length === 0 || currencies.length === 0
               }
               step={
                 selectedCurrency !== undefined
@@ -355,8 +311,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
               className="auth-button"
               type="submit"
               disabled={
-                isLoading ||
-                isSubmittingDeposit ||
+                isBusy ||
                 users.length === 0 ||
                 currencies.length === 0 ||
                 amount.trim() === ''
@@ -365,12 +320,62 @@ export function AdminPage({ onBack }: AdminPageProps) {
               {isSubmittingDeposit ? 'Submitting…' : 'Submit deposit'}
             </button>
           </form>
+
+          <section className="wallet-section">
+            <h2 className="auth-label">Transaction history</h2>
+            {isLoading ? (
+              <p className="auth-detail">Loading transactions…</p>
+            ) : transactions.length === 0 ? (
+              <p className="auth-detail">No transactions yet.</p>
+            ) : (
+              <table className="auth-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Asset</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td>{transaction.type}</td>
+                      <td>
+                        {formatTransactionAsset(
+                          transaction.type,
+                          transaction.source_asset,
+                          transaction.dest_asset,
+                        )}
+                      </td>
+                      <td>{transaction.amount}</td>
+                      <td>{transaction.status}</td>
+                      <td>{formatTimestamp(transaction.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!isLoading && transactions.length < transactionsTotalItems && (
+              <button
+                className="auth-button"
+                type="button"
+                onClick={handleLoadMoreTransactions}
+                disabled={isBusy}
+              >
+                {isLoadingMoreTransactions ? 'Loading…' : 'Load more'}
+              </button>
+            )}
+          </section>
         </>
       )}
 
-      <button className="auth-button" type="button" onClick={onBack}>
-        Back to app
-      </button>
+      <div className="wallet-actions">
+        <button className="auth-button" type="button" onClick={onBack} disabled={isBusy}>
+          Back to app
+        </button>
+      </div>
     </main>
   )
 }

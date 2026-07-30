@@ -16,6 +16,7 @@ from app.api import (
     auth_router,
     health_router,
     reference_router,
+    wallet_router,
 )
 from app.config import Settings, get_settings
 from app.db import build_session_factory
@@ -56,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(reference_router)
     app.include_router(admin_router)
+    app.include_router(wallet_router)
 
     @app.get("/health/ready")
     async def health_ready(response: Response) -> dict[str, str]:

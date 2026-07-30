@@ -51,6 +51,10 @@ ERROR_RESPONSES: dict[str, tuple[int, str]] = {
         status.HTTP_422_UNPROCESSABLE_CONTENT,
         "The amount precision is invalid.",
     ),
+    "INSUFFICIENT_FUNDS": (
+        status.HTTP_409_CONFLICT,
+        "The available balance is insufficient for this operation.",
+    ),
 }
 
 

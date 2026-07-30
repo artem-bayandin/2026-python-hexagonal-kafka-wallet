@@ -1,8 +1,11 @@
+from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 
 from app.domain import UserWallet, UserWalletCommandRepository
 
@@ -44,6 +47,17 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             model = locked.scalar_one()
         return user_wallet_to_domain(model)
 
+    async def lock_for_update_ordered(self, wallet_ids: Sequence[UUID]) -> list[UserWallet]:
+        ordered_ids = sorted(set(wallet_ids))
+        stmt = (
+            select(UserWalletModel)
+            .where(UserWalletModel.id.in_(ordered_ids))
+            .order_by(UserWalletModel.id.asc())
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        return [user_wallet_to_domain(row) for row in result.scalars().all()]
+
     async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> None:
         stmt = (
             update(UserWalletModel)
@@ -54,3 +68,21 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             )
         )
         await self.session.execute(stmt)
+
+    async def debit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
+        stmt = (
+            update(UserWalletModel)
+            .where(
+                UserWalletModel.id == wallet_id,
+                UserWalletModel.amount >= amount,
+            )
+            .values(
+                amount=UserWalletModel.amount - amount,
+                updated_at=now,
+            )
+        )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0

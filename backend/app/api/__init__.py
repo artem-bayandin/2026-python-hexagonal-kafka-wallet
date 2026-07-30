@@ -4,7 +4,7 @@ from .exception_handlers import (
     handle_validation_error,
 )
 from .result_mapping import ApiResultError
-from .routers import admin_router, auth_router, health_router, reference_router
+from .routers import admin_router, auth_router, health_router, reference_router, wallet_router
 
 __all__ = [
     # Routers
@@ -12,6 +12,7 @@ __all__ = [
     "auth_router",
     "health_router",
     "reference_router",
+    "wallet_router",
     # Other
     "handle_api_result_error",
     "handle_uncaught_exception",

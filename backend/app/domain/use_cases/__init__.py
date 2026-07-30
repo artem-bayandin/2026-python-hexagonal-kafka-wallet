@@ -14,6 +14,21 @@ from .transaction.list_admin_transactions_query import (
     ListAdminTransactionsQuery,
 )
 from .user.list_users_query import ListUsersHandler, ListUsersQuery
+from .wallet import (
+    ExchangeCommand,
+    ExchangeHandler,
+    ExchangeResult,
+    GetUserBalancesHandler,
+    GetUserBalancesQuery,
+    ListUserTransactionsHandler,
+    ListUserTransactionsQuery,
+    TransferCommand,
+    TransferHandler,
+    TransferResult,
+    WithdrawCommand,
+    WithdrawHandler,
+    WithdrawResult,
+)
 
 __all__ = [
     "AdminDepositCommand",
@@ -37,4 +52,17 @@ __all__ = [
     "ListAdminTransactionsQuery",
     "ListUsersHandler",
     "ListUsersQuery",
+    "ExchangeCommand",
+    "ExchangeHandler",
+    "ExchangeResult",
+    "GetUserBalancesHandler",
+    "GetUserBalancesQuery",
+    "ListUserTransactionsHandler",
+    "ListUserTransactionsQuery",
+    "TransferCommand",
+    "TransferHandler",
+    "TransferResult",
+    "WithdrawCommand",
+    "WithdrawHandler",
+    "WithdrawResult",
 ]

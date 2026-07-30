@@ -21,7 +21,7 @@ from ..dependencies import (
     get_list_currencies_executor,
     require_admin_key,
 )
-from ..formatting import format_amount
+from ..formatting import amount_precision_asset, format_amount
 from ..result_mapping import unwrap_result
 from ..schemas.admin import AdminDepositRequest, AdminDepositResponse
 from ..schemas.wallet import (
@@ -87,6 +87,7 @@ async def list_admin_transactions(
         ListAdminTransactionsExecutor,
         Depends(get_list_admin_transactions_executor),
     ],
+    currencies_executor: Annotated[ListCurrenciesExecutor, Depends(get_list_currencies_executor)],
     page_number: Annotated[int, Query(ge=0)] = 0,
     page_size: Annotated[int, Query(gt=0, le=100)] = 20,
 ) -> TransactionListResponse:
@@ -97,6 +98,8 @@ async def list_admin_transactions(
             )
         )
     )
+    currencies = unwrap_result(await currencies_executor(ListCurrenciesQuery()))
+    precision_by_label = {item.label: item.precision for item in currencies}
     return TransactionListResponse(
         total_items=page.total_items,
         items=[
@@ -104,6 +107,13 @@ async def list_admin_transactions(
                 id=item.id,
                 type=item.type.upper(),
                 status=item.status.upper(),
+                source_asset=item.source_asset,
+                dest_asset=item.dest_asset,
+                amount=format_amount(
+                    item.amount,
+                    amount_precision_asset(item.source_asset, item.dest_asset),
+                    precision_by_label,
+                ),
                 created_at=item.created_at,
             )
             for item in page.items

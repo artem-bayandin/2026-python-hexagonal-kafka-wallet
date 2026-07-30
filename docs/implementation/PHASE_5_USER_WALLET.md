@@ -7,6 +7,7 @@ Implement authenticated user wallet features end to end in five vertical feature
 3. `exchange`
 4. `withdrawal`
 5. `transfer`
+6. `ui-polish` (transaction list enrichment, wallet/admin layout, integration fixes — see Slice 6)
 
 Within each feature slice, work in the strict order **Domain → DB → API → UI**. Do not run or demonstrate a feature slice until all four sections in that slice are complete.
 
@@ -16,11 +17,12 @@ Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for architecture rules, [PHASE
 
 - **Phase 3 wallet schema** complete (migration `d377d8c90992`).
 - **Phase 4 admin wallet** complete (reference routes, deposit, admin balances, admin transactions).
-- **Slice 1** not started.
-- **Slice 2** not started.
-- **Slice 3** not started.
-- **Slice 4** not started.
-- **Slice 5** not started.
+- **Slice 1** complete (`GET /me/balances`, `WalletPage` balances, `walletClient`, `authenticatedFetch` export).
+- **Slice 2** complete (`GET /me/transactions`, user ownership filter, history table with Load more).
+- **Slice 3** complete (`POST /me/exchanges`, exchange form, `INSUFFICIENT_FUNDS` → 409).
+- **Slice 4** complete (`POST /me/withdrawals`, `AdminWalletCommandRepository`, withdrawal form).
+- **Slice 5** complete (`POST /me/transfers`, transfer form, reference users/currencies via Bearer JWT).
+- **Slice 6** complete (transaction list `asset` / `amount`, wallet and admin wide layout, reference-auth and email-normalization fixes).
 - **Final verification** not started.
 
 Implementation note: `GET /me/transactions` uses offset pagination (`page_number`, `page_size`, `total_items`) matching Phase 4 admin history and the existing `TransactionListResponse` shape, rather than the cursor shape described in [API_CONTRACT.md](../API_CONTRACT.md). The running code is canonical; align the contract in a follow-up if needed.
@@ -91,7 +93,7 @@ Follow [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) § Architectural invariants.
 
 ## Shared implementation notes
 
-This section is reference material, not an implementation stage. It contains no create/update step. Complete file contents appear in Slice 1–5 at the point they are created or updated, preserving the Domain → DB → API → UI order.
+This section is reference material, not an implementation stage. It contains no create/update step. Complete file contents appear in Slice 1–6 at the point they are created or updated, preserving the Domain → DB → API → UI order.
 
 ### Target layout
 
@@ -103,7 +105,7 @@ backend/
     ├── dependencies.py              # extend with user-wallet handler builders
     ├── main.py                      # register wallet router
     ├── api/
-    │   ├── dependencies.py          # bind_current_user (existing); user-wallet executors
+    │   ├── dependencies.py          # bind_current_user; user-wallet executors; require_reference_auth fix (Slice 6)
     │   ├── formatting.py            # reuse format_amount
     │   ├── exception_handlers.py    # map INSUFFICIENT_FUNDS → 409 (Slice 3)
     │   ├── routers/
@@ -115,7 +117,7 @@ backend/
     │       ├── user_wallet_query_repository.py      # new (Slice 1)
     │       ├── user_wallet_command_repository.py    # extend: debit, lock ordered (Slice 3)
     │       ├── admin_wallet_command_repository.py   # new (Slice 4)
-    │       └── transaction_query_repository.py      # extend: list_user_page (Slice 2)
+        │       └── transaction_query_repository.py      # extend: list_user_page (Slice 2); currency joins (Slice 6)
     └── domain/
         ├── ports/repositories/
         │   ├── user_wallet_query_repository.py      # new
@@ -132,9 +134,14 @@ backend/
 
 frontend/src/
 ├── types/wallet.ts
-├── api/client.ts                    # export authenticatedFetch (or shared helper)
+├── utils/email.ts                   # normalizeEmail (Slice 6)
+├── utils/transaction.ts             # formatTransactionAsset (Slice 6)
+├── api/client.ts                    # export authenticatedFetch; store user_email on verify
 ├── api/walletClient.ts
-└── pages/WalletPage.tsx             # replaces Authorized stub
+├── App.css                          # wallet-page layout (Slice 6)
+└── pages/
+    ├── WalletPage.tsx               # replaces Authorized stub
+    └── AdminPage.tsx                # wide layout aligned with wallet (Slice 6)
 ```
 
 ### Cross-cutting rules
@@ -168,7 +175,7 @@ ORDER BY t.created_at DESC, t.id DESC;
 ```
 
 - **Reference reuse:** exchange/transfer UI loads currencies and users from Phase 4 `GET /reference/*` with the user's Bearer token (already accepted by `require_reference_auth`).
-- **Shared response DTOs:** reuse `BalanceItemResponse`, `BalanceListResponse`, `TransactionItemResponse`, `TransactionListResponse` from `api/schemas/wallet.py` and `format_amount` from `api/formatting.py`.
+- **Shared response DTOs:** reuse `BalanceItemResponse`, `BalanceListResponse`, `TransactionItemResponse`, `TransactionListResponse` from `api/schemas/wallet.py` and `format_amount` from `api/formatting.py`. From Slice 6 onward, `TransactionItemResponse` includes `source_asset`, `dest_asset`, and formatted `amount` (see Slice 6).
 
 ### Error codes introduced incrementally
 
@@ -587,7 +594,7 @@ export type TransactionList = {
 
 Add `listUserTransactions(pageNumber?, pageSize?)` to `walletClient.ts` (query string `page_number` / `page_size`).
 
-On `WalletPage`, render a transaction table and a **Load more** button when `transactions.length < total_items`. Increment `page_number` on each load. After a Phase 4 deposit that credited this user, the newest row shows `DEPOSIT` / `COMPLETED`.
+On `WalletPage`, render a transaction table and a **Load more** button when `transactions.length < total_items`. Increment `page_number` on each load. After a Phase 4 deposit that credited this user, the newest row shows `DEPOSIT` / `COMPLETED`. Slice 6 adds **Asset** and **Amount** columns (see below).
 
 **Slice 2 checkpoint:** `GET /me/transactions` returns only transactions where the current user owns the source or destination wallet, newest first, with `total_items` for Load more. Another user's deposits do not appear.
 
@@ -1258,6 +1265,133 @@ On `WalletPage`, add a transfer form:
 
 **Slice 5 checkpoint:** Transfer moves the amount from sender to recipient in the same currency; both users see the `TRANSFER` / `COMPLETED` row in their history; unknown email returns `404 USER_NOT_FOUND`; self-transfer returns `422 INVALID_AMOUNT`.
 
+## Slice 6 — transaction list enrichment and UI layout
+
+Follow-up polish after Slices 1–5: enrich admin and user transaction list responses with display amount and asset, fix wallet/reference integration bugs found during manual testing, and align the wallet and admin page layouts.
+
+### Domain
+
+Extend `backend/app/domain/read_models/transaction_list_item.py`:
+
+```python
+@dataclass(frozen=True, slots=True)
+class TransactionListItem:
+    id: UUID
+    type: str
+    status: str
+    created_at: datetime
+    amount: Decimal
+    source_asset: str | None
+    dest_asset: str | None
+```
+
+Display **amount** (backend; same rule for all types):
+
+- If `source_wallet_id` is `NULL` or `source_amount == 0` → use `dest_amount` (deposits).
+- Otherwise → use `source_amount` (withdrawals, exchanges, transfers).
+
+Pass through **currency labels** from joined wallet rows as `source_asset` / `dest_asset` (`None` when that side has no user wallet, e.g. deposit source). Do not compute a combined display label in the domain or DB layer.
+
+**Asset column display (frontend only):**
+
+| Type | UI **Asset** column |
+| --- | --- |
+| deposit | `dest_asset` |
+| withdrawal | `source_asset` |
+| transfer | `source_asset` (same currency both sides) |
+| exchange | `` `${source_asset}/${dest_asset}` `` |
+
+Implement in `frontend/src/utils/transaction.ts` as `formatTransactionAsset(type, source_asset, dest_asset)`.
+
+### DB
+
+Update `backend/app/db/mappers/transaction.py` — `transaction_to_list_item` accepts optional `source_asset` / `dest_asset` labels from joined wallet rows, selects display amount, and stores both labels on `TransactionListItem` unchanged.
+
+Extend `TransactionQueryRepositoryImpl` (`backend/app/db/repositories/transaction_query_repository.py`):
+
+- Add `_list_item_select()` with `OUTER JOIN` on source/dest `user_wallets` and `currencies` (aliased) so each row carries currency labels.
+- Use the enriched select in both `list_admin_page` and `list_user_page` (user filter unchanged).
+
+No new repository ports; only mapper and existing query impl changes.
+
+### API
+
+Extend `TransactionItemResponse` in `backend/app/api/schemas/wallet.py`:
+
+```python
+class TransactionItemResponse(BaseModel):
+    id: UUID
+    type: str
+    status: str
+    source_asset: str | None = None
+    dest_asset: str | None = None
+    amount: str
+    created_at: datetime
+```
+
+In both `api/routers/wallet.py` (`list_user_transactions`) and `api/routers/admin.py` (`list_admin_transactions`):
+
+- Inject `ListCurrenciesExecutor` alongside the transaction executor.
+- Build `precision_by_label` from `ListCurrenciesQuery`.
+- Map each item with `format_amount(item.amount, amount_precision_asset(item.source_asset, item.dest_asset), precision_by_label)` (`amount_precision_asset` in `api/formatting.py` prefers source label, else dest).
+- Keep uppercase `type` / `status`. Response exposes raw `source_asset` / `dest_asset`; combined labels are a UI concern.
+
+**Reference auth fix (required for wallet page):** In `api/dependencies.py`, `require_reference_auth` must declare `credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]` **without** `= None` as the parameter default (FastAPI otherwise skips dependency injection and Bearer JWT is ignored → `401` on `/reference/*` from the wallet UI). Place `credentials` before optional `x_admin_key` to satisfy Python parameter ordering. This function is shared with Phase 4 reference routes; the fix applies to both admin-key and Bearer callers.
+
+### UI
+
+#### Shared layout (`frontend/src/App.css`)
+
+Add `.wallet-page` (max-width 960px, top-aligned, full-width sections) — do **not** reuse narrow `.auth` centering for wallet/admin operator pages; tall content vertically centered in `.auth` appears blank.
+
+Reuse `.wallet-section`, `.wallet-operation-card`, `.wallet-operations` (grid for three user forms), and `.wallet-actions` from the wallet page.
+
+#### Email normalization (`frontend/src/utils/email.ts`)
+
+Browsers do not reliably support `String.prototype.casefold()`. Add:
+
+```typescript
+export function normalizeEmail(value: string | null | undefined): string | undefined
+```
+
+using `trim().toLowerCase()`. Use in `WalletPage` for self-transfer recipient filtering — never call `casefold()` in frontend code.
+
+In `frontend/src/api/client.ts`:
+
+- Export `authenticatedFetch`.
+- On successful `verifyOtp`, store normalized email in `sessionStorage` as `user_email` (optional UX: exclude self from transfer recipient list; cleared on logout and on `401`).
+
+#### Wallet page layout (`frontend/src/pages/WalletPage.tsx`)
+
+Section order after login:
+
+1. **Balances** table (Asset / Available) — same columns as admin balances widget.
+2. **Operations** row — Exchange, Withdraw, Transfer cards (`wallet-operations` grid; stacks on narrow viewports).
+3. **Transaction history** table — columns: **Type**, **Asset**, **Amount**, **Status**, **Created** (one value per column). **Asset** uses `formatTransactionAsset(type, source_asset, dest_asset)` (single label or `SOURCE/DEST` for exchange).
+4. **Load more**, dev admin link, **Logout**.
+
+Load balances/transactions and reference data on independent paths so a reference failure still shows balances when possible.
+
+Root element: `<main className="wallet-page">`.
+
+#### Admin page layout (`frontend/src/pages/AdminPage.tsx`)
+
+Align with wallet page width and section order (Phase 4 UI touch documented here because it shares wallet widgets):
+
+1. Admin API key form (unchanged entry point).
+2. **Balances** table (same Asset / Available widget as user page).
+3. **Deposit** card (`wallet-operation-card` — currency, recipient, amount, submit).
+4. **Transaction history** table (same five columns as wallet history).
+5. **Back to app** in `wallet-actions`.
+
+Root element: `<main className="wallet-page">`.
+
+#### Types
+
+Extend `TransactionItem` in both `frontend/src/types/wallet.ts` and `frontend/src/types/admin.ts` with `source_asset`, `dest_asset`, and `amount`. Add `frontend/src/utils/transaction.ts` with `formatTransactionAsset`. Render **Asset** via that helper in wallet and admin transaction tables.
+
+**Slice 6 checkpoint:** `GET /me/transactions` and `GET /admin/transactions` return `source_asset`, `dest_asset`, and catalog-formatted `amount` per row. UI **Asset** column shows one label or `SOURCE/DEST` for exchanges. Wallet and admin pages show wide top-aligned layout; transaction tables have separate Type / Asset / Amount / Status / Created columns. Logged-in wallet page loads `/reference/*` with Bearer JWT without `401`. No frontend `casefold()` usage.
+
 ## Final verification
 
 Prerequisites: PostgreSQL is healthy, wallet migration `d377d8c90992` is applied, Phase 4 admin deposit works, the backend runs on port 8000, the frontend runs on port 5173, and at least two users exist from Phase 2 OTP registration (sender + transfer recipient).
@@ -1265,7 +1399,7 @@ Prerequisites: PostgreSQL is healthy, wallet migration `d377d8c90992` is applied
 - [ ] Missing or invalid Bearer token on `/me/*` returns `401 AUTHENTICATION_FAILED`.
 - [ ] After an admin deposit to user A, `GET /me/balances` (as A) shows the credited amount; other catalog currencies appear at zero with correct precision.
 - [ ] `GET /me/transactions` paginates with `page_number` / `page_size` / `total_items`; A's deposit appears; user B does not see A's deposit.
-- [ ] Exchange USDT→USD (and USD→USDT) at 1:1 updates both balances and inserts a `completed` exchange row with both wallet FKs set.
+- [ ] Exchange USDT→USD (and USD→USDT) at 1:1 updates both balances and inserts a `completed` exchange row with both wallet FKs set; transaction history **Asset** column shows `USDT/USD` or `USD/USDT`.
 - [ ] Exchange with same source and destination asset returns `422 INVALID_AMOUNT`.
 - [ ] Exchange/withdraw/transfer with excess fractional digits for the asset returns `422 INVALID_PRECISION`.
 - [ ] Exchange/withdraw/transfer above available balance returns `409 INSUFFICIENT_FUNDS`.
@@ -1274,6 +1408,8 @@ Prerequisites: PostgreSQL is healthy, wallet migration `d377d8c90992` is applied
 - [ ] Transfer by recipient email credits B and debits A; both histories show the transfer; unknown email returns `404 USER_NOT_FOUND`.
 - [ ] Self-transfer returns `422 INVALID_AMOUNT`.
 - [ ] Wallet UI replaces the Authorized stub: balances, history with Load more, exchange, withdrawal, and transfer forms work with the signed-in JWT.
+- [ ] Wallet and admin pages use the wide `wallet-page` layout (balances → operations/deposit → transaction history); transaction tables show separate Type, Asset, Amount, Status, and Created columns.
+- [ ] `GET /me/transactions` and `GET /admin/transactions` include `source_asset`, `dest_asset`, and formatted `amount` on each item; UI **Asset** column shows single label or exchange pair.
 - [ ] Transfer/exchange currency and recipient selectors use `GET /reference/*` with Bearer JWT (no admin key required for the user Wallet page).
 - [ ] Unexpected command exceptions roll back the transaction; validation failures occur before wallet locks when practical.
 - [ ] Concurrent manual double-spend attempts cannot drive wallet amounts negative (spot-check until Phase 7).

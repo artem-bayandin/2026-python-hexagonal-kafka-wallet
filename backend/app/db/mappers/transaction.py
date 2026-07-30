@@ -3,12 +3,25 @@ from app.domain import Transaction, TransactionListItem
 from ..models import TransactionModel
 
 
-def transaction_to_list_item(model: TransactionModel) -> TransactionListItem:
+def transaction_to_list_item(
+    model: TransactionModel,
+    *,
+    source_asset: str | None,
+    dest_asset: str | None,
+) -> TransactionListItem:
+    if model.source_wallet_id is None or model.source_amount == 0:
+        amount = model.dest_amount
+    else:
+        amount = model.source_amount
+
     return TransactionListItem(
         id=model.id,
         type=model.type,
         status=model.status,
         created_at=model.created_at,
+        amount=amount,
+        source_asset=source_asset,
+        dest_asset=dest_asset,
     )
 
 
