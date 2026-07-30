@@ -10,10 +10,13 @@ from app.db import (
     AuthSessionQueryRepositoryImpl,
     CurrencyQueryRepositoryImpl,
     OtpChallengeCommandRepositoryImpl,
+    TransactionCommandRepositoryImpl,
     UserCommandRepositoryImpl,
     UserQueryRepositoryImpl,
+    UserWalletCommandRepositoryImpl,
 )
 from app.domain import (
+    AdminDepositHandler,
     CurrentUserProvider,
     GetCurrentUserHandler,
     ListCurrenciesHandler,
@@ -101,3 +104,18 @@ def build_list_currencies_handler(session: AsyncSession) -> ListCurrenciesHandle
 
 def build_list_users_handler(session: AsyncSession) -> ListUsersHandler:
     return ListUsersHandler(UserQueryRepositoryImpl(session))
+
+
+# AdminDeposit
+
+
+def build_admin_deposit_handler(
+    session: AsyncSession,
+) -> AdminDepositHandler:
+    return AdminDepositHandler(
+        UserCommandRepositoryImpl(session),
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
+    )

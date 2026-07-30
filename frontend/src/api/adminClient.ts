@@ -1,5 +1,11 @@
 import { ApiError } from './client'
-import type { CurrencyItem, DataList, UserReferenceItem } from '../types/admin'
+import type {
+  AdminDepositRequest,
+  AdminDepositResponse,
+  CurrencyItem,
+  DataList,
+  UserReferenceItem,
+} from '../types/admin'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
@@ -58,4 +64,17 @@ export async function listReferenceUsers(): Promise<DataList<UserReferenceItem>>
     throw await parseErrorResponse(response)
   }
   return response.json() as Promise<DataList<UserReferenceItem>>
+}
+
+export async function AdminDeposit(
+  body: AdminDepositRequest,
+): Promise<AdminDepositResponse> {
+  const response = await adminFetch('/admin/deposits', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+  return response.json() as Promise<AdminDepositResponse>
 }

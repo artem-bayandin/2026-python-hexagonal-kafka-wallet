@@ -1,3 +1,8 @@
+from .admin.admin_deposit_cmd import (
+    AdminDepositCommand,
+    AdminDepositHandler,
+    AdminDepositResult,
+)
 from .auth_session.logout_cmd import LogoutCommand, LogoutHandler
 from .currency.list_currencies_query import ListCurrenciesHandler, ListCurrenciesQuery
 from .otp.request_otp_cmd import RequestOtpCommand, RequestOtpResult, RequestOtpHandler
@@ -6,6 +11,9 @@ from .user.get_current_user_query import GetCurrentUserHandler, GetCurrentUserQu
 from .user.list_users_query import ListUsersHandler, ListUsersQuery
 
 __all__ = [
+    "AdminDepositCommand",
+    "AdminDepositHandler",
+    "AdminDepositResult",
     "LogoutCommand",
     "LogoutHandler",
     "ListCurrenciesHandler",

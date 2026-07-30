@@ -31,6 +31,26 @@ ERROR_RESPONSES: dict[str, tuple[int, str]] = {
         status.HTTP_401_UNAUTHORIZED,
         "Authentication failed.",
     ),
+    "ADMIN_ACCESS_DENIED": (
+        status.HTTP_403_FORBIDDEN,
+        "Admin access denied.",
+    ),
+    "USER_NOT_FOUND": (
+        status.HTTP_404_NOT_FOUND,
+        "User not found.",
+    ),
+    "UNSUPPORTED_ASSET": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The asset is not supported.",
+    ),
+    "INVALID_AMOUNT": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The amount is invalid.",
+    ),
+    "INVALID_PRECISION": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The amount precision is invalid.",
+    ),
 }
 
 

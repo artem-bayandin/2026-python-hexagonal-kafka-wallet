@@ -136,8 +136,8 @@ backend/
         └── use_cases/
             ├── currency/list_currencies_query.py
             ├── user/list_users_query.py
-            ├── admin_deposit/create_admin_deposit_cmd.py
-            ├── admin_wallet/get_admin_balances_query.py
+            ├── admin/admin_deposit_cmd.py
+            ├── admin/get_admin_balances_query.py
             └── transaction/list_admin_transactions_query.py
 
 frontend/src/
@@ -787,22 +787,22 @@ async def get_by_label(self, label: str) -> Currency | None: ...
 
 Alternatively, add `CurrencyCommandRepository` with `get_by_label` if you prefer strict command/query separation for currencies. The handler needs label lookup during deposit.
 
-Create `CreateAdminDepositCommand`, `CreateAdminDepositResult`, and `CreateAdminDepositHandler` in `backend/app/domain/use_cases/admin_deposit/create_admin_deposit_cmd.py`:
+Create `AdminDepositCommand`, `AdminDepositResult`, and `AdminDepositHandler` in `backend/app/domain/use_cases/admin_deposit/admin_deposit_cmd.py`:
 
 ```python
 @dataclass(frozen=True, slots=True)
-class CreateAdminDepositCommand:
+class AdminDepositCommand:
     email: str
     asset_label: str
     amount_str: str
 
 
 @dataclass(frozen=True, slots=True)
-class CreateAdminDepositResult:
+class AdminDepositResult:
     transaction_id: UUID
 
 
-class CreateAdminDepositHandler:
+class AdminDepositHandler:
     def __init__(
         self,
         users_repo: UserRepository,
@@ -814,8 +814,8 @@ class CreateAdminDepositHandler:
         ...
 
     async def handle(
-        self, command: CreateAdminDepositCommand
-    ) -> Result[CreateAdminDepositResult]:
+        self, command: AdminDepositCommand
+    ) -> Result[AdminDepositResult]:
         email = command.email.strip().casefold()
         currency = await self._currency_query_repo.get_by_label(
             command.asset_label.strip().upper()
@@ -856,14 +856,14 @@ class CreateAdminDepositHandler:
                 created_at=now,
             )
         )
-        return Result.success(CreateAdminDepositResult(transaction_id=transaction_id))
+        return Result.success(AdminDepositResult(transaction_id=transaction_id))
 ```
 
 Validation failures return before any wallet lock or mutation, so no partial state is written.
 
 #### Package façade update
 
-Export `Money`, `Asset`, wallet entities, command ports, `CreateAdminDepositCommand`, `CreateAdminDepositResult`, `CreateAdminDepositHandler`, and new error codes from `domain/__init__.py`.
+Export `Money`, `Asset`, wallet entities, command ports, `AdminDepositCommand`, `AdminDepositResult`, `AdminDepositHandler`, and new error codes from `domain/__init__.py`.
 
 ### DB
 
@@ -928,10 +928,10 @@ Extend `CurrencyQueryRepositoryImpl` with `get_by_label` returning a `Currency` 
 In `backend/app/dependencies.py`, add:
 
 ```python
-def build_create_admin_deposit_handler(
+def build_admin_deposit_handler(
     session: AsyncSession,
-) -> CreateAdminDepositHandler:
-    return CreateAdminDepositHandler(
+) -> AdminDepositHandler:
+    return AdminDepositHandler(
         UserRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
@@ -998,13 +998,13 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
 
 
-class CreateAdminDepositRequest(BaseModel):
+class AdminDepositRequest(BaseModel):
     email: EmailStr
     asset: str = Field(max_length=6)
     amount: str
 
 
-class CreateAdminDepositResponse(BaseModel):
+class AdminDepositResponse(BaseModel):
     id: UUID
     type: str = "DEPOSIT"
     status: str = "COMPLETED"
@@ -1024,23 +1024,23 @@ router = APIRouter(prefix="/admin", tags=["admin"])
     dependencies=[Depends(require_admin_key)],
 )
 async def create_deposit(
-    body: CreateAdminDepositRequest,
+    body: AdminDepositRequest,
     executor: Annotated[
-        CreateAdminDepositExecutor, Depends(get_create_admin_deposit_executor)
+        AdminDepositExecutor, Depends(get_admin_deposit_executor)
     ],
-) -> CreateAdminDepositResponse:
+) -> AdminDepositResponse:
     result = await executor(
-        CreateAdminDepositCommand(
+        AdminDepositCommand(
             email=body.email,
             asset_label=body.asset,
             amount_str=body.amount,
         )
     )
     data = unwrap_result(result)
-    return CreateAdminDepositResponse(id=data.transaction_id)
+    return AdminDepositResponse(id=data.transaction_id)
 ```
 
-Wire `get_create_admin_deposit_executor` to open `session.begin()`, call `build_create_admin_deposit_handler`, and invoke the handler.
+Wire `get_admin_deposit_executor` to open `session.begin()`, call `build_admin_deposit_handler`, and invoke the handler.
 
 Register `admin_router` in `main.py` behind the development gate.
 
@@ -1055,7 +1055,7 @@ Extend `frontend/src/types/admin.ts` with deposit request/response types.
 Add to `adminClient.ts`:
 
 ```typescript
-export async function createAdminDeposit(body: {
+export async function AdminDeposit(body: {
   email: string
   asset: string
   amount: string
@@ -1076,7 +1076,7 @@ On the Admin page, wire the deposit form:
 - recipient `<select>` from `listReferenceUsers()` — display **email only**, submit `email`;
 - currency `<select>` from `listReferenceCurrencies()` — submit `label` as `asset`;
 - amount text input; optionally constrain `step`/`pattern` from selected currency `precision`;
-- on submit call `createAdminDeposit`; show success message with transaction id or standard error envelope message.
+- on submit call `AdminDeposit`; show success message with transaction id or standard error envelope message.
 
 **Slice 2 checkpoint:** Deposit credits the user wallet; a `completed` deposit row exists with `source_wallet_id = NULL`; `admin_wallets` amounts remain zero. Invalid admin key returns `403 ADMIN_ACCESS_DENIED`.
 
@@ -1097,7 +1097,7 @@ class BalanceItem:
     available: Decimal
 ```
 
-Create `GetAdminBalancesQuery` and `GetAdminBalancesHandler` in `backend/app/domain/use_cases/admin_wallet/get_admin_balances_query.py`:
+Create `GetAdminBalancesQuery` and `GetAdminBalancesHandler` in `backend/app/domain/use_cases/admin/get_admin_balances_query.py`:
 
 ```python
 class GetAdminBalancesHandler:

@@ -12,6 +12,7 @@ from app.api import (
     handle_api_result_error,
     handle_uncaught_exception,
     handle_validation_error,
+    admin_router,
     auth_router,
     health_router,
     reference_router,
@@ -54,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(health_router)
     app.include_router(reference_router)
+    app.include_router(admin_router)
 
     @app.get("/health/ready")
     async def health_ready(response: Response) -> dict[str, str]:

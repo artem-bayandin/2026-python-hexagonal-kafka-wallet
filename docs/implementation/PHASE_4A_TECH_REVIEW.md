@@ -6,7 +6,14 @@ Scope: while implementing phases, some questions were left open. In current phas
 
 - verify functions names, if these are accurate or not about what's happening inside;
 - verify sql commands;
-- verify it all together with commands and queries where these repositories are used, try to find a better solution.
+- verify it all together with commands and queries where these repositories are used, try to find a better solution;
+- verify functions to duplicates
+- UserCommandRepositoryImpl.get_by_normalized_email with no lock?
+
+## Domain entities
+
+- are they needed? might they have another fields?
+- mappers from domain <-> db, domain <-> api
 
 ## Dependencies
 
@@ -21,3 +28,7 @@ Dependencies files should be reviewed together with api routes/etc, where deps a
 ## Routers
 
 Review how executors and handlers are created for routers. It should all go aligned with a single scheme. Executors and Handlers might be the same entity, as well as handling/executing.
+
+## Other
+
+- require-admin-key + require-jwt = composition of two

@@ -6,6 +6,7 @@ from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.dependencies import (
+    build_admin_deposit_handler,
     build_get_current_user_handler,
     build_list_currencies_handler,
     build_list_users_handler,
@@ -14,7 +15,10 @@ from app.dependencies import (
     build_verify_otp_handler,
 )
 from app.domain import (
+    ADMIN_ACCESS_DENIED,
     AUTHENTICATION_FAILED,
+    AdminDepositCommand,
+    AdminDepositResult,
     CurrencyCatalogItem,
     CurrentUser,
     GetCurrentUserQuery,
@@ -164,6 +168,24 @@ async def require_reference_auth(
     unwrap_result(Result.failure(AUTHENTICATION_FAILED))
 
 
+# Admin auth
+
+
+async def require_admin_key(
+    request: Request,
+    x_admin_key: Annotated[str | None, Header(alias=ADMIN_KEY_HEADER)] = None,
+) -> None:
+    settings = request.app.state.settings
+    if settings.app_env != "development":
+        unwrap_result(Result.failure(ADMIN_ACCESS_DENIED))
+    if (
+        x_admin_key is None
+        or settings.admin_api_key is None
+        or not secrets.compare_digest(x_admin_key, settings.admin_api_key)
+    ):
+        unwrap_result(Result.failure(ADMIN_ACCESS_DENIED))
+
+
 # List currencies executor
 
 ListCurrenciesExecutor = Callable[
@@ -190,5 +212,21 @@ def get_list_users_executor(request: Request) -> ListUsersExecutor:
         async with request.app.state.session_factory() as session:
             handler = build_list_users_handler(session)
             return await handler.handle(query)
+
+    return execute
+
+
+# Create admin deposit executor
+
+AdminDepositExecutor = Callable[[AdminDepositCommand], Awaitable[Result[AdminDepositResult]]]
+
+
+def get_admin_deposit_executor(request: Request) -> AdminDepositExecutor:
+    async def execute(
+        command: AdminDepositCommand,
+    ) -> Result[AdminDepositResult]:
+        async with request.app.state.session_factory() as session, session.begin():
+            handler = build_admin_deposit_handler(session)
+            return await handler.handle(command)
 
     return execute

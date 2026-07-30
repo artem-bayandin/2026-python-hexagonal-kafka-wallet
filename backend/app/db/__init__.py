@@ -4,8 +4,10 @@ from .repositories import (
     AuthSessionQueryRepositoryImpl,
     CurrencyQueryRepositoryImpl,
     OtpChallengeCommandRepositoryImpl,
+    TransactionCommandRepositoryImpl,
     UserCommandRepositoryImpl,
     UserQueryRepositoryImpl,
+    UserWalletCommandRepositoryImpl,
 )
 from .session import AsyncSession, build_session_factory
 
@@ -16,8 +18,10 @@ __all__ = [
     "AuthSessionQueryRepositoryImpl",
     "CurrencyQueryRepositoryImpl",
     "OtpChallengeCommandRepositoryImpl",
+    "TransactionCommandRepositoryImpl",
     "UserCommandRepositoryImpl",
     "UserQueryRepositoryImpl",
+    "UserWalletCommandRepositoryImpl",
     # Session
     "AsyncSession",
     "build_session_factory",

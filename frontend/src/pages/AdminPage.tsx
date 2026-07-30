@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { ApiError } from '../api/client'
 import {
+  AdminDeposit,
   getAdminKey,
   listReferenceCurrencies,
   listReferenceUsers,
@@ -12,19 +13,34 @@ type AdminPageProps = {
   onBack: () => void
 }
 
+function amountStepForPrecision(precision: number): string {
+  if (precision <= 0) {
+    return '1'
+  }
+  return `0.${'0'.repeat(precision - 1)}1`
+}
+
 export function AdminPage({ onBack }: AdminPageProps) {
   const [adminKeyInput, setAdminKeyInput] = useState(getAdminKey() ?? '')
   const [currencies, setCurrencies] = useState<CurrencyItem[]>([])
   const [users, setUsers] = useState<UserReferenceItem[]>([])
   const [selectedCurrencyLabel, setSelectedCurrencyLabel] = useState('')
   const [selectedUserEmail, setSelectedUserEmail] = useState('')
+  const [amount, setAmount] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isSubmittingDeposit, setIsSubmittingDeposit] = useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
+
+  const selectedCurrency = currencies.find(
+    (currency) => currency.label === selectedCurrencyLabel,
+  )
 
   async function loadReferenceData() {
     setIsLoading(true)
     setErrorMessage(null)
+    setSuccessMessage(null)
 
     try {
       const [currencyResult, userResult] = await Promise.all([
@@ -60,6 +76,39 @@ export function AdminPage({ onBack }: AdminPageProps) {
     await loadReferenceData()
   }
 
+  async function handleDepositSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (selectedUserEmail === '' || selectedCurrencyLabel === '') {
+      return
+    }
+
+    setIsSubmittingDeposit(true)
+    setErrorMessage(null)
+    setSuccessMessage(null)
+
+    try {
+      const result = await AdminDeposit({
+        email: selectedUserEmail,
+        asset: selectedCurrencyLabel,
+        amount,
+      })
+      setSuccessMessage(
+        `Deposit completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      )
+      setAmount('')
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setErrorMessage(error.envelope.message)
+      } else if (error instanceof Error) {
+        setErrorMessage(error.message)
+      } else {
+        setErrorMessage('Unable to submit deposit.')
+      }
+    } finally {
+      setIsSubmittingDeposit(false)
+    }
+  }
+
   return (
     <main className="auth">
       <h1>Admin</h1>
@@ -77,9 +126,13 @@ export function AdminPage({ onBack }: AdminPageProps) {
           required
           value={adminKeyInput}
           onChange={(event) => setAdminKeyInput(event.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isSubmittingDeposit}
         />
-        <button className="auth-button" type="submit" disabled={isLoading}>
+        <button
+          className="auth-button"
+          type="submit"
+          disabled={isLoading || isSubmittingDeposit}
+        >
           {isLoading ? 'Loading…' : 'Save key and load data'}
         </button>
       </form>
@@ -87,6 +140,12 @@ export function AdminPage({ onBack }: AdminPageProps) {
       {errorMessage !== null && (
         <p className="auth-error" role="alert">
           {errorMessage}
+        </p>
+      )}
+
+      {successMessage !== null && (
+        <p className="auth-detail" role="status">
+          {successMessage}
         </p>
       )}
 
@@ -105,7 +164,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
                   className="auth-input"
                   value={selectedCurrencyLabel}
                   onChange={(event) => setSelectedCurrencyLabel(event.target.value)}
-                  disabled={isLoading}
+                  disabled={isLoading || isSubmittingDeposit}
                 >
                   {currencies.map((currency) => (
                     <option key={currency.label} value={currency.label}>
@@ -130,7 +189,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
                   className="auth-input"
                   value={selectedUserEmail}
                   onChange={(event) => setSelectedUserEmail(event.target.value)}
-                  disabled={isLoading}
+                  disabled={isLoading || isSubmittingDeposit}
                 >
                   {users.map((user) => (
                     <option key={user.user_id} value={user.email}>
@@ -141,6 +200,45 @@ export function AdminPage({ onBack }: AdminPageProps) {
               </div>
             )}
           </section>
+
+          <form className="auth-form" onSubmit={handleDepositSubmit}>
+            <label className="auth-label" htmlFor="deposit-amount">
+              Amount
+            </label>
+            <input
+              id="deposit-amount"
+              className="auth-input"
+              type="text"
+              inputMode="decimal"
+              required
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              disabled={
+                isLoading ||
+                isSubmittingDeposit ||
+                users.length === 0 ||
+                currencies.length === 0
+              }
+              step={
+                selectedCurrency !== undefined
+                  ? amountStepForPrecision(selectedCurrency.precision)
+                  : undefined
+              }
+            />
+            <button
+              className="auth-button"
+              type="submit"
+              disabled={
+                isLoading ||
+                isSubmittingDeposit ||
+                users.length === 0 ||
+                currencies.length === 0 ||
+                amount.trim() === ''
+              }
+            >
+              {isSubmittingDeposit ? 'Submitting…' : 'Submit deposit'}
+            </button>
+          </form>
         </>
       )}
 

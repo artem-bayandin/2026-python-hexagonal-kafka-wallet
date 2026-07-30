@@ -6,6 +6,7 @@ from .auth import (
 )
 from .data_list import DataList
 from .reference import CurrencyItemResponse, UserReferenceItemResponse
+from .admin import AdminDepositRequest, AdminDepositResponse
 
 __all__ = [
     "RequestOtpRequest",
@@ -15,4 +16,6 @@ __all__ = [
     "DataList",
     "CurrencyItemResponse",
     "UserReferenceItemResponse",
+    "AdminDepositRequest",
+    "AdminDepositResponse",
 ]
