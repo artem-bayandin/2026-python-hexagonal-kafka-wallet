@@ -7,6 +7,12 @@ from .auth import (
 from .data_list import DataList
 from .reference import CurrencyItemResponse, UserReferenceItemResponse
 from .admin import AdminDepositRequest, AdminDepositResponse
+from .wallet import (
+    BalanceItemResponse,
+    BalanceListResponse,
+    TransactionItemResponse,
+    TransactionListResponse,
+)
 
 __all__ = [
     "RequestOtpRequest",
@@ -18,4 +24,8 @@ __all__ = [
     "UserReferenceItemResponse",
     "AdminDepositRequest",
     "AdminDepositResponse",
+    "BalanceItemResponse",
+    "BalanceListResponse",
+    "TransactionItemResponse",
+    "TransactionListResponse",
 ]

@@ -2,8 +2,10 @@ import { ApiError } from './client'
 import type {
   AdminDepositRequest,
   AdminDepositResponse,
+  BalanceList,
   CurrencyItem,
   DataList,
+  TransactionList,
   UserReferenceItem,
 } from '../types/admin'
 
@@ -77,4 +79,27 @@ export async function AdminDeposit(
     throw await parseErrorResponse(response)
   }
   return response.json() as Promise<AdminDepositResponse>
+}
+
+export async function getAdminBalances(): Promise<BalanceList> {
+  const response = await adminFetch('/admin/balances')
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+  return response.json() as Promise<BalanceList>
+}
+
+export async function listAdminTransactions(
+  pageNumber = 0,
+  pageSize = 20,
+): Promise<TransactionList> {
+  const params = new URLSearchParams({
+    page_number: String(pageNumber),
+    page_size: String(pageSize),
+  })
+  const response = await adminFetch(`/admin/transactions?${params.toString()}`)
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+  return response.json() as Promise<TransactionList>
 }

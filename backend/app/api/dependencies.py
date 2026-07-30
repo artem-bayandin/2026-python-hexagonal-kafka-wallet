@@ -7,7 +7,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.dependencies import (
     build_admin_deposit_handler,
+    build_get_admin_balances_handler,
     build_get_current_user_handler,
+    build_list_admin_transactions_handler,
     build_list_currencies_handler,
     build_list_users_handler,
     build_logout_handler,
@@ -19,15 +21,20 @@ from app.domain import (
     AUTHENTICATION_FAILED,
     AdminDepositCommand,
     AdminDepositResult,
+    BalanceItem,
     CurrencyCatalogItem,
     CurrentUser,
+    GetAdminBalancesQuery,
     GetCurrentUserQuery,
+    ListAdminTransactionsQuery,
     ListCurrenciesQuery,
     ListUsersQuery,
     LogoutCommand,
+    PaginatedResult,
     RequestOtpCommand,
     RequestOtpResult,
     Result,
+    TransactionListItem,
     UserReferenceItem,
     VerifyOtpCommand,
     VerifyOtpResult,
@@ -228,5 +235,40 @@ def get_admin_deposit_executor(request: Request) -> AdminDepositExecutor:
         async with request.app.state.session_factory() as session, session.begin():
             handler = build_admin_deposit_handler(session)
             return await handler.handle(command)
+
+    return execute
+
+
+# Get admin balances executor
+
+GetAdminBalancesExecutor = Callable[[GetAdminBalancesQuery], Awaitable[Result[list[BalanceItem]]]]
+
+
+def get_get_admin_balances_executor(request: Request) -> GetAdminBalancesExecutor:
+    async def execute(query: GetAdminBalancesQuery) -> Result[list[BalanceItem]]:
+        async with request.app.state.session_factory() as session:
+            handler = build_get_admin_balances_handler(session)
+            return await handler.handle(query)
+
+    return execute
+
+
+# List admin transactions executor
+
+ListAdminTransactionsExecutor = Callable[
+    [ListAdminTransactionsQuery],
+    Awaitable[Result[PaginatedResult[TransactionListItem]]],
+]
+
+
+def get_list_admin_transactions_executor(
+    request: Request,
+) -> ListAdminTransactionsExecutor:
+    async def execute(
+        query: ListAdminTransactionsQuery,
+    ) -> Result[PaginatedResult[TransactionListItem]]:
+        async with request.app.state.session_factory() as session:
+            handler = build_list_admin_transactions_handler(session)
+            return await handler.handle(query)
 
     return execute

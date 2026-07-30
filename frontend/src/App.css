@@ -100,6 +100,29 @@ select.auth-input {
   font-size: 16px;
 }
 
+.auth-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.auth-table th,
+.auth-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.auth-table th {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.auth-table td:last-child,
+.auth-table th:last-child {
+  text-align: right;
+}
+
 .otp-shell {
   width: 100%;
   padding: 16px;

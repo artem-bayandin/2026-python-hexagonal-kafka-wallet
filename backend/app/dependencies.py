@@ -5,12 +5,14 @@ from app.auth import (
 )
 from app.config import Settings
 from app.db import (
+    AdminWalletQueryRepositoryImpl,
     AsyncSession,
     AuthSessionCommandRepositoryImpl,
     AuthSessionQueryRepositoryImpl,
     CurrencyQueryRepositoryImpl,
     OtpChallengeCommandRepositoryImpl,
     TransactionCommandRepositoryImpl,
+    TransactionQueryRepositoryImpl,
     UserCommandRepositoryImpl,
     UserQueryRepositoryImpl,
     UserWalletCommandRepositoryImpl,
@@ -18,7 +20,9 @@ from app.db import (
 from app.domain import (
     AdminDepositHandler,
     CurrentUserProvider,
+    GetAdminBalancesHandler,
     GetCurrentUserHandler,
+    ListAdminTransactionsHandler,
     ListCurrenciesHandler,
     ListUsersHandler,
     LogoutHandler,
@@ -119,3 +123,21 @@ def build_admin_deposit_handler(
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
     )
+
+
+# GetAdminBalances
+
+
+def build_get_admin_balances_handler(
+    session: AsyncSession,
+) -> GetAdminBalancesHandler:
+    return GetAdminBalancesHandler(AdminWalletQueryRepositoryImpl(session))
+
+
+# ListAdminTransactions
+
+
+def build_list_admin_transactions_handler(
+    session: AsyncSession,
+) -> ListAdminTransactionsHandler:
+    return ListAdminTransactionsHandler(TransactionQueryRepositoryImpl(session))

@@ -15,13 +15,15 @@ Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for architecture rules and [PH
 ## Current implementation status
 
 - **Phase 3 wallet schema** complete (migration `d377d8c90992`).
-- **Slice 0** not started.
-- **Slice 1a** not started.
-- **Slice 1b** not started.
-- **Slice 2** not started.
-- **Slice 3** not started.
-- **Slice 4** not started.
-- **Final verification** not started.
+- **Slice 0** complete.
+- **Slice 1a** complete.
+- **Slice 1b** complete.
+- **Slice 2** complete.
+- **Slice 3** complete.
+- **Slice 4** complete.
+- **Final verification** complete.
+
+Implementation note: `GET /admin/transactions` uses offset pagination (`page_number`, `page_size`, `total_items`) rather than the cursor shape described in [API_CONTRACT.md](../API_CONTRACT.md). The running code is canonical; align the contract in a follow-up if needed.
 
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 
@@ -52,7 +54,7 @@ Deliver the **admin operator** wallet experience for Version 1: mock deposits, a
 | `GET` | `/reference/currencies` | List all supported currencies, ordered by `label` asc; requires `X-Admin-Key` or Bearer JWT; used by admin deposit currency selector (Phase 4) and user exchange currency selector (Phase 5) |
 | `GET` | `/reference/users` | List registered users as `{ user_id, email }`, ordered by `email` asc; requires `X-Admin-Key` or Bearer JWT; used by admin deposit recipient selector (Phase 4) and user transfer recipient selector (Phase 5) |
 | `POST` | `/admin/deposits` | Credit target user's wallet for the currency; record `completed` deposit; **does not debit admin** |
-| `GET` | `/admin/transactions` | Paginated all-user history (`created_at DESC, id DESC`) |
+| `GET` | `/admin/transactions` | Paginated all-user history (`created_at DESC, id DESC`); query params `page_number` (default 0), `page_size` (1–100, default 20); response includes `total_items` |
 | `GET` | `/admin/balances` | Admin wallet amounts per currency — likely zero until Phase 5 withdrawals credit admin |
 
 Request/response shapes: [API_CONTRACT.md](../API_CONTRACT.md) § Reference and § Admin.
@@ -74,8 +76,10 @@ Follow [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) § Architectural invariants.
 
 - separate command vs query repository Protocols per entity concern;
 - reference routes accept admin key **or** Bearer JWT; admin routes accept admin key only;
+- admin routes are development-only via `require_admin_key` (`app_env != "development"` → `403 ADMIN_ACCESS_DENIED`); reference and admin routers are registered unconditionally in `main.py`;
 - wallet mutations use one `AsyncSession.begin()` per command; query routes use short-lived read sessions without an explicit write transaction;
-- `Money` precision comes from the `currencies` catalog; no silent rounding.
+- `Money` precision comes from the `currencies` catalog; no silent rounding;
+- admin transaction history uses offset pagination (`page_number`, `page_size`, `total_items`), not cursor tokens.
 
 ## Shared implementation notes
 
@@ -89,9 +93,10 @@ Use this final target layout as a reference only. Phase 3 ORM models already exi
 backend/
 └── app/
     ├── dependencies.py              # extend with wallet handler builders
-    ├── main.py                      # register reference + admin routers (dev gate)
+    ├── main.py                      # register reference + admin routers
     ├── api/
     │   ├── dependencies.py          # require_reference_auth, require_admin_key, executors
+    │   ├── formatting.py            # format_amount helper (Slice 3)
     │   ├── exception_handlers.py    # extend ERROR_RESPONSES with wallet codes
     │   ├── routers/
     │   │   ├── reference.py         # Slice 1a/1b
@@ -108,11 +113,13 @@ backend/
     │   │   ├── admin_wallet.py
     │   │   └── transaction.py
     │   └── repositories/
-    │       ├── currency_repository.py
-    │       ├── user_repository.py   # extend existing
-    │       ├── user_wallet_repository.py
-    │       ├── transaction_repository.py
-    │       └── admin_wallet_repository.py
+    │       ├── currency_query_repository.py
+    │       ├── user_command_repository.py   # extend existing
+    │       ├── user_query_repository.py
+    │       ├── user_wallet_command_repository.py
+    │       ├── transaction_command_repository.py
+    │       ├── transaction_query_repository.py
+    │       └── admin_wallet_query_repository.py
     └── domain/
         ├── error_codes.py           # extend in Slice 2
         ├── value_objects/
@@ -128,11 +135,13 @@ backend/
         │   ├── balance_item.py            # Slice 3
         │   └── transaction_list_item.py   # Slice 4
         ├── ports/repositories/
-        │   ├── currency_repository.py
-        │   ├── user_repository.py
-        │   ├── user_wallet_repository.py
-        │   ├── transaction_repository.py
-        │   └── admin_wallet_repository.py
+        │   ├── currency_query_repository.py
+        │   ├── user_command_repository.py
+        │   ├── user_query_repository.py
+        │   ├── user_wallet_command_repository.py
+        │   ├── transaction_command_repository.py
+        │   ├── transaction_query_repository.py
+        │   └── admin_wallet_query_repository.py
         └── use_cases/
             ├── currency/list_currencies_query.py
             ├── user/list_users_query.py
@@ -153,7 +162,7 @@ frontend/src/
 - **Admin auth:** `POST` and `GET /admin/*` require a valid `X-Admin-Key` only. No user JWT.
 - **Deposit semantics:** mint from admin/system (`source_wallet_id = NULL`), credit user wallet, insert one `completed` deposit row; **do not debit** `admin_wallets`.
 - **Concurrency:** deposit locks the target user wallet with `SELECT … FOR UPDATE` before credit (future-proofs Phase 5).
-- **Cursor pagination:** opaque base64 JSON `{"created_at":"<RFC3339>","id":"<uuid>"}`; repository filters with `(created_at, id) < (:cursor_created_at, :cursor_id)` under `ORDER BY created_at DESC, id DESC`; fetch `limit + 1` rows to detect `next_cursor`; `limit` is 1–100, default 20.
+- **Offset pagination (admin transactions):** query params `page_number` (≥ 0, default 0) and `page_size` (1–100, default 20); repository applies `ORDER BY created_at DESC, id DESC` with `OFFSET page_number * page_size LIMIT page_size`; response includes `total_items` for UI “load more” logic.
 
 ### Error codes introduced incrementally
 
@@ -199,7 +208,7 @@ class CurrencyCatalogItem:
     precision: int
 ```
 
-Create `backend/app/domain/ports/repositories/currency_repository.py`:
+Create `backend/app/domain/ports/repositories/currency_query_repository.py`:
 
 ```python
 from typing import Protocol
@@ -279,7 +288,7 @@ def currency_to_catalog_item(model: CurrencyModel) -> CurrencyCatalogItem:
     )
 ```
 
-Create `backend/app/db/repositories/currency_repository.py`:
+Create `backend/app/db/repositories/currency_query_repository.py`:
 
 ```python
 from sqlalchemy import select
@@ -429,7 +438,7 @@ async def list_currencies(
     )
 ```
 
-Register `reference_router` in `backend/app/main.py` behind the development gate from Slice 0.
+Register `reference_router` in `backend/app/main.py` via `app.include_router(reference_router)`.
 
 #### Package façade update
 
@@ -464,7 +473,20 @@ Create `frontend/src/api/adminClient.ts`:
 import { ApiError } from './client'
 import type { CurrencyItem, DataList } from '../types/admin'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 const ADMIN_KEY_STORAGE = 'admin_api_key'
+
+async function parseErrorResponse(response: Response): Promise<ApiError> {
+  try {
+    const envelope = (await response.json()) as { code: string; message: string }
+    return new ApiError(response.status, envelope)
+  } catch {
+    return new ApiError(response.status, {
+      code: 'INTERNAL_ERROR',
+      message: 'Request failed.',
+    })
+  }
+}
 
 export function getAdminKey(): string | null {
   return sessionStorage.getItem(ADMIN_KEY_STORAGE)
@@ -487,19 +509,19 @@ export async function adminFetch(
   if (init.body !== undefined && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
-  return fetch(`/api${path}`, { ...init, headers })
+  return fetch(`${API_BASE_URL}${path}`, { ...init, headers })
 }
 
 export async function listReferenceCurrencies(): Promise<DataList<CurrencyItem>> {
   const response = await adminFetch('/reference/currencies')
   if (!response.ok) {
-    throw await ApiError.fromResponse(response)
+    throw await parseErrorResponse(response)
   }
   return response.json() as Promise<DataList<CurrencyItem>>
 }
 ```
 
-Configure the Vite dev proxy if not already present so `/api` forwards to the backend.
+Use `import.meta.env.VITE_API_BASE_URL` for `API_BASE_URL` (see `frontend/.env.example`). Store the admin key in `sessionStorage` only; do not add `ADMIN_API_KEY` to frontend build env.
 
 Create a development-only Admin page shell (`frontend/src/pages/AdminPage.tsx` or an Admin section in `App.tsx`):
 
@@ -526,7 +548,7 @@ class UserReferenceItem:
     email: str
 ```
 
-Create `backend/app/domain/ports/repositories/user_repository.py`:
+Create `backend/app/domain/ports/repositories/user_query_repository.py`:
 
 ```python
 from typing import Protocol
@@ -562,7 +584,7 @@ class ListUsersHandler:
         return Result.success(items)
 ```
 
-Keep this port separate from command `UserRepository` even though both touch the `users` table.
+Keep this port separate from command `UserCommandRepository` even though both touch the `users` table.
 
 #### Package façade update
 
@@ -583,7 +605,7 @@ __all__ += [
 
 ### DB
 
-Create `backend/app/db/repositories/user_repository.py`:
+Create `backend/app/db/repositories/user_query_repository.py`:
 
 ```python
 from sqlalchemy import select
@@ -667,7 +689,7 @@ Add to `adminClient.ts`:
 export async function listReferenceUsers(): Promise<DataList<UserReferenceItem>> {
   const response = await adminFetch('/reference/users')
   if (!response.ok) {
-    throw await ApiError.fromResponse(response)
+    throw await parseErrorResponse(response)
   }
   return response.json() as Promise<DataList<UserReferenceItem>>
 }
@@ -760,7 +782,7 @@ class UserWallet:
     updated_at: datetime
 ```
 
-Extend command `UserRepository` in `backend/app/domain/ports/repositories/user_repository.py`:
+Extend command `UserCommandRepository` in `backend/app/domain/ports/repositories/user_command_repository.py`:
 
 ```python
 async def get_by_normalized_email(self, email: str) -> User | None: ...
@@ -769,7 +791,7 @@ async def get_by_normalized_email(self, email: str) -> User | None: ...
 Create command ports:
 
 ```python
-# user_wallet_repository.py
+# user_wallet_command_repository.py
 async def get_or_create_for_update(
     self, user_id: UUID, currency_id: UUID, wallet_id: UUID, now: datetime
 ) -> UserWallet: ...
@@ -777,17 +799,17 @@ async def get_or_create_for_update(
 async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> None: ...
 
 
-# transaction_repository.py
+# transaction_command_repository.py
 async def add(self, transaction: Transaction) -> None: ...
 
 
-# currency_repository.py — extend for command path
+# currency_query_repository.py — extend for command path
 async def get_by_label(self, label: str) -> Currency | None: ...
 ```
 
 Alternatively, add `CurrencyCommandRepository` with `get_by_label` if you prefer strict command/query separation for currencies. The handler needs label lookup during deposit.
 
-Create `AdminDepositCommand`, `AdminDepositResult`, and `AdminDepositHandler` in `backend/app/domain/use_cases/admin_deposit/admin_deposit_cmd.py`:
+Create `AdminDepositCommand`, `AdminDepositResult`, and `AdminDepositHandler` in `backend/app/domain/use_cases/admin/admin_deposit_cmd.py`:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -805,7 +827,7 @@ class AdminDepositResult:
 class AdminDepositHandler:
     def __init__(
         self,
-        users_repo: UserRepository,
+        user_cmd_repo: UserCommandRepository,
         currency_query_repo: CurrencyQueryRepository,
         user_wallets_repo: UserWalletCommandRepository,
         transactions_repo: TransactionCommandRepository,
@@ -834,7 +856,7 @@ class AdminDepositHandler:
                 return Result.failure(INVALID_AMOUNT)
             return Result.failure(UNSUPPORTED_ASSET)
 
-        user = await self._users_repo.get_by_normalized_email(email)
+        user = await self._user_cmd_repo.get_by_normalized_email(email)
         if user is None:
             return Result.failure(USER_NOT_FOUND)
 
@@ -921,7 +943,7 @@ async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> None:
 
 Implement `TransactionCommandRepositoryImpl.add` with an insert of the domain transaction mapped to `TransactionModel`.
 
-Extend `UserRepositoryImpl` with `get_by_normalized_email` (select by email without `FOR UPDATE` — deposit does not need user-row locking).
+Extend `UserCommandRepositoryImpl` with `get_by_normalized_email` (select by email without `FOR UPDATE` — deposit does not need user-row locking).
 
 Extend `CurrencyQueryRepositoryImpl` with `get_by_label` returning a `Currency` domain entity, or add `CurrencyCommandRepositoryImpl` if keeping ports split.
 
@@ -932,7 +954,7 @@ def build_admin_deposit_handler(
     session: AsyncSession,
 ) -> AdminDepositHandler:
     return AdminDepositHandler(
-        UserRepositoryImpl(session),
+        UserCommandRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
@@ -1042,7 +1064,7 @@ async def create_deposit(
 
 Wire `get_admin_deposit_executor` to open `session.begin()`, call `build_admin_deposit_handler`, and invoke the handler.
 
-Register `admin_router` in `main.py` behind the development gate.
+Register `admin_router` in `main.py` via `app.include_router(admin_router)`. Admin access is enforced by `require_admin_key`, not router registration.
 
 #### Package façade update
 
@@ -1065,7 +1087,7 @@ export async function AdminDeposit(body: {
     body: JSON.stringify(body),
   })
   if (!response.ok) {
-    throw await ApiError.fromResponse(response)
+    throw await parseErrorResponse(response)
   }
   return response.json()
 }
@@ -1162,7 +1184,22 @@ class BalanceListResponse(BaseModel):
     items: list[BalanceItemResponse] = Field(default_factory=list)
 ```
 
-Format `available` as a decimal string with scale matching the currency precision (no JSON numbers).
+Format `available` as a decimal string with scale matching the currency precision (no JSON numbers). Create `backend/app/api/formatting.py`:
+
+```python
+from decimal import Decimal
+
+
+def format_amount(
+    amount: Decimal,
+    asset: str,
+    precision_by_label: dict[str, int],
+) -> str:
+    precision = precision_by_label[asset]
+    quantize_exp = Decimal("1").scaleb(-precision)
+    formatted = amount.quantize(quantize_exp)
+    return f"{formatted:f}"
+```
 
 Add to `backend/app/api/routers/admin.py`:
 
@@ -1172,23 +1209,28 @@ Add to `backend/app/api/routers/admin.py`:
     dependencies=[Depends(require_admin_key)],
 )
 async def get_admin_balances(
-    executor: Annotated[
+    balances_executor: Annotated[
         GetAdminBalancesExecutor, Depends(get_get_admin_balances_executor)
     ],
+    currencies_executor: Annotated[
+        ListCurrenciesExecutor, Depends(get_list_currencies_executor)
+    ],
 ) -> BalanceListResponse:
-    items = unwrap_result(await executor(GetAdminBalancesQuery()))
+    items = unwrap_result(await balances_executor(GetAdminBalancesQuery()))
+    currencies = unwrap_result(await currencies_executor(ListCurrenciesQuery()))
+    precision_by_label = {item.label: item.precision for item in currencies}
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_amount(item.available, item.asset),
+                available=format_amount(item.available, item.asset, precision_by_label),
             )
             for item in items
         ]
     )
 ```
 
-Implement `format_amount` in the API layer or a small shared helper that looks up precision from the catalog item list.
+The route loads currency precision from the catalog query so formatted amounts match each asset's scale.
 
 ### UI
 
@@ -1220,21 +1262,21 @@ Create pagination types in `backend/app/domain/read_models/pagination.py`:
 
 ```python
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
 class PaginationParams:
-    limit: int
-    cursor: str | None
+    page_number: int
+    page_size: int
 
 
 @dataclass(frozen=True, slots=True)
-class PaginatedResult(Generic[T]):
+class PaginatedResult[T]:
+    total_items: int
     items: list[T]
-    next_cursor: str | None
 ```
 
 Create `ListAdminTransactionsQuery` carrying `PaginationParams` and `ListAdminTransactionsHandler` in `backend/app/domain/use_cases/transaction/list_admin_transactions_query.py`:
@@ -1249,9 +1291,7 @@ class ListAdminTransactionsHandler:
     async def handle(
         self, query: ListAdminTransactionsQuery
     ) -> Result[PaginatedResult[TransactionListItem]]:
-        page = await self._transaction_query_repo.list_admin_page(
-            query.params.limit, query.params.cursor
-        )
+        page = await self._transaction_query_repo.list_admin_page(query.params)
         return Result.success(page)
 ```
 
@@ -1259,11 +1299,9 @@ Create `TransactionQueryRepository` port:
 
 ```python
 async def list_admin_page(
-    self, limit: int, cursor: str | None
+    self, params: PaginationParams
 ) -> PaginatedResult[TransactionListItem]: ...
 ```
-
-Cursor encoding/decoding may live in the repository implementation or a small domain helper; keep HTTP opaqueness at the API boundary.
 
 #### Package façade update
 
@@ -1271,55 +1309,30 @@ Export pagination read models, `TransactionListItem`, `TransactionQueryRepositor
 
 ### DB
 
-Implement cursor helpers in `backend/app/db/repositories/transaction_repository.py` (or `backend/app/db/pagination.py`):
-
-```python
-import base64
-import json
-from datetime import datetime
-from uuid import UUID
-
-
-def encode_cursor(created_at: datetime, row_id: UUID) -> str:
-    payload = {"created_at": created_at.isoformat(), "id": str(row_id)}
-    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
-
-
-def decode_cursor(cursor: str) -> tuple[datetime, UUID]:
-    payload = json.loads(base64.urlsafe_b64decode(cursor.encode()))
-    return datetime.fromisoformat(payload["created_at"]), UUID(payload["id"])
-```
-
-Implement `TransactionQueryRepositoryImpl.list_admin_page`:
+Implement `TransactionQueryRepositoryImpl.list_admin_page` in `backend/app/db/repositories/transaction_query_repository.py`:
 
 ```python
 async def list_admin_page(
-    self, limit: int, cursor: str | None
+    self, params: PaginationParams
 ) -> PaginatedResult[TransactionListItem]:
-    stmt = select(TransactionModel).order_by(
-        TransactionModel.created_at.desc(),
-        TransactionModel.id.desc(),
-    )
-    if cursor is not None:
-        cursor_created_at, cursor_id = decode_cursor(cursor)
-        stmt = stmt.where(
-            (TransactionModel.created_at < cursor_created_at)
-            | (
-                (TransactionModel.created_at == cursor_created_at)
-                & (TransactionModel.id < cursor_id)
-            )
+    offset = params.page_number * params.page_size
+
+    count_stmt = select(func.count()).select_from(TransactionModel)
+    total_result = await self.session.execute(count_stmt)
+    total_items = total_result.scalar_one()
+
+    stmt = (
+        select(TransactionModel)
+        .order_by(
+            TransactionModel.created_at.desc(),
+            TransactionModel.id.desc(),
         )
-    stmt = stmt.limit(limit + 1)
-    result = await self._session.execute(stmt)
-    rows = list(result.scalars().all())
-    has_more = len(rows) > limit
-    page_rows = rows[:limit]
-    items = [transaction_to_list_item(row) for row in page_rows]
-    next_cursor = None
-    if has_more:
-        last = page_rows[-1]
-        next_cursor = encode_cursor(last.created_at, last.id)
-    return PaginatedResult(items=items, next_cursor=next_cursor)
+        .offset(offset)
+        .limit(params.page_size)
+    )
+    result = await self.session.execute(stmt)
+    items = [transaction_to_list_item(row) for row in result.scalars().all()]
+    return PaginatedResult(total_items=total_items, items=items)
 ```
 
 In `backend/app/dependencies.py`, add `build_list_admin_transactions_handler(session)`.
@@ -1343,8 +1356,8 @@ class TransactionItemResponse(BaseModel):
 
 
 class TransactionListResponse(BaseModel):
+    total_items: int
     items: list[TransactionItemResponse] = Field(default_factory=list)
-    next_cursor: str | None = None
 ```
 
 Add query parameters to `GET /admin/transactions`:
@@ -1355,8 +1368,8 @@ Add query parameters to `GET /admin/transactions`:
     dependencies=[Depends(require_admin_key)],
 )
 async def list_admin_transactions(
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    cursor: Annotated[str | None, Query()] = None,
+    page_number: Annotated[int, Query(ge=0)] = 0,
+    page_size: Annotated[int, Query(gt=0, le=100)] = 20,
     executor: Annotated[
         ListAdminTransactionsExecutor,
         Depends(get_list_admin_transactions_executor),
@@ -1365,11 +1378,12 @@ async def list_admin_transactions(
     page = unwrap_result(
         await executor(
             ListAdminTransactionsQuery(
-                PaginationParams(limit=limit, cursor=cursor)
+                PaginationParams(page_number=page_number, page_size=page_size)
             )
         )
     )
     return TransactionListResponse(
+        total_items=page.total_items,
         items=[
             TransactionItemResponse(
                 id=item.id,
@@ -1379,13 +1393,47 @@ async def list_admin_transactions(
             )
             for item in page.items
         ],
-        next_cursor=page.next_cursor,
     )
 ```
 
 ### UI
 
-Add `listAdminTransactions(limit?, cursor?)` to `adminClient.ts`. On the Admin page, render a transaction table and a **Load more** button when `next_cursor` is non-null. After Slice 2 deposit, the newest row shows `DEPOSIT` / `COMPLETED`.
+Add `listAdminTransactions(pageNumber?, pageSize?)` to `adminClient.ts`:
+
+```typescript
+export async function listAdminTransactions(
+  pageNumber = 0,
+  pageSize = 20,
+): Promise<TransactionList> {
+  const params = new URLSearchParams({
+    page_number: String(pageNumber),
+    page_size: String(pageSize),
+  })
+  const response = await adminFetch(`/admin/transactions?${params.toString()}`)
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+  return response.json() as Promise<TransactionList>
+}
+```
+
+On the Admin page, render a transaction table and a **Load more** button when `transactions.length < total_items`. Increment `page_number` on each load. After Slice 2 deposit, the newest row shows `DEPOSIT` / `COMPLETED`.
+
+Extend `frontend/src/types/admin.ts`:
+
+```typescript
+export type TransactionItem = {
+  id: string
+  type: string
+  status: string
+  created_at: string
+}
+
+export type TransactionList = {
+  total_items: number
+  items: TransactionItem[]
+}
+```
 
 **Slice 4 checkpoint:** Paginated all-user history includes the deposit from Slice 2, sorted newest first with stable tie-breaker on `id`.
 
@@ -1393,19 +1441,21 @@ Add `listAdminTransactions(limit?, cursor?)` to `adminClient.ts`. On the Admin p
 
 Prerequisites: PostgreSQL is healthy, wallet migration `d377d8c90992` is applied, the backend runs on port 8000, the frontend runs on port 5173, and at least one user exists from Phase 2 OTP registration.
 
-- [ ] `GET /reference/currencies` returns USD and USDT ordered by `label` with admin key or Bearer JWT.
-- [ ] `GET /reference/users` returns registered users ordered by `email` with admin key or Bearer JWT.
-- [ ] Missing or invalid credentials on reference routes return `401 AUTHENTICATION_FAILED`.
-- [ ] Missing or invalid admin key on `/admin/*` returns `403 ADMIN_ACCESS_DENIED`.
-- [ ] Deposit to a selected email credits the user wallet; `admin_wallets` amounts stay zero.
-- [ ] Deposit with a fifth decimal place for USD returns `422 INVALID_PRECISION`.
-- [ ] Deposit with unknown asset returns `422 UNSUPPORTED_ASSET`.
-- [ ] Deposit to unknown email returns `404 USER_NOT_FOUND`.
-- [ ] `GET /admin/balances` lists all seeded currencies with zero available amounts before Phase 5 withdrawals.
-- [ ] `GET /admin/transactions` paginates; the deposit appears newest-first.
-- [ ] Admin UI stores the key in `sessionStorage` only; no `ADMIN_API_KEY` in frontend build env.
-- [ ] Unexpected command exceptions roll back the transaction; validation failures occur before wallet locks.
-- [ ] No admin key, JWT, or OTP appears in logs.
+- [x] `GET /reference/currencies` returns USD and USDT ordered by `label` with admin key or Bearer JWT.
+- [x] `GET /reference/users` returns registered users ordered by `email` with admin key or Bearer JWT.
+- [x] Missing or invalid credentials on reference routes return `401 AUTHENTICATION_FAILED`.
+- [x] Missing or invalid admin key on `/admin/*` returns `403 ADMIN_ACCESS_DENIED`.
+- [x] Deposit to a selected email credits the user wallet; `admin_wallets` amounts stay zero.
+- [x] Deposit with a fifth decimal place for USD returns `422 INVALID_PRECISION`.
+- [x] Deposit with unknown asset returns `422 UNSUPPORTED_ASSET`.
+- [x] Deposit to unknown email returns `404 USER_NOT_FOUND`.
+- [x] `GET /admin/balances` lists all seeded currencies with zero available amounts before Phase 5 withdrawals.
+- [x] `GET /admin/transactions` paginates (`page_number`, `page_size`, `total_items`); the deposit appears newest-first.
+- [x] Admin UI stores the key in `sessionStorage` only; no `ADMIN_API_KEY` in frontend build env.
+- [x] Unexpected command exceptions roll back the transaction; validation failures occur before wallet locks.
+- [x] No admin key, JWT, or OTP appears in logs.
+
+Static quality checks (ruff, mypy, frontend lint/typecheck) pass.
 
 Run static quality checks only; automated tests remain outside this phase.
 
@@ -1441,4 +1491,4 @@ Notes:
 
 ## What comes next
 
-[PHASE_5_USER_WALLET.md](PHASE_5_USER_WALLET.md) adds user exchange, withdrawal, balances, and transaction history — completing Version 1 synchronous wallet behavior.
+[PHASE_4A_TECH_REVIEW.md](PHASE_4A_TECH_REVIEW.md).

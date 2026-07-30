@@ -25,3 +25,24 @@ export type AdminDepositResponse = {
   type: string
   status: string
 }
+
+export type BalanceItem = {
+  asset: string
+  available: string
+}
+
+export type BalanceList = {
+  items: BalanceItem[]
+}
+
+export type TransactionItem = {
+  id: string
+  type: string
+  status: string
+  created_at: string
+}
+
+export type TransactionList = {
+  total_items: number
+  items: TransactionItem[]
+}

@@ -1,6 +1,15 @@
-from app.domain import Transaction
+from app.domain import Transaction, TransactionListItem
 
 from ..models import TransactionModel
+
+
+def transaction_to_list_item(model: TransactionModel) -> TransactionListItem:
+    return TransactionListItem(
+        id=model.id,
+        type=model.type,
+        status=model.status,
+        created_at=model.created_at,
+    )
 
 
 def transaction_to_model(entity: Transaction) -> TransactionModel:

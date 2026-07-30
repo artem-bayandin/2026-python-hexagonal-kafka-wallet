@@ -2,16 +2,25 @@ import { type FormEvent, useState } from 'react'
 import { ApiError } from '../api/client'
 import {
   AdminDeposit,
+  getAdminBalances,
   getAdminKey,
+  listAdminTransactions,
   listReferenceCurrencies,
   listReferenceUsers,
   setAdminKey,
 } from '../api/adminClient'
-import type { CurrencyItem, UserReferenceItem } from '../types/admin'
+import type {
+  BalanceItem,
+  CurrencyItem,
+  TransactionItem,
+  UserReferenceItem,
+} from '../types/admin'
 
 type AdminPageProps = {
   onBack: () => void
 }
+
+const TRANSACTIONS_PAGE_SIZE = 20
 
 function amountStepForPrecision(precision: number): string {
   if (precision <= 0) {
@@ -20,10 +29,18 @@ function amountStepForPrecision(precision: number): string {
   return `0.${'0'.repeat(precision - 1)}1`
 }
 
+function formatTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString()
+}
+
 export function AdminPage({ onBack }: AdminPageProps) {
   const [adminKeyInput, setAdminKeyInput] = useState(getAdminKey() ?? '')
   const [currencies, setCurrencies] = useState<CurrencyItem[]>([])
   const [users, setUsers] = useState<UserReferenceItem[]>([])
+  const [balances, setBalances] = useState<BalanceItem[]>([])
+  const [transactions, setTransactions] = useState<TransactionItem[]>([])
+  const [transactionsTotalItems, setTransactionsTotalItems] = useState(0)
+  const [transactionsPageNumber, setTransactionsPageNumber] = useState(0)
   const [selectedCurrencyLabel, setSelectedCurrencyLabel] = useState('')
   const [selectedUserEmail, setSelectedUserEmail] = useState('')
   const [amount, setAmount] = useState('')
@@ -31,11 +48,24 @@ export function AdminPage({ onBack }: AdminPageProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmittingDeposit, setIsSubmittingDeposit] = useState(false)
+  const [isLoadingMoreTransactions, setIsLoadingMoreTransactions] =
+    useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
 
   const selectedCurrency = currencies.find(
     (currency) => currency.label === selectedCurrencyLabel,
   )
+
+  async function loadWalletData() {
+    const [balanceResult, transactionResult] = await Promise.all([
+      getAdminBalances(),
+      listAdminTransactions(0, TRANSACTIONS_PAGE_SIZE),
+    ])
+    setBalances(balanceResult.items)
+    setTransactions(transactionResult.items)
+    setTransactionsTotalItems(transactionResult.total_items)
+    setTransactionsPageNumber(0)
+  }
 
   async function loadReferenceData() {
     setIsLoading(true)
@@ -55,6 +85,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
       setSelectedUserEmail(
         userResult.items.length > 0 ? userResult.items[0].email : '',
       )
+      await loadWalletData()
       setDataLoaded(true)
     } catch (error) {
       if (error instanceof ApiError) {
@@ -96,6 +127,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
         `Deposit completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
       )
       setAmount('')
+      await loadWalletData()
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -106,6 +138,36 @@ export function AdminPage({ onBack }: AdminPageProps) {
       }
     } finally {
       setIsSubmittingDeposit(false)
+    }
+  }
+
+  async function handleLoadMoreTransactions() {
+    if (transactions.length >= transactionsTotalItems) {
+      return
+    }
+
+    const nextPageNumber = transactionsPageNumber + 1
+    setIsLoadingMoreTransactions(true)
+    setErrorMessage(null)
+
+    try {
+      const result = await listAdminTransactions(
+        nextPageNumber,
+        TRANSACTIONS_PAGE_SIZE,
+      )
+      setTransactions((current) => [...current, ...result.items])
+      setTransactionsTotalItems(result.total_items)
+      setTransactionsPageNumber(nextPageNumber)
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setErrorMessage(error.envelope.message)
+      } else if (error instanceof Error) {
+        setErrorMessage(error.message)
+      } else {
+        setErrorMessage('Unable to load more transactions.')
+      }
+    } finally {
+      setIsLoadingMoreTransactions(false)
     }
   }
 
@@ -126,12 +188,12 @@ export function AdminPage({ onBack }: AdminPageProps) {
           required
           value={adminKeyInput}
           onChange={(event) => setAdminKeyInput(event.target.value)}
-          disabled={isLoading || isSubmittingDeposit}
+          disabled={isLoading || isSubmittingDeposit || isLoadingMoreTransactions}
         />
         <button
           className="auth-button"
           type="submit"
-          disabled={isLoading || isSubmittingDeposit}
+          disabled={isLoading || isSubmittingDeposit || isLoadingMoreTransactions}
         >
           {isLoading ? 'Loading…' : 'Save key and load data'}
         </button>
@@ -151,6 +213,70 @@ export function AdminPage({ onBack }: AdminPageProps) {
 
       {dataLoaded && (
         <>
+          <section className="auth-form">
+            <h2 className="auth-label">Admin balances</h2>
+            {balances.length === 0 ? (
+              <p className="auth-detail">Balances: no data</p>
+            ) : (
+              <table className="auth-table">
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Available</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {balances.map((balance) => (
+                    <tr key={balance.asset}>
+                      <td>{balance.asset}</td>
+                      <td>{balance.available}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section className="auth-form">
+            <h2 className="auth-label">Transaction history</h2>
+            {transactions.length === 0 ? (
+              <p className="auth-detail">Transactions: no data</p>
+            ) : (
+              <table className="auth-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td>{transaction.type}</td>
+                      <td>{transaction.status}</td>
+                      <td>{formatTimestamp(transaction.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {transactions.length < transactionsTotalItems && (
+              <button
+                className="auth-button"
+                type="button"
+                onClick={handleLoadMoreTransactions}
+                disabled={
+                  isLoading ||
+                  isSubmittingDeposit ||
+                  isLoadingMoreTransactions
+                }
+              >
+                {isLoadingMoreTransactions ? 'Loading…' : 'Load more'}
+              </button>
+            )}
+          </section>
+
           <section className="auth-form">
             <label className="auth-label" htmlFor="currency-select">
               Currency
