@@ -3,7 +3,12 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from ...entities import OtpChallenge
-from ...ports import ClockService, OtpChallengeRepository, OtpService, UserRepository
+from ...ports import (
+    ClockService,
+    OtpChallengeCommandRepository,
+    OtpService,
+    UserCommandRepository,
+)
 from ...result import Result
 
 
@@ -21,16 +26,16 @@ class RequestOtpResult:
 class RequestOtpHandler:
     def __init__(
         self,
-        users_repo: UserRepository,
-        otp_challenges_repo: OtpChallengeRepository,
+        user_cmd_repo: UserCommandRepository,
+        otp_challenge_cmd_repo: OtpChallengeCommandRepository,
         otp_service: OtpService,
         clock_service: ClockService,
         *,
         otp_ttl_seconds: int,
         include_demo_otp: bool,
     ) -> None:
-        self._users_repo = users_repo
-        self._otp_challenges_repo = otp_challenges_repo
+        self._user_cmd_repo = user_cmd_repo
+        self._otp_challenge_cmd_repo = otp_challenge_cmd_repo
         self._otp_service = otp_service
         self._clock_service = clock_service
         self._otp_ttl_seconds = otp_ttl_seconds
@@ -41,15 +46,15 @@ class RequestOtpHandler:
         now = self._clock_service.now()
         proposed_user_id = uuid4()
 
-        await self._users_repo.ensure_by_email(email, proposed_user_id, now)
-        user = await self._users_repo.get_by_email_for_update(email)
+        await self._user_cmd_repo.ensure_by_email(email, proposed_user_id, now)
+        user = await self._user_cmd_repo.get_by_email_for_update(email)
         assert user is not None
 
-        await self._otp_challenges_repo.invalidate_current_for_user(user.id, now)
+        await self._otp_challenge_cmd_repo.invalidate_current_for_user(user.id, now)
 
         code = self._otp_service.generate_code()
         expires_at = now + timedelta(seconds=self._otp_ttl_seconds)
-        await self._otp_challenges_repo.add(
+        await self._otp_challenge_cmd_repo.add(
             OtpChallenge(
                 id=uuid4(),
                 user_id=user.id,

@@ -1,16 +1,32 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
+import secrets
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.dependencies import build_get_current_user_handler, build_logout_handler
+from app.dependencies import (
+    build_get_current_user_handler,
+    build_list_currencies_handler,
+    build_list_users_handler,
+    build_logout_handler,
+    build_request_otp_handler,
+    build_verify_otp_handler,
+)
 from app.domain import (
     AUTHENTICATION_FAILED,
+    CurrencyCatalogItem,
     CurrentUser,
     GetCurrentUserQuery,
+    ListCurrenciesQuery,
+    ListUsersQuery,
     LogoutCommand,
+    RequestOtpCommand,
+    RequestOtpResult,
     Result,
+    UserReferenceItem,
+    VerifyOtpCommand,
+    VerifyOtpResult,
 )
 
 from .current_user_provider import ContextVarCurrentUserProvider
@@ -19,6 +35,8 @@ from .result_mapping import unwrap_result
 # Bearer scheme
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+ADMIN_KEY_HEADER = "X-Admin-Key"
 
 # Current user provider
 
@@ -62,6 +80,40 @@ def get_logout_executor(request: Request) -> LogoutExecutor:
     return execute
 
 
+# Request OTP executor
+
+RequestOtpExecutor = Callable[[RequestOtpCommand], Awaitable[Result[RequestOtpResult]]]
+
+
+def get_request_otp_executor(request: Request) -> RequestOtpExecutor:
+    async def execute(command: RequestOtpCommand) -> Result[RequestOtpResult]:
+        async with request.app.state.session_factory() as session, session.begin():
+            handler = build_request_otp_handler(
+                session,
+                request.app.state.settings,
+            )
+            return await handler.handle(command)
+
+    return execute
+
+
+# Verify OTP executor
+
+VerifyOtpExecutor = Callable[[VerifyOtpCommand], Awaitable[Result[VerifyOtpResult]]]
+
+
+def get_verify_otp_executor(request: Request) -> VerifyOtpExecutor:
+    async def execute(command: VerifyOtpCommand) -> Result[VerifyOtpResult]:
+        async with request.app.state.session_factory() as session, session.begin():
+            handler = build_verify_otp_handler(
+                session,
+                request.app.state.settings,
+            )
+            return await handler.handle(command)
+
+    return execute
+
+
 # Authenticated request binding
 
 
@@ -86,3 +138,57 @@ async def bind_current_user(
     finally:
         # clean up after the request
         provider.reset(token)
+
+
+# Reference auth
+
+
+async def require_reference_auth(
+    request: Request,
+    x_admin_key: Annotated[str | None, Header(alias=ADMIN_KEY_HEADER)] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)] = None,
+) -> None:
+    settings = request.app.state.settings
+    if (
+        x_admin_key is not None
+        and settings.admin_api_key is not None
+        and secrets.compare_digest(x_admin_key, settings.admin_api_key)
+    ):
+        return
+    if credentials is not None and credentials.scheme.casefold() == "bearer":
+        async with request.app.state.session_factory() as session:
+            handler = build_get_current_user_handler(session, settings)
+            result = await handler.handle(GetCurrentUserQuery(token=credentials.credentials))
+            if result.is_success:
+                return
+    unwrap_result(Result.failure(AUTHENTICATION_FAILED))
+
+
+# List currencies executor
+
+ListCurrenciesExecutor = Callable[
+    [ListCurrenciesQuery], Awaitable[Result[list[CurrencyCatalogItem]]]
+]
+
+
+def get_list_currencies_executor(request: Request) -> ListCurrenciesExecutor:
+    async def execute(query: ListCurrenciesQuery) -> Result[list[CurrencyCatalogItem]]:
+        async with request.app.state.session_factory() as session:
+            handler = build_list_currencies_handler(session)
+            return await handler.handle(query)
+
+    return execute
+
+
+# List users executor
+
+ListUsersExecutor = Callable[[ListUsersQuery], Awaitable[Result[list[UserReferenceItem]]]]
+
+
+def get_list_users_executor(request: Request) -> ListUsersExecutor:
+    async def execute(query: ListUsersQuery) -> Result[list[UserReferenceItem]]:
+        async with request.app.state.session_factory() as session:
+            handler = build_list_users_handler(session)
+            return await handler.handle(query)
+
+    return execute

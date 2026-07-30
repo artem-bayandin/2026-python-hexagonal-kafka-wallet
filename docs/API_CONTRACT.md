@@ -23,6 +23,16 @@ This is the canonical contract for the HTTP API described by the functional and 
 `asset` is one of `USDT` or `USD`. Amount scale must not exceed the asset scale.
 The API rejects values requiring rounding.
 
+Non-paginated list endpoints use a shared **`DataList`** envelope:
+
+```json
+{
+  "items": [ ... ]
+}
+```
+
+Paginated list endpoints extend this shape with cursor fields (for example `next_cursor` on `GET /admin/transactions`).
+
 ```json
 {
   "id": "b17e3a12-3395-4b1c-82a5-2e57632fe6b4",

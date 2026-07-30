@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { ApiError, checkAuthenticated, logout, requestOtp, verifyOtp } from './api/client'
+import { AdminPage } from './pages/AdminPage'
 import './App.css'
 
 type OtpStepState = {
@@ -9,12 +10,14 @@ type OtpStepState = {
 }
 
 type AuthStatus = 'checking' | 'authorized' | 'unauthenticated' | 'check-error'
+type AppView = 'auth' | 'admin'
 
 function formatExpiry(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
 function App() {
+  const [view, setView] = useState<AppView>('auth')
   const [email, setEmail] = useState('')
   const [otpStep, setOtpStep] = useState<OtpStepState | null>(null)
   const [otp, setOtp] = useState('')
@@ -55,6 +58,10 @@ function App() {
       cancelled = true
     }
   }, [authStatus])
+
+  if (import.meta.env.DEV && view === 'admin') {
+    return <AdminPage onBack={() => setView('auth')} />
+  }
 
   async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -173,6 +180,16 @@ function App() {
             {errorMessage}
           </p>
         )}
+        {import.meta.env.DEV && (
+          <button
+            className="auth-button"
+            type="button"
+            onClick={() => setView('admin')}
+            disabled={isSubmitting}
+          >
+            Open admin page
+          </button>
+        )}
         <button
           className="auth-button"
           type="button"
@@ -232,6 +249,16 @@ function App() {
     <main className="auth">
       <h1>Sign in</h1>
       <p className="auth-detail">Enter your email to receive a one-time code.</p>
+      {import.meta.env.DEV && (
+        <button
+          className="auth-button"
+          type="button"
+          onClick={() => setView('admin')}
+          disabled={isSubmitting}
+        >
+          Open admin page
+        </button>
+      )}
       <form className="auth-form" onSubmit={handleEmailSubmit}>
         <label className="auth-label" htmlFor="email">
           Email

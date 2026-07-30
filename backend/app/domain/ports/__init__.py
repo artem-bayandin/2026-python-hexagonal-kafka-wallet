@@ -1,7 +1,10 @@
 from .current_user_provider import CurrentUserProvider
-from .repositories.auth_session_repository import AuthSessionRepository
-from .repositories.otp_challenge_repository import OtpChallengeRepository
-from .repositories.user_repository import UserRepository
+from .repositories.auth_session_command_repository import AuthSessionCommandRepository
+from .repositories.auth_session_query_repository import AuthSessionQueryRepository
+from .repositories.currency_query_repository import CurrencyQueryRepository
+from .repositories.otp_challenge_command_repository import OtpChallengeCommandRepository
+from .repositories.user_command_repository import UserCommandRepository
+from .repositories.user_query_repository import UserQueryRepository
 from .services.clock_service import ClockService
 from .services.otp_service import OtpService
 from .services.token_service import TokenService
@@ -10,9 +13,12 @@ __all__ = [
     # Providers
     "CurrentUserProvider",
     # Repositories
-    "AuthSessionRepository",
-    "OtpChallengeRepository",
-    "UserRepository",
+    "AuthSessionCommandRepository",
+    "AuthSessionQueryRepository",
+    "CurrencyQueryRepository",
+    "OtpChallengeCommandRepository",
+    "UserCommandRepository",
+    "UserQueryRepository",
     # Services
     "ClockService",
     "OtpService",

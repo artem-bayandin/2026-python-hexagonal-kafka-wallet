@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from ...current_user import CurrentUser
 from ...error_codes import AUTHENTICATION_FAILED
 from ...ports import (
-    AuthSessionRepository,
+    AuthSessionQueryRepository,
     ClockService,
     TokenService,
-    UserRepository,
+    UserQueryRepository,
 )
 from ...result import Result
 
@@ -21,13 +21,13 @@ class GetCurrentUserHandler:
         self,
         token_service: TokenService,
         clock_service: ClockService,
-        auth_sessions_repo: AuthSessionRepository,
-        users_repo: UserRepository,
+        auth_session_query_repo: AuthSessionQueryRepository,
+        user_query_repo: UserQueryRepository,
     ) -> None:
         self._token_service = token_service
         self._clock_service = clock_service
-        self._auth_sessions_repo = auth_sessions_repo
-        self._users_repo = users_repo
+        self._auth_session_query_repo = auth_session_query_repo
+        self._user_query_repo = user_query_repo
 
     async def handle(self, query: GetCurrentUserQuery) -> Result[CurrentUser]:
         claims_result = self._token_service.decode(query.token)
@@ -40,7 +40,7 @@ class GetCurrentUserHandler:
         assert claims is not None
 
         now = self._clock_service.now()
-        session = await self._auth_sessions_repo.get_by_jti(claims.session_jti)
+        session = await self._auth_session_query_repo.get_by_jti(claims.session_jti)
         if session is None:
             return Result.failure(AUTHENTICATION_FAILED)
         if session.user_id != claims.user_id:
@@ -50,7 +50,7 @@ class GetCurrentUserHandler:
         if session.expires_at != claims.expires_at:
             return Result.failure(AUTHENTICATION_FAILED)
 
-        user = await self._users_repo.get_by_id(claims.user_id)
+        user = await self._user_query_repo.get_by_id(claims.user_id)
         if user is None:
             return Result.failure(AUTHENTICATION_FAILED)
         return Result.success(

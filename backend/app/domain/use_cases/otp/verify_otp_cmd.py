@@ -11,12 +11,12 @@ from ...error_codes import (
     OTP_SUPERSEDED,
 )
 from ...ports import (
-    AuthSessionRepository,
+    AuthSessionCommandRepository,
     ClockService,
-    OtpChallengeRepository,
+    OtpChallengeCommandRepository,
     OtpService,
     TokenService,
-    UserRepository,
+    UserCommandRepository,
 )
 from ...result import Result
 
@@ -36,9 +36,9 @@ class VerifyOtpResult:
 class VerifyOtpHandler:
     def __init__(
         self,
-        users_repo: UserRepository,
-        otp_challenges_repo: OtpChallengeRepository,
-        auth_sessions_repo: AuthSessionRepository,
+        user_cmd_repo: UserCommandRepository,
+        otp_challenge_cmd_repo: OtpChallengeCommandRepository,
+        auth_session_cmd_repo: AuthSessionCommandRepository,
         otp_service: OtpService,
         token_service: TokenService,
         clock_service: ClockService,
@@ -46,9 +46,9 @@ class VerifyOtpHandler:
         otp_max_attempts: int,
         access_token_ttl_minutes: int,
     ) -> None:
-        self._users_repo = users_repo
-        self._otp_challenges_repo = otp_challenges_repo
-        self._auth_sessions_repo = auth_sessions_repo
+        self._user_cmd_repo = user_cmd_repo
+        self._otp_challenge_cmd_repo = otp_challenge_cmd_repo
+        self._auth_session_cmd_repo = auth_session_cmd_repo
         self._otp_service = otp_service
         self._token_service = token_service
         self._clock_service = clock_service
@@ -58,13 +58,13 @@ class VerifyOtpHandler:
     async def handle(self, command: VerifyOtpCommand) -> Result[VerifyOtpResult]:
         email = command.email.strip().casefold()
         now = self._clock_service.now()
-        user = await self._users_repo.get_by_email_for_update(email)
+        user = await self._user_cmd_repo.get_by_email_for_update(email)
         if user is None:
             return Result.failure(OTP_INVALID)
 
-        current_user = await self._otp_challenges_repo.get_current_for_user_for_update(user.id)
+        current_user = await self._otp_challenge_cmd_repo.get_current_for_user_for_update(user.id)
         submitted_digest = self._otp_service.digest(email, command.otp)
-        matching_otp_challenge = await self._otp_challenges_repo.get_newest_by_digest_for_update(
+        matching_otp_challenge = await self._otp_challenge_cmd_repo.get_newest_by_digest_for_update(
             user.id, submitted_digest
         )
 
@@ -84,8 +84,8 @@ class VerifyOtpHandler:
             token_expires_at = (now + timedelta(minutes=self._access_token_ttl_minutes)).replace(
                 microsecond=0
             )
-            await self._otp_challenges_repo.mark_consumed(matching_otp_challenge.id, now)
-            await self._auth_sessions_repo.add(
+            await self._otp_challenge_cmd_repo.mark_consumed(matching_otp_challenge.id, now)
+            await self._auth_session_cmd_repo.add(
                 AuthSession(
                     jti=session_jti,
                     user_id=user.id,
@@ -110,7 +110,7 @@ class VerifyOtpHandler:
             return Result.failure(OTP_EXPIRED)
 
         new_count = current_user.failed_attempt_count + 1
-        await self._otp_challenges_repo.set_failed_attempt_count(current_user.id, new_count)
+        await self._otp_challenge_cmd_repo.set_failed_attempt_count(current_user.id, new_count)
         if new_count >= self._otp_max_attempts:
             return Result.failure(OTP_LOCKED)
         return Result.failure(OTP_INVALID)

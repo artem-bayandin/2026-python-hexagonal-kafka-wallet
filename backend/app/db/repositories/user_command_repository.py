@@ -4,14 +4,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from app.domain import User, UserRepository
+from app.domain import User, UserCommandRepository
 
 from ..mappers import user_to_domain
 from ..models import UserModel
 from ..session import AsyncSession
 
 
-class UserRepositoryImpl(UserRepository):
+class UserCommandRepositoryImpl(UserCommandRepository):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
@@ -25,14 +25,6 @@ class UserRepositoryImpl(UserRepository):
 
     async def get_by_email_for_update(self, email: str) -> User | None:
         stmt = select(UserModel).where(UserModel.email == email).with_for_update()
-        result = await self.session.execute(stmt)
-        model = result.scalar_one_or_none()
-        if model is None:
-            return None
-        return user_to_domain(model)
-
-    async def get_by_id(self, user_id: UUID) -> User | None:
-        stmt = select(UserModel).where(UserModel.id == user_id)
         result = await self.session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:

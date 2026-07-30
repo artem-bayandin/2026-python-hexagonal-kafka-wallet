@@ -9,11 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.api import (
     ApiResultError,
-    auth_router,
     handle_api_result_error,
     handle_uncaught_exception,
     handle_validation_error,
+    auth_router,
     health_router,
+    reference_router,
 )
 from app.config import Settings, get_settings
 from app.db import build_session_factory
@@ -52,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(health_router)
+    app.include_router(reference_router)
 
     @app.get("/health/ready")
     async def health_ready(response: Response) -> dict[str, str]:

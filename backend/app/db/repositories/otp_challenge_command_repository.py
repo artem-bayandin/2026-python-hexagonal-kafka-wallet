@@ -5,14 +5,14 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 
-from app.domain import OtpChallenge, OtpChallengeRepository
+from app.domain import OtpChallenge, OtpChallengeCommandRepository
 
 from ..mappers import otp_challenge_to_domain, otp_challenge_to_model
 from ..models import OtpChallengeModel
 from ..session import AsyncSession
 
 
-class OtpChallengeRepositoryImpl(OtpChallengeRepository):
+class OtpChallengeCommandRepositoryImpl(OtpChallengeCommandRepository):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 

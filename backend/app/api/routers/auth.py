@@ -1,14 +1,17 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
-from app.dependencies import execute_request_otp, execute_verify_otp
 from app.domain import LogoutCommand, RequestOtpCommand, VerifyOtpCommand
 
 from ..dependencies import (
     LogoutExecutor,
+    RequestOtpExecutor,
+    VerifyOtpExecutor,
     bind_current_user,
     get_logout_executor,
+    get_request_otp_executor,
+    get_verify_otp_executor,
 )
 from ..result_mapping import unwrap_result
 from ..schemas import (
@@ -29,12 +32,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 )
 async def request_otp(
     payload: RequestOtpRequest,
-    request: Request,
+    executor: Annotated[RequestOtpExecutor, Depends(get_request_otp_executor)],
 ) -> RequestOtpResponse:
-    result = await execute_request_otp(
-        request,
-        RequestOtpCommand(email=str(payload.email)),
-    )
+    result = await executor(RequestOtpCommand(email=str(payload.email)))
     data = unwrap_result(result)
     assert data is not None
     return RequestOtpResponse(
@@ -50,10 +50,9 @@ async def request_otp(
 )
 async def verify_otp(
     payload: VerifyOtpRequest,
-    request: Request,
+    executor: Annotated[VerifyOtpExecutor, Depends(get_verify_otp_executor)],
 ) -> VerifyOtpResponse:
-    result = await execute_verify_otp(
-        request,
+    result = await executor(
         VerifyOtpCommand(email=str(payload.email), otp=payload.otp),
     )
     data = unwrap_result(result)

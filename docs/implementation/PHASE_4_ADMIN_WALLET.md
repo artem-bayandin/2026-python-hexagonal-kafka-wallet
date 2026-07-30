@@ -97,6 +97,7 @@ backend/
     │   │   ├── reference.py         # Slice 1a/1b
     │   │   └── admin.py             # Slice 2–4
     │   └── schemas/
+    │       ├── data_list.py         # shared DataList[T] envelope
     │       ├── reference.py
     │       ├── admin.py
     │       └── wallet.py            # shared balance/transaction shapes
@@ -177,16 +178,6 @@ ADMIN_API_KEY=__some__key
 ```
 
 `backend/app/config.py` already declares `admin_api_key: str | None = None`. No change is required unless the field is missing.
-
-Document the development gate in `backend/app/main.py` when registering routers in Slice 1a:
-
-```python
-if resolved.app_env == "development":
-    app.include_router(reference_router)
-    # admin_router added in Slice 2
-```
-
-Outside development, omit these routers entirely so the routes do not exist.
 
 **Slice 0 checkpoint:** `ADMIN_API_KEY` is set in local `.env`; backend starts with Phase 3 migration applied.
 
@@ -321,10 +312,20 @@ Re-export `CurrencyQueryRepositoryImpl` from `app/db/__init__.py`.
 
 ### API
 
-Create `backend/app/api/schemas/reference.py`:
+Create `backend/app/api/schemas/data_list.py`:
 
 ```python
 from pydantic import BaseModel, Field
+
+
+class DataList[T](BaseModel):
+    items: list[T] = Field(default_factory=list)
+```
+
+Create `backend/app/api/schemas/reference.py`:
+
+```python
+from pydantic import BaseModel
 
 
 class CurrencyItemResponse(BaseModel):
@@ -332,10 +333,6 @@ class CurrencyItemResponse(BaseModel):
     name: str
     type: str
     precision: int
-
-
-class CurrencyListResponse(BaseModel):
-    items: list[CurrencyItemResponse] = Field(default_factory=list)
 ```
 
 Add reference authentication to `backend/app/api/dependencies.py`. The dependency accepts admin key **or** Bearer JWT:
@@ -404,7 +401,7 @@ from app.domain import ListCurrenciesQuery
 
 from ..dependencies import ListCurrenciesExecutor, get_list_currencies_executor, require_reference_auth
 from ..result_mapping import unwrap_result
-from ..schemas import CurrencyItemResponse, CurrencyListResponse
+from ..schemas import CurrencyItemResponse, DataList
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -417,9 +414,9 @@ async def list_currencies(
     executor: Annotated[
         ListCurrenciesExecutor, Depends(get_list_currencies_executor)
     ],
-) -> CurrencyListResponse:
+) -> DataList[CurrencyItemResponse]:
     items = unwrap_result(await executor(ListCurrenciesQuery()))
-    return CurrencyListResponse(
+    return DataList(
         items=[
             CurrencyItemResponse(
                 label=item.label,
@@ -449,15 +446,15 @@ __all__ += ["reference_router"]
 Create `frontend/src/types/admin.ts`:
 
 ```typescript
+export type DataList<T> = {
+  items: T[]
+}
+
 export type CurrencyItem = {
   label: string
   name: string
   type: string
   precision: number
-}
-
-export type CurrencyListResponse = {
-  items: CurrencyItem[]
 }
 ```
 
@@ -465,7 +462,7 @@ Create `frontend/src/api/adminClient.ts`:
 
 ```typescript
 import { ApiError } from './client'
-import type { CurrencyListResponse } from '../types/admin'
+import type { CurrencyItem, DataList } from '../types/admin'
 
 const ADMIN_KEY_STORAGE = 'admin_api_key'
 
@@ -493,12 +490,12 @@ export async function adminFetch(
   return fetch(`/api${path}`, { ...init, headers })
 }
 
-export async function listReferenceCurrencies(): Promise<CurrencyListResponse> {
+export async function listReferenceCurrencies(): Promise<DataList<CurrencyItem>> {
   const response = await adminFetch('/reference/currencies')
   if (!response.ok) {
     throw await ApiError.fromResponse(response)
   }
-  return response.json() as Promise<CurrencyListResponse>
+  return response.json() as Promise<DataList<CurrencyItem>>
 }
 ```
 
@@ -624,16 +621,12 @@ Extend `backend/app/api/schemas/reference.py`:
 ```python
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr
 
 
 class UserReferenceItemResponse(BaseModel):
     user_id: UUID
     email: EmailStr
-
-
-class UserReferenceListResponse(BaseModel):
-    items: list[UserReferenceItemResponse] = Field(default_factory=list)
 ```
 
 Add executor and route to `backend/app/api/routers/reference.py`:
@@ -645,9 +638,9 @@ Add executor and route to `backend/app/api/routers/reference.py`:
 )
 async def list_users(
     executor: Annotated[ListUsersExecutor, Depends(get_list_users_executor)],
-) -> UserReferenceListResponse:
+) -> DataList[UserReferenceItemResponse]:
     items = unwrap_result(await executor(ListUsersQuery()))
-    return UserReferenceListResponse(
+    return DataList(
         items=[
             UserReferenceItemResponse(user_id=item.user_id, email=item.email)
             for item in items
@@ -666,21 +659,17 @@ export type UserReferenceItem = {
   user_id: string
   email: string
 }
-
-export type UserReferenceListResponse = {
-  items: UserReferenceItem[]
-}
 ```
 
 Add to `adminClient.ts`:
 
 ```typescript
-export async function listReferenceUsers(): Promise<UserReferenceListResponse> {
+export async function listReferenceUsers(): Promise<DataList<UserReferenceItem>> {
   const response = await adminFetch('/reference/users')
   if (!response.ok) {
     throw await ApiError.fromResponse(response)
   }
-  return response.json() as Promise<UserReferenceListResponse>
+  return response.json() as Promise<DataList<UserReferenceItem>>
 }
 ```
 
