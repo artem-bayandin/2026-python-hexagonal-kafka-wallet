@@ -7,7 +7,7 @@ Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for carry-forward context. Can
 ## Current implementation status
 
 - **Authentication schema** complete (migration `23fa0ceb69ca`).
-- **Wallet schema** not started.
+- **Wallet schema** complete (migration `d377d8c90992`).
 
 ## Scope
 
@@ -23,7 +23,7 @@ This phase deliberately excludes:
 - HTTP routes, Pydantic schemas, UI;
 - automated tests;
 - **all Version 2 schema** (outbox, inbox, Kafka diagnostics, extra balance buckets, extended transaction statuses) — deferred to [PHASE_6_KAFKA.md](PHASE_6_KAFKA.md);
-- **`transfer` HTTP API** — the `transfer` transaction type is included in the schema for future use; endpoint and handler work belong to a later phase.
+- **`transfer` HTTP API** — the `transfer` transaction type is included in the schema; the HTTP endpoint and handler were implemented in Phase 5.
 
 Use manual verification and static quality checks only. Do not add test files during this phase.
 

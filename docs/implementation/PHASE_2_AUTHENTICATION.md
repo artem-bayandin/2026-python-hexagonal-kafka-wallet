@@ -18,6 +18,10 @@ Within each feature slice, work in the strict order **Domain → DB → API → 
 - **Slice 4** complete.
 - **Final verification** complete.
 
+## Historical note
+
+Slice code blocks in this guide were written during step-by-step implementation. The running code uses `domain/read_models/` (not `domain/entities/`), CQRS-split repositories (`UserCommandRepositoryImpl` / `UserQueryRepositoryImpl`), `unwrap_domain_result` / `DomainResultError`, and per-use-case files under `api/executors/`. When a snippet differs, treat the repository as canonical.
+
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 
 ## Scope
@@ -41,16 +45,16 @@ A browser can request a development demo OTP, verify it, show **Authorized**, su
 - `backend/app/domain/` imports only Python standard-library modules and other domain models or `Protocol` ports.
 - Domain handlers never import FastAPI, Pydantic, SQLAlchemy, PyJWT, `app.auth`, or `app.db`.
 - `app.api`, `app.auth`, `app.db`, and `app.domain` are regular packages with an `__init__.py` public façade.
-- **Cross-layer imports** use only the top-level façade of the target layer (for example, `from app.domain import Result`, `from app.db import UserRepositoryImpl`). Never import another layer's nested modules (for example, `app.domain.entities.user`, `app.db.models.user`).
-- **Same-layer imports** use relative paths through subpackage façades in every layer — not absolute same-layer paths such as `app.db.models.user` or `app.api.schemas.auth`. Examples: domain handlers use `from ...entities import User` and `from ..ports import ClockService`; db repositories use `from ..models import UserModel` and `from ..mappers import user_to_domain`; api routers use `from ..schemas import RequestOtpRequest`; auth's package `__init__.py` uses `from .otp_service import HmacOtpService`. Re-export shared symbols from each subpackage's `__init__.py` (`entities/`, `ports/`, `use_cases/`, `models/`, `mappers/`, `repositories/`, `routers/`, `schemas/`, and so on) so callers import the façade, not the leaf module.
+- **Cross-layer imports** use only the top-level façade of the target layer (for example, `from app.domain import Result`, `from app.db import UserCommandRepositoryImpl`). Never import another layer's nested modules (for example, `app.domain.read_models.user`, `app.db.models.user`).
+- **Same-layer imports** use relative paths through subpackage façades in every layer — not absolute same-layer paths such as `app.db.models.user` or `app.api.schemas.auth`. Examples: domain handlers use `from ...read_models import UserItem` and `from ..ports import ClockService`; db repositories use `from ..models import UserModel` and `from ..mappers import user_to_domain`; api routers use `from ..schemas import RequestOtpRequest`; auth's package `__init__.py` uses `from .otp_service import HmacOtpService`. Re-export shared symbols from each subpackage's `__init__.py` (`read_models/`, `ports/`, `use_cases/`, `models/`, `mappers/`, `repositories/`, `routers/`, `schemas/`, and so on) so callers import the façade, not the leaf module.
 - Every command and query handler returns the immutable generic `Result[T]` from `app.domain` (classmethod factories return `Self`). When a handler carries a success payload, name that dataclass `…Result` (for example `VerifyOtpResult`, `RequestOtpResult`) — not `…Data`. Two deliberate exceptions: queries may return an existing domain value directly (for example `CurrentUserHandler.handle(...) -> Result[CurrentUser]`), and side-effect-only commands may use `Result[None]` (for example logout).
 - `CurrentUser` is an immutable domain value; `CurrentUserProvider` is a domain port implemented by the API with request-scoped state.
 - Domain ports are split by responsibility and main entity: `ports/services/<service>.py` for services and `ports/repositories/<entity>_repository.py` for repositories.
-- SQLAlchemy repositories live under `backend/app/db/repositories/<entity>_repository.py` and structurally implement their matching domain ports. Concrete classes use the `*Impl` suffix (for example `UserRepositoryImpl`) so they do not collide with domain Protocol names when re-exported from `app.db`.
+- SQLAlchemy repositories live under `backend/app/db/repositories/` as separate command and query implementations per entity concern. Concrete classes use the `*Impl` suffix (for example `UserCommandRepositoryImpl`, `UserQueryRepositoryImpl`) so they do not collide with domain Protocol names when re-exported from `app.db`.
 - Domain use cases live under `backend/app/domain/use_cases/<entity>/`, not a shared `commands/` or `queries/` directory.
 - HMAC/`secrets`, clock, and PyJWT implementations live under `backend/app/auth/` and structurally implement domain ports.
 - `backend/app/dependencies.py` is the composition root. It composes domain handlers with inward adapters (`app.auth`, `app.db`, `app.domain`) and opens SQLAlchemy transaction contexts for commands that do not depend on HTTP request-scoped state.
-- `backend/app/api/dependencies.py` wires incoming-adapter concerns: Bearer extraction, request-scoped `CurrentUserProvider` binding, and FastAPI executors that need `Request` or the shared provider instance. It imports handler builders from `app.dependencies`; `app.dependencies` must never import from `app.api`.
+- `backend/app/api/dependencies.py` wires incoming-adapter concerns: Bearer extraction, request-scoped `CurrentUserProvider` binding, and re-exports of executor symbols. Per-use-case executor creators live under `backend/app/api/executors/`. It imports handler builders from `app.dependencies`; `app.dependencies` must never import from `app.api`.
 - API routers translate HTTP DTOs to commands and successful result data to response DTOs. Result-error-code-to-HTTP mapping lives only in `backend/app/api/exception_handlers.py`.
 - Every command executes inside `AsyncSession.begin()`. A returned `Result`, whether successful or failed, exits normally and commits; an unexpected exception escapes and rolls back.
 
@@ -728,17 +732,17 @@ from typing import cast
 from app.domain import Result
 
 
-class ApiResultError(Exception):
+class DomainResultError(Exception):
     def __init__(self, error_code: str) -> None:
         self.error_code = error_code
         super().__init__(error_code)
 
 
-def unwrap_result[T](result: Result[T]) -> T:
+def unwrap_domain_result[T](result: Result[T]) -> T:
     if result.is_success:
         return cast("T", result.data)
     assert result.error_code is not None
-    raise ApiResultError(result.error_code)
+    raise DomainResultError(result.error_code)
 ```
 
 Complete `backend/app/api/exception_handlers.py`. This is the only error-code-to-HTTP mapping. Keep all mappings here now; codes that are not yet returned become reachable in their later slices. Typed handlers take `error: Exception` and narrow with `isinstance` so `app.add_exception_handler` satisfies strict static analysis.
@@ -750,7 +754,7 @@ from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .result_mapping import ApiResultError
+from .result_mapping import DomainResultError
 
 ERROR_RESPONSES: dict[str, tuple[int, str]] = {
     "OTP_INVALID": (
@@ -808,7 +812,7 @@ async def handle_api_validation_error(_: Request, error: Exception) -> JSONRespo
 
 
 async def handle_domain_result_error(_: Request, error: Exception) -> JSONResponse:
-    if not isinstance(error, ApiResultError):
+    if not isinstance(error, DomainResultError):
         raise error
     mapped = ERROR_RESPONSES.get(error.error_code)
     if mapped is None:
@@ -829,7 +833,7 @@ async def handle_uncaught_exception(_: Request, __: Exception) -> JSONResponse:
     )
 ```
 
-`unwrap_result` never copies, exposes, or logs `Result.reason`. It runs only after a transactional command executor returns, so the transaction is already committed before a failed result becomes an API-layer exception. Routes retain their explicit `201` request-OTP, `200` verify/health, and `204` logout statuses.
+`unwrap_domain_result` never copies, exposes, or logs `Result.reason`. It runs only after a transactional command executor returns, so the transaction is already committed before a failed result becomes an API-layer exception. Routes retain their explicit `201` request-OTP, `200` verify/health, and `204` logout statuses.
 
 Complete these Pydantic DTOs in `backend/app/api/schemas/auth.py`:
 
@@ -856,7 +860,7 @@ from fastapi import APIRouter, Request, status
 from app.dependencies import execute_request_otp
 from app.domain import RequestOtpCommand
 
-from ..result_mapping import unwrap_result
+from ..result_mapping import unwrap_domain_result
 from ..schemas import RequestOtpRequest, RequestOtpResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -875,7 +879,7 @@ async def request_otp(
         request,
         RequestOtpCommand(email=str(payload.email)),
     )
-    data = unwrap_result(result)
+    data = unwrap_domain_result(result)
     assert data is not None
     return RequestOtpResponse(
         expires_at=data.expires_at,
@@ -897,12 +901,12 @@ from .exception_handlers import (
     handle_uncaught_exception,
     handle_api_validation_error,
 )
-from .result_mapping import ApiResultError
+from .result_mapping import DomainResultError
 from .routers import auth_router
 
 __all__ = [
     "auth_router",
-    "ApiResultError",
+    "DomainResultError",
     "handle_domain_result_error",
     "handle_uncaught_exception",
     "handle_api_validation_error",
@@ -913,7 +917,7 @@ Only after the API façade, router, and handlers exist, update `backend/app/main
 
 - create the async engine with `create_async_engine`, pass it to `build_session_factory`, store settings and the session factory on `app.state`, and dispose the engine during lifespan shutdown;
 - register `auth_router` and `health_router` from `app.api`;
-- register `handle_api_validation_error`, `handle_domain_result_error` (for `ApiResultError`), and `handle_uncaught_exception` for their respective exception types;
+- register `handle_api_validation_error`, `handle_domain_result_error` (for `DomainResultError`), and `handle_uncaught_exception` for their respective exception types;
 - configure CORS by splitting `settings.cors_allowed_origins` on commas, trimming whitespace, and discarding empty origins;
 - preserve the app's `/health/ready` probe and `/health/live` route.
 
@@ -1326,7 +1330,7 @@ async def verify_otp(
         request,
         VerifyOtpCommand(email=str(payload.email), otp=payload.otp),
     )
-    data = unwrap_result(result)
+    data = unwrap_domain_result(result)
     assert data is not None
     return VerifyOtpResponse(
         access_token=data.access_token,
@@ -1548,12 +1552,12 @@ async def bind_current_user(
     ],
 ) -> AsyncIterator[None]:
     if credentials is None or credentials.scheme.casefold() != "bearer":
-        unwrap_result(Result.failure(AUTHENTICATION_FAILED))
+        unwrap_domain_result(Result.failure(AUTHENTICATION_FAILED))
     assert credentials is not None
     result = await executor(
         CurrentUserQuery(token=credentials.credentials)
     )
-    current_user = unwrap_result(result)
+    current_user = unwrap_domain_result(result)
     token = provider.bind(current_user)
     try:
         yield
@@ -1563,7 +1567,7 @@ async def bind_current_user(
 
 The exact context token returned by `bind()` must be reset in `finally`, including when the route or handler fails. Do not expose adapter mutation methods through the domain port.
 
-`unwrap_result` is an API helper backed by the central error mapping. It returns successful data and raises only an API-layer mapping exception for a failed result; no domain exception is involved. Use `HTTPBearer(auto_error=False)`, not `OAuth2PasswordBearer`: verification accepts a JSON OTP payload and is not an OAuth2 password-form token endpoint. Manual handling guarantees missing and malformed credentials use `ErrorEnvelope`. `HTTPBearer` still registers the Bearer security scheme in OpenAPI and enables Swagger's **Authorize** button.
+`unwrap_domain_result` is an API helper backed by the central error mapping. It returns successful data and raises only an API-layer mapping exception for a failed result; no domain exception is involved. Use `HTTPBearer(auto_error=False)`, not `OAuth2PasswordBearer`: verification accepts a JSON OTP payload and is not an OAuth2 password-form token endpoint. Manual handling guarantees missing and malformed credentials use `ErrorEnvelope`. `HTTPBearer` still registers the Bearer security scheme in OpenAPI and enables Swagger's **Authorize** button.
 
 Create `backend/app/api/routers/health.py`:
 
@@ -1727,7 +1731,7 @@ async def logout(
     executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
 ) -> Response:
     result = await executor(LogoutCommand())
-    unwrap_result(result)
+    unwrap_domain_result(result)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 ```
 

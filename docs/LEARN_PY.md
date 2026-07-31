@@ -156,7 +156,7 @@ Two ways to use a dependency in FastAPI:
 | Parameter | `async def foo(user: CurrentUser = Depends(...))` | Runs dependency **and** passes return value into the handler |
 | Route `dependencies=` | `dependencies=[Depends(bind_current_user)]` | Runs dependency **only**; return value is **not** passed to the handler |
 
-Here the handler doesn't need `CurrentUser` in its signature — it only needs auth to succeed. If auth fails, `unwrap_result` raises before the handler runs. If it passes, the handler returns `{"status": "ok"}`.
+Here the handler doesn't need `CurrentUser` in its signature — it only needs auth to succeed. If auth fails, `unwrap_domain_result` raises before the handler runs. If it passes, the handler returns `{"status": "ok"}`.
 
 Flow:
 
@@ -194,7 +194,7 @@ async def logout(
     executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
 ) -> Response:
     result = await executor(LogoutCommand())
-    unwrap_result(result)
+    unwrap_domain_result(result)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 ```
 
@@ -269,7 +269,7 @@ flowchart TD
     B --> D[get_current_user_executor → execute fn]
     B --> E[get_current_user_provider → ContextVar]
     C --> F{valid Bearer?}
-    F -->|no| G[401 via unwrap_result]
+    F -->|no| G[401 via unwrap_domain_result]
     F -->|yes| H[executor validates JWT]
     H --> I[provider.bind user]
     I --> J[route handler]

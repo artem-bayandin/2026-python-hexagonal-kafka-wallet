@@ -14,84 +14,84 @@ Runnable commands: [Phase 1 — Scaffolding](implementation/PHASE_1_SCAFFOLDING.
 
 All Python/backend paths below are relative to `backend/`.
 
-- [ ] Initialize the Python project with `uv` and Python 3.14 under `backend/`.
-- [ ] Add backend runtime dependencies using the bounded ranges in `TECHNICAL_REQUIREMENTS.md`: FastAPI, Uvicorn, Pydantic, `pydantic-settings`, SQLAlchemy 2.0, asyncpg, Alembic, PyJWT, and `email-validator`.
-- [ ] Add backend development dependencies: ruff, mypy, pytest, pytest-asyncio, HTTPX, and testcontainers.
-- [ ] Configure ruff and strict mypy for SQLAlchemy 2.x native typing in `backend/pyproject.toml`.
-- [ ] Create the initial `backend/app/`, `backend/tests/unit/`, `backend/tests/integration/`, and `backend/scripts/` packages/directories.
-- [ ] Create a Vite React TypeScript project under `frontend/`.
-- [ ] Enable Yarn with `corepack enable`; add React Router, ESLint, Vitest, React Testing Library, and basic frontend lint/typecheck scripts through Yarn.
-- [ ] Configure `frontend/.yarnrc.yml` with `nodeLinker: node-modules`, commit `frontend/yarn.lock`, and verify that `yarn install --immutable` installs the frontend package tree in `frontend/node_modules`.
-- [ ] Add `backend/.env.example`, a gitignored `backend/.env`, and `backend/app/config.py`.
-- [ ] Add Docker Compose with one PostgreSQL service, persistent volume, health check, and exposed development port.
-- [ ] Implement the profile and environment-variable contract in `CONFIGURATION.md`; create safe `.env.example` placeholders only.
-- [ ] Add `/health/live` and `/health/ready` to the minimal FastAPI app.
-- [ ] Create a minimal FastAPI app factory and a minimal React shell solely to prove both development servers start.
+- [x] Initialize the Python project with `uv` and Python 3.14 under `backend/`.
+- [x] Add backend runtime dependencies using the bounded ranges in `TECHNICAL_REQUIREMENTS.md`: FastAPI, Uvicorn, Pydantic, `pydantic-settings`, SQLAlchemy 2.0, asyncpg, Alembic, PyJWT, and `email-validator`.
+- [x] Add backend development dependencies: ruff, mypy, pytest, pytest-asyncio, HTTPX, and testcontainers.
+- [x] Configure ruff and strict mypy for SQLAlchemy 2.x native typing in `backend/pyproject.toml`.
+- [x] Create the initial `backend/app/`, `backend/tests/unit/`, `backend/tests/integration/`, and `backend/scripts/` packages/directories.
+- [x] Create a Vite React TypeScript project under `frontend/`.
+- [x] Enable Yarn with `corepack enable`; add React Router, ESLint, Vitest, React Testing Library, and basic frontend lint/typecheck scripts through Yarn.
+- [x] Configure `frontend/.yarnrc.yml` with `nodeLinker: node-modules`, commit `frontend/yarn.lock`, and verify that `yarn install --immutable` installs the frontend package tree in `frontend/node_modules`.
+- [x] Add `backend/.env.example`, a gitignored `backend/.env`, and `backend/app/config.py`.
+- [x] Add Docker Compose with one PostgreSQL service, persistent volume, health check, and exposed development port.
+- [x] Implement the profile and environment-variable contract in `CONFIGURATION.md`; create safe `.env.example` placeholders only.
+- [x] Add `/health/live` and `/health/ready` to the minimal FastAPI app.
+- [x] Create a minimal FastAPI app factory and a minimal React shell solely to prove both development servers start.
 
 **Done when:** PostgreSQL becomes healthy, the backend and frontend hot-reload, health endpoints report correctly, `yarn install --immutable` installs packages under `frontend/node_modules`, ruff/mypy/frontend typecheck pass on the scaffold, and the backend can open and close an async PostgreSQL connection.
 
 ## Step 2 — Establish domain conventions and CQRS boundaries
 
-- [ ] Create framework-free domain packages for entities, value objects, enums, the generic `Result[T]`, ports, command handlers, query handlers, and read models.
-- [ ] Implement `Asset` with initial values `USDT` and `USD` (precision loaded from `currencies` in persistence layers).
-- [ ] Implement a `Money` value object using `Decimal`.
-- [ ] Enforce positive command amounts, non-negative stored balances, per-currency precision from the catalog (USD 4, USDT 8), and no implicit rounding.
-- [ ] Define stable error-code constants for invalid amount, unsupported asset, invalid precision, and invalid state.
-- [ ] Define the CQRS convention:
+- [x] Create framework-free domain packages for value objects, the generic `Result[T]`, ports, command handlers, query handlers, and read models under `domain/read_models/`.
+- [x] Implement `Asset` with initial values `USDT` and `USD` (precision loaded from `currencies` in persistence layers).
+- [x] Implement a `Money` value object using `Decimal`.
+- [x] Enforce positive command amounts, non-negative stored balances, per-currency precision from the catalog (USD 4, USDT 8), and no implicit rounding.
+- [x] Define stable error-code constants for invalid amount, unsupported asset, invalid precision, and invalid state.
+- [x] Define the CQRS convention:
       - command DTO plus one async command handler returning `Result[T]`;
       - query DTO plus one async query handler returning `Result[T]` containing a frozen read model;
       - separate command-repository and query-repository Protocols.
-- [ ] Implement immutable `Result[T]` with validated `success(data=None)` and `failure(error_code, reason=None)` factories and read-only `is_success`, `data`, `error_code`, and `reason` properties.
-- [ ] Return failed results for expected outcomes; allow unexpected exceptions to propagate.
-- [ ] Do not add a mediator or generic command bus; handlers are wired manually.
-- [ ] Unit-test all money and precision behavior, including an amount that cannot be represented by the destination asset.
+- [x] Implement immutable `Result[T]` with validated `success(data=None)` and `failure(error_code, reason=None)` factories and read-only `is_success`, `data`, `error_code`, and `reason` properties.
+- [x] Return failed results for expected outcomes; allow unexpected exceptions to propagate.
+- [x] Do not add a mediator or generic command bus; handlers are wired manually.
+- [x] Unit-test all money and precision behavior, including an amount that cannot be represented by the destination asset.
 
 **Done when:** domain unit tests run with no imports from FastAPI, Pydantic, SQLAlchemy, PyJWT, or Kafka, and the command/query dependency direction can be explained from the code.
 
 ## Step 3 — Model user and OTP authentication
 
-- [ ] Add the `User`, `OtpChallenge`, and `AuthSession` domain entities.
-- [ ] Add frozen `CurrentUser` with user ID, normalized email, and current authentication-session `jti`.
-- [ ] Define `CurrentUserProvider.get() -> CurrentUser` as a domain port; domain code reads it but never sets request context.
-- [ ] Define OTP lifecycle behavior: 6 digits, 5-minute expiry, single use, invalidation by a newer challenge, and lock after 5 failed attempts.
-- [ ] Define stable error codes for invalid, expired, locked, consumed, and superseded OTPs plus authentication failure.
-- [ ] Define command repository ports for users, OTP challenges, and auth sessions.
-- [ ] Define service ports for clock/time, OTP generation/digest, and JWT encode/decode where abstraction improves deterministic testing.
-- [ ] Keep concrete OTP and PyJWT adapters outside `domain/`; command/query handlers import only the service Protocols.
-- [ ] Unit-test OTP and auth-session transitions using a controllable fake clock.
+- [x] Add `UserItem`, `OtpChallengeItem`, and `AuthSessionItem` read models (and frozen `CurrentUser`).
+- [x] Add frozen `CurrentUser` with user ID, normalized email, and current authentication-session `jti`.
+- [x] Define `CurrentUserProvider.get() -> CurrentUser` as a domain port; domain code reads it but never sets request context.
+- [x] Define OTP lifecycle behavior: 6 digits, 5-minute expiry, single use, invalidation by a newer challenge, and lock after 5 failed attempts.
+- [x] Define stable error codes for invalid, expired, locked, consumed, and superseded OTPs plus authentication failure.
+- [x] Define command repository ports for users, OTP challenges, and auth sessions.
+- [x] Define service ports for clock/time, OTP generation/digest, and JWT encode/decode where abstraction improves deterministic testing.
+- [x] Keep concrete OTP and PyJWT adapters outside `domain/`; command/query handlers import only the service Protocols.
+- [x] Unit-test OTP and auth-session transitions using a controllable fake clock.
 
 **Done when:** authentication lifecycle rules are fully demonstrated by pure unit tests without HTTP, JWT, or database adapters.
 
 ## Step 4 — Model currencies, wallets, and transactions
 
-- [ ] Add `Currency` with type, name, label, and precision (seed USD 4, USDT 8).
-- [ ] Add `UserWallet` (one row per user per currency) and `AdminWallet` (one row per currency).
-- [ ] Add `deposit`, `exchange`, `withdrawal`, and `transfer` transaction types.
-- [ ] Add version-1 `completed` / `failed` transaction behavior and immutable financial terms.
-- [ ] Define command repository methods needed to lock/create user wallets, lock admin wallets, and persist business transactions.
-- [ ] Define query ports and frozen read models for:
+- [x] Add `Currency` with type, name, label, and precision (seed USD 4, USDT 8).
+- [x] Add `UserWallet` (one row per user per currency) and `AdminWallet` (one row per currency).
+- [x] Add `deposit`, `exchange`, `withdrawal`, and `transfer` transaction types.
+- [x] Add version-1 `completed` / `failed` transaction behavior and immutable financial terms.
+- [x] Define command repository methods needed to lock/create user wallets, lock admin wallets, and persist business transactions.
+- [x] Define query ports and frozen read models for:
       - current-user balances;
       - admin balances;
       - user transaction history;
       - admin all-user transaction history.
-- [ ] Define pagination input and stable ordering, newest transaction first with a deterministic tie-breaker.
-- [ ] Unit-test balance debit/credit, insufficient funds, same-asset exchange, and transaction invariants.
+- [x] Define pagination input and stable ordering, newest transaction first with a deterministic tie-breaker.
+- [x] Unit-test balance debit/credit, insufficient funds, same-asset exchange, and transaction invariants.
 
 **Done when:** all wallet rules can be exercised with plain domain objects and the read models contain only fields required by their query.
 
 ## Step 5 — Build the PostgreSQL persistence adapter
 
-- [ ] Create the async SQLAlchemy engine and sessionmaker from settings.
-- [ ] Implement the session lifecycle with `AsyncSession.begin()`: commit whenever a handler returns a `Result`, roll back when an unexpected exception escapes, and close always.
-- [ ] Add SQLAlchemy models for users, currencies, user wallets, admin wallets, transactions, OTP challenges, and authentication sessions.
-- [ ] Store money in PostgreSQL fixed-precision `NUMERIC`, with application and database constraints appropriate to currency precision and non-negative wallet amounts.
-- [ ] Add unique constraints for `(user_id, currency_id)` on user wallets, one admin wallet per currency, OTP/session identity, and other domain uniqueness rules, including at most one current unconsumed/uninvalidated OTP challenge per user.
-- [ ] Seed currencies and admin wallets deterministically in the migration.
-- [ ] Implement domain/ORM mappers under `app/db/`.
-- [ ] Implement command repositories, including deterministic `SELECT ... FOR UPDATE` wallet locking.
-- [ ] Implement query repositories as direct projections to frozen read models, with pagination.
-- [ ] Initialize Alembic under `backend/`, connect metadata/settings, generate the initial migration, review it manually, and apply it.
-- [ ] Add repository integration tests using PostgreSQL from testcontainers.
+- [x] Create the async SQLAlchemy engine and sessionmaker from settings.
+- [x] Implement the session lifecycle with `AsyncSession.begin()`: commit whenever a handler returns a `Result`, roll back when an unexpected exception escapes, and close always.
+- [x] Add SQLAlchemy models for users, currencies, user wallets, admin wallets, transactions, OTP challenges, and authentication sessions.
+- [x] Store money in PostgreSQL fixed-precision `NUMERIC`, with application and database constraints appropriate to currency precision and non-negative wallet amounts.
+- [x] Add unique constraints for `(user_id, currency_id)` on user wallets, one admin wallet per currency, OTP/session identity, and other domain uniqueness rules, including at most one current unconsumed/uninvalidated OTP challenge per user.
+- [x] Seed currencies and admin wallets deterministically in the migration.
+- [x] Implement domain/ORM mappers under `app/db/`.
+- [x] Implement command repositories, including deterministic `SELECT ... FOR UPDATE` wallet locking.
+- [x] Implement query repositories as direct projections to frozen read models, with pagination.
+- [x] Initialize Alembic under `backend/`, connect metadata/settings, generate the initial migration, review it manually, and apply it.
+- [x] Add repository integration tests using PostgreSQL from testcontainers.
 
 **Done when:** a clean test database can be migrated from zero, repositories round-trip domain values without precision loss, and query repositories issue purpose-specific projections.
 
@@ -159,20 +159,20 @@ All Python/backend paths below are relative to `backend/`.
 
 ## Step 9 — Build and compose the HTTP API
 
-- [ ] Add Pydantic request/response schemas for auth, wallet, admin, balances, transactions, errors, and pagination.
-- [ ] Implement the request, response, HTTP-status, error-envelope, and cursor-pagination contracts in `API_CONTRACT.md`.
-- [ ] Keep DTO-to-command and read-model-to-response mapping in `app/api/`.
-- [ ] Add `api/result_mapping.py` with generic `unwrap_result(Result[T]) -> T`; return successful data and raise an API-layer result exception carrying only `error_code` for failure, using `T = None` for no-content commands.
-- [ ] Add one central mapping from the API-layer result exception to HTTP status and safe error envelopes; treat unmapped codes and unexpected exceptions as `500 INTERNAL_ERROR`.
-- [ ] Keep successful status codes route-specific and keep request validation as `422 VALIDATION_ERROR`; never derive either from `unwrap_result`.
-- [ ] Never expose or automatically log `Result.reason` through the API layer.
-- [ ] Implement the domain `CurrentUserProvider` port in `api/current_user_provider.py` with request-scoped `ContextVar` storage and adapter-only bind/reset operations.
-- [ ] Authenticate each protected request once, bind the validated `CurrentUser`, and reset the exact context token in `finally`; use the same provider instance for binding and protected-handler injection.
-- [ ] Treat provider access without a bound user as an unexpected wiring error, and do not use the HTTP current-user provider in admin or Kafka worker execution paths.
-- [ ] Add composition providers for settings, sessions, repositories, services, command handlers, and query handlers.
-- [ ] Use `HTTPBearer(auto_error=False)` for protected user routes and Swagger Bearer authorization support; map missing credentials to the standard 401 envelope.
-- [ ] Add timing-safe `X-Admin-Key` validation for `/admin/*`; do not require user JWT there.
-- [ ] Add version-1 routes:
+- [x] Add Pydantic request/response schemas for auth, wallet, admin, balances, transactions, errors, and pagination.
+- [x] Implement the request, response, HTTP-status, error-envelope, and offset-pagination contracts in `API_CONTRACT.md`.
+- [x] Keep DTO-to-command and read-model-to-response mapping in `app/api/`.
+- [x] Add `api/result_mapping.py` with generic `unwrap_domain_result(Result[T]) -> T`; return successful data and raise `DomainResultError` carrying only `error_code` for failure, using `T = None` for no-content commands.
+- [x] Add one central mapping from `DomainResultError` to HTTP status and safe error envelopes; treat unmapped codes and unexpected exceptions as `500 INTERNAL_ERROR`.
+- [x] Keep successful status codes route-specific and keep request validation as `422 VALIDATION_ERROR`; never derive either from `unwrap_domain_result`.
+- [x] Never expose or automatically log `Result.reason` through the API layer.
+- [x] Implement the domain `CurrentUserProvider` port in `api/current_user_provider.py` with request-scoped `ContextVar` storage and adapter-only bind/reset operations.
+- [x] Authenticate each protected request once, bind the validated `CurrentUser`, and reset the exact context token in `finally`; use the same provider instance for binding and protected-handler injection.
+- [x] Treat provider access without a bound user as an unexpected wiring error, and do not use the HTTP current-user provider in admin or Kafka worker execution paths.
+- [x] Add composition providers for settings, sessions, repositories, services, command handlers, and query handlers.
+- [x] Use `HTTPBearer(auto_error=False)` for protected user routes and Swagger Bearer authorization support; map missing credentials to the standard 401 envelope.
+- [x] Add timing-safe `X-Admin-Key` validation for `/admin/*`; do not require user JWT there.
+- [x] Add version-1 routes:
       - `POST /auth/otp/request`;
       - `POST /auth/otp/verify`;
       - `POST /auth/logout`;
@@ -187,37 +187,36 @@ All Python/backend paths below are relative to `backend/`.
       - `POST /admin/deposits`;
       - `GET /admin/balances`;
       - `GET /admin/transactions`.
-- [ ] Add `GET /health/live` and `GET /health/ready`.
-- [ ] Register routers and exception handlers in the app factory.
+- [x] Add `GET /health/live` and `GET /health/ready`.
+- [x] Register routers and exception handlers in the app factory.
 
-**Done when:** routers only translate HTTP to/from handlers, `unwrap_result` preserves successful payloads and maps every documented failure code to the correct status/envelope, malformed DTOs produce 422, unknown codes produce a safe 500, authenticated request context is reset without cross-request leakage, health endpoints report accurately, and Swagger can exercise all version-1 flows.
+**Done when:** routers only translate HTTP to/from handlers, `unwrap_domain_result` preserves successful payloads and maps every documented failure code to the correct status/envelope, malformed DTOs produce 422, unknown codes produce a safe 500, authenticated request context is reset without cross-request leakage, health endpoints report accurately, and Swagger can exercise all version-1 flows.
 
 ## Step 10 — Build the version-1 React UI
 
-- [ ] Create a typed API client with separate JWT and admin-header helpers.
-- [ ] Store the JWT and demo admin key in `sessionStorage` only in the development profile.
-- [ ] Build Login:
+- [x] Create a typed API client with separate JWT and admin-header helpers.
+- [x] Store the JWT and demo admin key in `sessionStorage` only in the development profile.
+- [x] Build Login:
       - request OTP;
       - display the demo OTP;
       - submit email/code;
       - navigate to Wallet after success.
-- [ ] Build Wallet:
+- [x] Build Wallet (includes paginated transaction history on the same view):
       - list USDT/USD balances;
       - exchange in either direction;
       - withdraw either asset;
       - transfer to another user (recipient selector from `GET /reference/users` — emails only; submit `email`);
       - show immediate completed results and errors;
       - log out.
-- [ ] Build History with pagination.
-- [ ] Build the development-only Admin page without requiring user login:
+- [x] Build the development-only Admin page without requiring user login:
       - capture the admin key;
       - load currencies for the deposit asset selector;
       - load users for the deposit recipient selector (`GET /reference/users` — emails only; submit `email`);
       - create deposits;
       - show admin balances;
       - show all-user transaction history.
-- [ ] Keep styling deliberately simple and accessible.
-- [ ] Add minimal tests for login, auth-header attachment, admin-header attachment, and one wallet command.
+- [x] Keep styling deliberately simple and accessible.
+- [x] Add minimal tests for login, auth-header attachment, admin-header attachment, and one wallet command.
 
 **Done when:** a browser can complete the entire version-1 scenario without Swagger, production configuration omits demo-only routes/features, and frontend typecheck/tests pass.
 

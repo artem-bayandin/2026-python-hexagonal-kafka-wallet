@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-Build a small educational custodial-wallet web application in two versions. It uses a React UI and a Python API to demonstrate OTP authentication, USDT/USD balances, mocked deposits, 1:1 exchange, withdrawals, transaction history, Clean/Hexagonal Architecture, CQRS, and asynchronous Kafka processing.
+Build a small educational custodial-wallet web application in two versions. It uses a React UI and a Python API to demonstrate OTP authentication, USDT/USD balances, mocked deposits, 1:1 exchange, withdrawals, user-to-user transfers, transaction history, Clean/Hexagonal Architecture, CQRS, and asynchronous Kafka processing.
 
 The application is a learning sample. It does not move real money, send real email, perform real AML checks, or provide production-grade administration. [README.md](README.md) defines this document's authority and the version-specific reading order.
 
@@ -10,7 +10,7 @@ The application is a learning sample. It does not move real money, send real ema
 
 ### 2.1 User
 
-A user authenticates by email and OTP, views balances and transaction history, exchanges funds, withdraws funds, and logs out.
+A user authenticates by email and OTP, views balances and transaction history, exchanges funds, withdraws funds, transfers funds to another user by email, and logs out.
 
 ### 2.2 Admin operator
 
@@ -77,9 +77,13 @@ The user submits source asset, destination asset, and amount. The API validates 
 
 The user submits an asset and amount. The API atomically debits the user's available balance and credits the matching admin balance.
 
-### 5.5 Transaction history
+### 5.5 Transfer
 
-One business transaction is created for each deposit, exchange, or withdrawal. Its financial terms are immutable. An exchange transaction records both source and destination assets and amounts.
+The user submits a recipient email, asset, and amount. The API resolves the recipient by normalized email, rejects self-transfers, validates same-currency 1:1 movement and sufficient funds, then atomically debits the sender's wallet and credits the recipient's wallet.
+
+### 5.6 Transaction history
+
+One business transaction is created for each deposit, exchange, withdrawal, or transfer. Its financial terms are immutable. An exchange transaction records both source and destination assets and amounts. A transfer records the same asset on both sides at 1:1.
 
 Users can view their own paginated history. Admin can view paginated history across all users. Version 1 transactions complete synchronously.
 
@@ -152,11 +156,10 @@ JWTs, OTPs, admin keys, and secrets must never be written to the diagnostics pay
 
 ## 8. UI pages
 
-The Vite/React/TypeScript application uses plain CSS and native `fetch`.
+The Vite/React/TypeScript application uses plain CSS and native `fetch`. Version 1 switches views with React state in `App.tsx` (no URL router wired yet); `react-router-dom` is installed as a scaffold dependency for future use.
 
 - **Login:** request OTP, display the demo OTP only in development, verify it, and establish the session.
-- **Wallet:** show balances, submit exchanges and withdrawals, show immediate results in version 1, show pending-operation feedback in version 2, and log out.
-- **History:** show the current user's paginated transactions and statuses.
+- **Wallet:** show balances, paginated transaction history, submit exchanges, withdrawals, and transfers, show immediate results in version 1, show pending-operation feedback in version 2, and log out.
 - **Admin:** development-only; capture the admin key, create deposits, choose the version-2 mock decision, and show admin balances and all transactions.
 - **Kafka:** development-only version-2 message diagnostics without authentication.
 

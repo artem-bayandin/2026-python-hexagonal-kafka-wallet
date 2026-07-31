@@ -2,7 +2,7 @@
 
 ## Authority and status
 
-This documentation defines a **pre-implementation educational sample**. It is not authorization to deploy a real custodial-wallet service. The application must not be called production-ready until the implementation, automated checks, deployment configuration, and operational controls described here exist and pass review.
+This documentation describes an **implemented version-1 educational sample** (synchronous wallet). It is not authorization to deploy a real custodial-wallet service. The application must not be called production-ready until automated checks, deployment configuration, and operational controls described here pass review.
 
 The developer implements the sample. AI provides planning, explanations, review, and diagnosis when requested.
 

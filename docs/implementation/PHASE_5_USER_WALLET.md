@@ -11,7 +11,7 @@ Implement authenticated user wallet features end to end in five vertical feature
 
 Within each feature slice, work in the strict order **Domain → DB → API → UI**. Do not run or demonstrate a feature slice until all four sections in that slice are complete.
 
-Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for architecture rules, [PHASE_3_WALLET_SCHEMA.md](PHASE_3_WALLET_SCHEMA.md) for wallet tables and transaction semantics, and [PHASE_4_ADMIN_WALLET.md](PHASE_4_ADMIN_WALLET.md) for entities, reference routes, shared schemas, and the admin deposit path this phase depends on.
+Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for architecture rules, [PHASE_3_WALLET_SCHEMA.md](PHASE_3_WALLET_SCHEMA.md) for wallet tables and transaction semantics, and [PHASE_4_ADMIN_WALLET.md](PHASE_4_ADMIN_WALLET.md) for read models, reference routes, shared schemas, and the admin deposit path this phase depends on.
 
 ## Current implementation status
 
@@ -23,9 +23,9 @@ Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for architecture rules, [PHASE
 - **Slice 4** complete (`POST /me/withdrawals`, `AdminWalletCommandRepository`, withdrawal form).
 - **Slice 5** complete (`POST /me/transfers`, transfer form, reference users/currencies via Bearer JWT).
 - **Slice 6** complete (transaction list `asset` / `amount`, wallet and admin wide layout, reference-auth and email-normalization fixes).
-- **Final verification** not started.
+- **Final verification** complete.
 
-Implementation note: `GET /me/transactions` uses offset pagination (`page_number`, `page_size`, `total_items`) matching Phase 4 admin history and the existing `TransactionListResponse` shape, rather than the cursor shape described in [API_CONTRACT.md](../API_CONTRACT.md). The running code is canonical; align the contract in a follow-up if needed.
+Implementation note: `GET /me/transactions` uses offset pagination (`page_number`, `page_size`, `total_items`) matching Phase 4 admin history and [API_CONTRACT.md](../API_CONTRACT.md). List endpoints project currency precision in repository SELECTs and format with `format_amount_with_precision` using one executor per route (see [PHASE_5A_TECH_REVIEW.md](PHASE_5A_TECH_REVIEW.md)).
 
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 
@@ -36,7 +36,7 @@ Deliver the **authenticated user** wallet experience for Version 1: view balance
 ## Prerequisites
 
 - Phase 3 complete: `currencies`, `user_wallets`, `admin_wallets`, and `transactions` tables exist; USD and USDT currencies and admin wallets are seeded.
-- Phase 4 complete: admin deposit works so a user can hold balances before exchange/withdraw/transfer; `GET /reference/currencies` and `GET /reference/users` accept Bearer JWT; shared `Money` / `Asset` / wallet entities and `api/schemas/wallet.py` exist.
+- Phase 4 complete: admin deposit works so a user can hold balances before exchange/withdraw/transfer; `GET /reference/currencies` and `GET /reference/users` accept Bearer JWT; shared `Money` / `Asset` / wallet read models and `api/schemas/wallet.py` exist.
 - Phase 2 authentication unchanged and working (`bind_current_user`, JWT in `sessionStorage`).
 
 ## Scope
@@ -106,7 +106,7 @@ backend/
     ├── main.py                      # register wallet router
     ├── api/
     │   ├── dependencies.py          # bind_current_user; user-wallet executors; require_admin_or_user_auth fix (Slice 6)
-    │   ├── formatting.py            # reuse format_asset_amount_wtih_precision
+    │   ├── formatting.py            # reuse format_amount_with_precision
     │   ├── exception_handlers.py    # map INSUFFICIENT_FUNDS → 409 (Slice 3)
     │   ├── routers/
     │   │   └── wallet.py            # new — /me/* routes
@@ -175,7 +175,7 @@ ORDER BY t.created_at DESC, t.id DESC;
 ```
 
 - **Reference reuse:** exchange/transfer UI loads currencies and users from Phase 4 `GET /reference/*` with the user's Bearer token (already accepted by `require_admin_or_user_auth`).
-- **Shared response DTOs:** reuse `BalanceItemResponse`, `BalanceListResponse`, `TransactionItemResponse`, `TransactionListResponse` from `api/schemas/wallet.py` and `format_asset_amount_wtih_precision` from `api/formatting.py`. From Slice 6 onward, `TransactionItemResponse` includes `source_asset`, `dest_asset`, and formatted `amount` (see Slice 6).
+- **Shared response DTOs:** reuse `BalanceItemResponse`, `BalanceListResponse`, `TransactionItemResponse`, `TransactionListResponse` from `api/schemas/wallet.py` and `format_amount_with_precision` from `api/formatting.py`. From Slice 6 onward, `TransactionItemResponse` includes `source_asset`, `dest_asset`, and formatted `amount` (see Slice 6).
 
 ### Error codes introduced incrementally
 
@@ -318,17 +318,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.domain import UserBalancesQuery, CurrenciesQuery
+from app.domain import UserBalancesQuery
 
 from ..dependencies import (
     GetUserBalancesExecutor,
-    ListCurrenciesExecutor,
     bind_current_user,
     get_get_user_balances_executor,
-    get_list_currencies_executor,
 )
-from ..formatting import format_asset_amount_wtih_precision
-from ..result_mapping import unwrap_result
+from ..formatting import format_amount_with_precision
+from ..result_mapping import unwrap_domain_result
 from ..schemas.wallet import BalanceItemResponse, BalanceListResponse
 
 router = APIRouter(prefix="/me", tags=["wallet"])
@@ -342,20 +340,13 @@ async def get_user_balances(
     balances_executor: Annotated[
         GetUserBalancesExecutor, Depends(get_get_user_balances_executor)
     ],
-    currencies_executor: Annotated[
-        ListCurrenciesExecutor, Depends(get_list_currencies_executor)
-    ],
 ) -> BalanceListResponse:
-    items = unwrap_result(await balances_executor(UserBalancesQuery()))
-    currencies = unwrap_result(await currencies_executor(CurrenciesQuery()))
-    precision_by_label = {item.label: item.precision for item in currencies}
+    items = unwrap_domain_result(await balances_executor(UserBalancesQuery()))
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_asset_amount_wtih_precision(
-                    item.available, item.asset, precision_by_label
-                ),
+                available=format_amount_with_precision(item.available, item.precision),
             )
             for item in items
         ]
@@ -549,7 +540,7 @@ async def list_user_transactions(
     page_number: Annotated[int, Query(ge=0)] = 0,
     page_size: Annotated[int, Query(gt=0, le=100)] = 20,
 ) -> TransactionListResponse:
-    page = unwrap_result(
+    page = unwrap_domain_result(
         await executor(
             UserTransactionsQuery(
                 PaginationParams(page_number=page_number, page_size=page_size)
@@ -832,7 +823,7 @@ async def create_exchange(
     body: ExchangeRequest,
     executor: Annotated[ExchangeExecutor, Depends(get_exchange_executor)],
 ) -> WalletMutationResponse:
-    data = unwrap_result(
+    data = unwrap_domain_result(
         await executor(
             ExchangeCommand(
                 source_asset_label=body.source_asset,
@@ -1060,7 +1051,7 @@ async def create_withdrawal(
     body: WithdrawRequest,
     executor: Annotated[WithdrawExecutor, Depends(get_withdraw_executor)],
 ) -> WalletMutationResponse:
-    data = unwrap_result(
+    data = unwrap_domain_result(
         await executor(
             WithdrawCommand(asset_label=body.asset, amount_str=body.amount)
         )
@@ -1162,7 +1153,7 @@ class TransferHandler:
         if email == sender.email.casefold():
             return Result.failure(INVALID_AMOUNT)
 
-        recipient = await self._user_cmd_repo.get_by_normalized_email(email)
+        recipient = await self._user_query_repo.get_by_email(email)
         if recipient is None:
             return Result.failure(USER_NOT_FOUND)
 
@@ -1200,7 +1191,7 @@ class TransferHandler:
         return Result.success(TransferResult(transaction_id=transaction_id))
 ```
 
-Reuse `UserCommandRepository.get_by_normalized_email` from Phase 4 (no `FOR UPDATE` on the user row — same as deposit recipient lookup).
+Reuse `UserQueryRepository.get_by_email` from Phase 4 (no `FOR UPDATE` on the user row — same as deposit recipient lookup).
 
 #### Package façade update
 
@@ -1236,7 +1227,7 @@ async def create_transfer(
     body: TransferRequest,
     executor: Annotated[TransferExecutor, Depends(get_transfer_executor)],
 ) -> WalletMutationResponse:
-    data = unwrap_result(
+    data = unwrap_domain_result(
         await executor(
             TransferCommand(
                 recipient_email=str(body.email),
@@ -1331,10 +1322,8 @@ class TransactionItemResponse(BaseModel):
 
 In both `api/routers/wallet.py` (`list_user_transactions`) and `api/routers/admin.py` (`list_admin_transactions`):
 
-- Inject `ListCurrenciesExecutor` alongside the transaction executor.
-- Build `precision_by_label` from `CurrenciesQuery`.
-- Map each item with `format_asset_amount_wtih_precision(item.amount, map_not_null_asset_label(item.source_asset, item.dest_asset), precision_by_label)` (`map_not_null_asset_label` in `api/formatting.py` prefers source label, else dest).
-- Keep uppercase `type` / `status`. Response exposes raw `source_asset` / `dest_asset`; combined labels are a UI concern.
+- Map each item with `format_amount_with_precision(item.amount, map_not_null_asset_precision(item))` (`map_not_null_asset_precision` in `api/formatting.py` prefers source precision, else dest).
+- Keep uppercase `type` / `status`. User route includes optional `direction` on transfer rows. Response exposes raw `source_asset` / `dest_asset`; combined labels are a UI concern.
 
 **Reference auth fix (required for wallet page):** In `api/dependencies.py`, `require_admin_or_user_auth` must declare `credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]` **without** `= None` as the parameter default (FastAPI otherwise skips dependency injection and Bearer JWT is ignored → `401` on `/reference/*` from the wallet UI). Place `credentials` before optional `x_admin_key` to satisfy Python parameter ordering. This function is shared with Phase 4 reference routes; the fix applies to both admin-key and Bearer callers.
 
@@ -1396,24 +1385,24 @@ Extend `TransactionItem` in both `frontend/src/types/wallet.ts` and `frontend/sr
 
 Prerequisites: PostgreSQL is healthy, wallet migration `d377d8c90992` is applied, Phase 4 admin deposit works, the backend runs on port 8000, the frontend runs on port 5173, and at least two users exist from Phase 2 OTP registration (sender + transfer recipient).
 
-- [ ] Missing or invalid Bearer token on `/me/*` returns `401 AUTHENTICATION_FAILED`.
-- [ ] After an admin deposit to user A, `GET /me/balances` (as A) shows the credited amount; other catalog currencies appear at zero with correct precision.
-- [ ] `GET /me/transactions` paginates with `page_number` / `page_size` / `total_items`; A's deposit appears; user B does not see A's deposit.
-- [ ] Exchange USDT→USD (and USD→USDT) at 1:1 updates both balances and inserts a `completed` exchange row with both wallet FKs set; transaction history **Asset** column shows `USDT/USD` or `USD/USDT`.
-- [ ] Exchange with same source and destination asset returns `422 INVALID_AMOUNT`.
-- [ ] Exchange/withdraw/transfer with excess fractional digits for the asset returns `422 INVALID_PRECISION`.
-- [ ] Exchange/withdraw/transfer above available balance returns `409 INSUFFICIENT_FUNDS`.
-- [ ] Withdrawal debits the user wallet, credits `admin_wallets` for that currency, and inserts a withdrawal with `dest_wallet_id = NULL`.
-- [ ] `GET /admin/balances` reflects the withdrawn amount (non-zero for that asset).
-- [ ] Transfer by recipient email credits B and debits A; both histories show the transfer; unknown email returns `404 USER_NOT_FOUND`.
-- [ ] Self-transfer returns `422 INVALID_AMOUNT`.
-- [ ] Wallet UI replaces the Authorized stub: balances, history with Load more, exchange, withdrawal, and transfer forms work with the signed-in JWT.
-- [ ] Wallet and admin pages use the wide `wallet-page` layout (balances → operations/deposit → transaction history); transaction tables show separate Type, Asset, Amount, Status, and Created columns.
-- [ ] `GET /me/transactions` and `GET /admin/transactions` include `source_asset`, `dest_asset`, and formatted `amount` on each item; UI **Asset** column shows single label or exchange pair.
-- [ ] Transfer/exchange currency and recipient selectors use `GET /reference/*` with Bearer JWT (no admin key required for the user Wallet page).
-- [ ] Unexpected command exceptions roll back the transaction; validation failures occur before wallet locks when practical.
-- [ ] Concurrent manual double-spend attempts cannot drive wallet amounts negative (spot-check until Phase 7).
-- [ ] No JWT, admin key, or OTP appears in logs.
+- [x] Missing or invalid Bearer token on `/me/*` returns `401 AUTHENTICATION_FAILED`.
+- [x] After an admin deposit to user A, `GET /me/balances` (as A) shows the credited amount; other catalog currencies appear at zero with correct precision.
+- [x] `GET /me/transactions` paginates with `page_number` / `page_size` / `total_items`; A's deposit appears; user B does not see A's deposit.
+- [x] Exchange USDT→USD (and USD→USDT) at 1:1 updates both balances and inserts a `completed` exchange row with both wallet FKs set; transaction history **Asset** column shows `USDT/USD` or `USD/USDT`.
+- [x] Exchange with same source and destination asset returns `422 INVALID_AMOUNT`.
+- [x] Exchange/withdraw/transfer with excess fractional digits for the asset returns `422 INVALID_PRECISION`.
+- [x] Exchange/withdraw/transfer above available balance returns `409 INSUFFICIENT_FUNDS`.
+- [x] Withdrawal debits the user wallet, credits `admin_wallets` for that currency, and inserts a withdrawal with `dest_wallet_id = NULL`.
+- [x] `GET /admin/balances` reflects the withdrawn amount (non-zero for that asset).
+- [x] Transfer by recipient email credits B and debits A; both histories show the transfer; unknown email returns `404 USER_NOT_FOUND`.
+- [x] Self-transfer returns `422 INVALID_AMOUNT`.
+- [x] Wallet UI replaces the Authorized stub: balances, history with Load more, exchange, withdrawal, and transfer forms work with the signed-in JWT.
+- [x] Wallet and admin pages use the wide `wallet-page` layout (balances → operations/deposit → transaction history); transaction tables show separate Type, Asset, Amount, Status, and Created columns.
+- [x] `GET /me/transactions` and `GET /admin/transactions` include `source_asset`, `dest_asset`, and formatted `amount` on each item; UI **Asset** column shows single label or exchange pair.
+- [x] Transfer/exchange currency and recipient selectors use `GET /reference/*` with Bearer JWT (no admin key required for the user Wallet page).
+- [x] Unexpected command exceptions roll back the transaction; validation failures occur before wallet locks when practical.
+- [x] Concurrent manual double-spend attempts cannot drive wallet amounts negative (spot-check until Phase 7).
+- [x] No JWT, admin key, or OTP appears in logs.
 
 Static quality checks (ruff, mypy, frontend lint/typecheck) pass.
 

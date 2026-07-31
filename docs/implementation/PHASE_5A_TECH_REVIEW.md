@@ -15,7 +15,7 @@ Scope: while implementing phases, some questions were left open. In current phas
   - [x] user q
   - [x] uw cmd
   - [x] uw q
-- [ ] db.repositories: update docs as func moved and renamed `UserCommandRepositoryImpl.get_by_normalized_email` -> `UserQueryRepositoryImpl.get_by_email` (incl. `AdminDepositHandler`, `TransferHandler`)
+- [x] db.repositories: update docs as func moved and renamed `UserCommandRepositoryImpl.get_by_normalized_email` -> `UserQueryRepositoryImpl.get_by_email` (incl. `AdminDepositHandler`, `TransferHandler`)
 - use cases
   - [x] names
   - domain.logic.use_cases
@@ -42,7 +42,7 @@ Scope: while implementing phases, some questions were left open. In current phas
 - [x] move entities into read_models
 - mappers
   - [x] db <-> domain
-  - [ ] api <-> domain
+  - [x] api <-> domain (mapping in routers + `formatting.py`; no separate `api/mappers/` package)
 
 ## Repositories
 
@@ -54,7 +54,7 @@ Scope: while implementing phases, some questions were left open. In current phas
 
 - [x] do not use `T = TypeVar("T")`
 - Review how executors and handlers are created for routers. It should all go aligned with a single scheme. Executors and Handlers might be the same entity, as well as handling/executing.
-- rename `ApiResultError` to `DomainResultError`; rename `unwrap_result` into `unwrap_domain_result` (in exception_handlers.py)
+- [x] rename `ApiResultError` to `DomainResultError`; rename `unwrap_result` into `unwrap_domain_result` (in `result_mapping.py` and `exception_handlers.py`)
 
 - routers
   - dependencies
@@ -97,7 +97,7 @@ Scope: while implementing phases, some questions were left open. In current phas
 - schemas
   - [x] admin
   - [x] auth
-  - [x] data_list
+  - [x] shared (`DataList` in `schemas/shared.py`)
   - [x] errors
   - [x] reference
   - [x] wallet
@@ -138,7 +138,7 @@ Canonical rules: [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md) §3.4
 
 Baseline: Python 3.14 uses [PEP 695](https://peps.python.org/pep-0695/) for generic syntax (`class Result[T]`, `def foo[T]()`) and [PEP 649](https://peps.python.org/pep-0649/) / [PEP 749](https://peps.python.org/pep-0749/) for deferred annotation evaluation. [PEP 696](https://peps.python.org/pep-0696/) (type-parameter defaults) is optional — adopt only where default type params add clarity. PEP numbers are not a linear version ladder; 695 remains the correct generic syntax on 3.14.
 
-**Verdict:** Application code is compliant for Python 3.14 (PEP 695 generics + PEP 649/749 deferred annotations). Docs still carry stale `TypeVar` guidance in places.
+**Verdict:** Application code and canonical docs are aligned for Python 3.14 (PEP 695 generics + PEP 649/749 deferred annotations).
 
 | PEP | Python | Role |
 | --- | --- | --- |
@@ -146,14 +146,13 @@ Baseline: Python 3.14 uses [PEP 695](https://peps.python.org/pep-0695/) for gene
 | 696 | 3.13+ | Type-parameter defaults — optional |
 | 649 + 749 | 3.14 | Deferred annotations — automatic on 3.14 |
 
-Known drift:
+Doc updates applied (2026-07-31 audit):
 
-- `backend/app/domain/read_models/pagination.py` — stale unused `TypeVar` import (code uses `class PaginatedResult[T]`)
-- `docs/implementation/PHASE_4_ADMIN_WALLET.md` — pagination snippet still shows `T = TypeVar("T")` alongside PEP 695 syntax
-- `backend/app/api/result_mapping.py` — `unwrap_result` uses `cast("T", ...)`; review whether a cleaner pattern is available
+- [x] Update PHASE_4 pagination snippet: remove `TypeVar` block; keep `class PaginatedResult[T]`
+- [x] Add typing policy to TECHNICAL_REQUIREMENTS §2.1
 
-- [ ] Fix stale `TypeVar` import in `backend/app/domain/read_models/pagination.py`
-- [ ] Update PHASE_4 pagination snippet: remove `TypeVar` block; keep `class PaginatedResult[T]`
-- [ ] Confirm no `from __future__ import annotations` is added (conflicts with 3.14 deferred-eval benefits for runtime introspection)
-- [ ] Review `unwrap_result` cast pattern (`cast("T", ...)`) — document or simplify if mypy/pyright allow
-- [ ] (Optional) Add one-line typing policy to TECHNICAL_REQUIREMENTS §2.1: PEP 695 syntax, no TypeVar boilerplate, 3.14-native annotations
+Still open (code, not doc):
+
+- [ ] Fix stale `TypeVar` import in `backend/app/domain/read_models/pagination.py` if still present
+- [ ] Review `unwrap_domain_result` cast pattern in `result_mapping.py` — document or simplify if mypy/pyright allow
+- [x] Confirm no `from __future__ import annotations` is added (conflicts with 3.14 deferred-eval benefits for runtime introspection)

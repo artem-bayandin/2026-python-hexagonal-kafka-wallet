@@ -23,7 +23,11 @@ Read [PHASE_2A_INSIGHTS.md](PHASE_2A_INSIGHTS.md) for architecture rules and [PH
 - **Slice 4** complete.
 - **Final verification** complete.
 
-Implementation note: `GET /admin/transactions` uses offset pagination (`page_number`, `page_size`, `total_items`) rather than the cursor shape described in [API_CONTRACT.md](../API_CONTRACT.md). The running code is canonical; align the contract in a follow-up if needed.
+## Historical note
+
+Slice code blocks in this guide were written during step-by-step implementation. The running code uses `domain/read_models/` (not `domain/entities/`), `UserQueryRepositoryImpl.get_by_email`, `format_amount_with_precision` with per-row precision, and one executor per list endpoint. When a snippet differs, treat the repository as canonical.
+
+Implementation note: `GET /admin/transactions` uses offset pagination (`page_number`, `page_size`, `total_items`) per [API_CONTRACT.md](../API_CONTRACT.md). List endpoints project currency precision in repository SELECTs and format with `format_amount_with_precision` using one executor per route (see [PHASE_5A_TECH_REVIEW.md](PHASE_5A_TECH_REVIEW.md)).
 
 Canonical behavior is defined by [FUNCTIONAL_REQUIREMENTS.md](../FUNCTIONAL_REQUIREMENTS.md), [API_CONTRACT.md](../API_CONTRACT.md), [CONFIGURATION.md](../CONFIGURATION.md), and [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md). Those documents and this guide are aligned on the phase-specific scope below.
 
@@ -40,7 +44,7 @@ Deliver the **admin operator** wallet experience for Version 1: mock deposits, a
 
 ### In scope
 
-- Domain value objects and entities (`Money`, `Asset`, currency/wallet/transaction domain types);
+- Domain value objects and read models (`Money`, `Asset`, `CurrencyItem`, `UserWalletItem`, `TransactionItem`, …);
 - command and query repository ports plus SQLAlchemy implementations with mappers;
 - admin wallet use cases and handlers;
 - HTTP admin and reference routes and Pydantic schemas;
@@ -96,13 +100,13 @@ backend/
     ├── main.py                      # register reference + admin routers
     ├── api/
     │   ├── dependencies.py          # require_admin_or_user_auth, require_admin_key, executors
-    │   ├── formatting.py            # format_asset_amount_wtih_precision helper (Slice 3)
+    │   ├── formatting.py            # format_amount_with_precision helper (Slice 3)
     │   ├── exception_handlers.py    # extend ERROR_RESPONSES with wallet codes
     │   ├── routers/
     │   │   ├── reference.py         # Slice 1a/1b
     │   │   └── admin.py             # Slice 2–4
     │   └── schemas/
-    │       ├── data_list.py         # shared DataList[T] envelope
+    │       ├── shared.py         # shared DataList[T] envelope
     │       ├── reference.py
     │       ├── admin.py
     │       └── wallet.py            # shared balance/transaction shapes
@@ -125,15 +129,11 @@ backend/
         ├── value_objects/
         │   ├── asset.py             # Slice 2
         │   └── money.py             # Slice 2
-        ├── entities/
-        │   ├── currency.py          # Slice 2
-        │   ├── user_wallet.py       # Slice 2
-        │   └── transaction.py       # Slice 2
         ├── read_models/
-        │   ├── currency_catalog_item.py   # Slice 1a
-        │   ├── user_reference_item.py     # Slice 1b
-        │   ├── balance_item.py            # Slice 3
-        │   └── transaction_list_item.py   # Slice 4
+        │   ├── currency.py                # CurrencyCatalogItem, CurrencyItem
+        │   ├── wallet.py                  # BalanceItem, UserWalletItem
+        │   ├── transaction.py             # TransactionItem, TransactionListItem, …
+        │   └── pagination.py
         ├── ports/repositories/
         │   ├── currency_query_repository.py
         │   ├── user_command_repository.py
@@ -321,7 +321,7 @@ Re-export `CurrencyQueryRepositoryImpl` from `app/db/__init__.py`.
 
 ### API
 
-Create `backend/app/api/schemas/data_list.py`:
+Create `backend/app/api/schemas/shared.py`:
 
 ```python
 from pydantic import BaseModel, Field
@@ -377,7 +377,7 @@ async def require_admin_or_user_auth(
             )
             if result.is_success:
                 return
-    unwrap_result(Result.failure(AUTHENTICATION_FAILED))
+    unwrap_domain_result(Result.failure(AUTHENTICATION_FAILED))
 ```
 
 When both headers are present, admin key is checked first; a valid key short-circuits without JWT validation.
@@ -409,7 +409,7 @@ from fastapi import APIRouter, Depends
 from app.domain import CurrenciesQuery
 
 from ..dependencies import ListCurrenciesExecutor, get_list_currencies_executor, require_admin_or_user_auth
-from ..result_mapping import unwrap_result
+from ..result_mapping import unwrap_domain_result
 from ..schemas import CurrencyItemResponse, DataList
 
 router = APIRouter(prefix="/reference", tags=["reference"])
@@ -424,7 +424,7 @@ async def list_currencies(
         ListCurrenciesExecutor, Depends(get_list_currencies_executor)
     ],
 ) -> DataList[CurrencyItemResponse]:
-    items = unwrap_result(await executor(CurrenciesQuery()))
+    items = unwrap_domain_result(await executor(CurrenciesQuery()))
     return DataList(
         items=[
             CurrencyItemResponse(
@@ -661,7 +661,7 @@ Add executor and route to `backend/app/api/routers/reference.py`:
 async def list_users(
     executor: Annotated[ListUsersExecutor, Depends(get_list_users_executor)],
 ) -> DataList[UserReferenceItemResponse]:
-    items = unwrap_result(await executor(UsersQuery()))
+    items = unwrap_domain_result(await executor(UsersQuery()))
     return DataList(
         items=[
             UserReferenceItemResponse(user_id=item.user_id, email=item.email)
@@ -785,7 +785,7 @@ class UserWallet:
 Extend command `UserQueryRepository` in `backend/app/domain/ports/repositories/user_query_repository.py`:
 
 ```python
-async def get_by_normalized_email(self, email: str) -> User | None: ...
+async def get_by_email(self, email: str) -> UserItem | None: ...
 ```
 
 Create command ports:
@@ -856,7 +856,7 @@ class AdminDepositHandler:
                 return Result.failure(INVALID_AMOUNT)
             return Result.failure(UNSUPPORTED_ASSET)
 
-        user = await self._user_cmd_repo.get_by_normalized_email(email)
+        user = await self._user_query_repo.get_by_email(email)
         if user is None:
             return Result.failure(USER_NOT_FOUND)
 
@@ -943,7 +943,7 @@ async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> None:
 
 Implement `TransactionCommandRepositoryImpl.add` with an insert of the domain transaction mapped to `TransactionModel`.
 
-Extend `UserCommandRepositoryImpl` with `get_by_normalized_email` (select by email without `FOR UPDATE` — deposit does not need user-row locking).
+Extend `UserQueryRepositoryImpl` with `get_by_email` (select by normalized email without `FOR UPDATE` — deposit does not need user-row locking).
 
 Extend `CurrencyQueryRepositoryImpl` with `get_by_label` returning a `Currency` domain entity, or add `CurrencyCommandRepositoryImpl` if keeping ports split.
 
@@ -978,13 +978,13 @@ async def require_admin_key(
 ) -> None:
     settings = request.app.state.settings
     if settings.app_env != "development":
-        unwrap_result(Result.failure(ADMIN_ACCESS_DENIED))
+        unwrap_domain_result(Result.failure(ADMIN_ACCESS_DENIED))
     if (
         x_admin_key is None
         or settings.admin_api_key is None
         or not secrets.compare_digest(x_admin_key, settings.admin_api_key)
     ):
-        unwrap_result(Result.failure(ADMIN_ACCESS_DENIED))
+        unwrap_domain_result(Result.failure(ADMIN_ACCESS_DENIED))
 ```
 
 Extend `backend/app/api/exception_handlers.py`:
@@ -1058,7 +1058,7 @@ async def create_deposit(
             amount_str=body.amount,
         )
     )
-    data = unwrap_result(result)
+    data = unwrap_domain_result(result)
     return AdminDepositResponse(id=data.transaction_id)
 ```
 
@@ -1190,7 +1190,7 @@ Format `available` as a decimal string with scale matching the currency precisio
 from decimal import Decimal
 
 
-def format_asset_amount_wtih_precision(
+def format_amount_with_precision(
     amount: Decimal,
     asset: str,
     precision_by_label: dict[str, int],
@@ -1216,14 +1216,14 @@ async def get_admin_balances(
         ListCurrenciesExecutor, Depends(get_list_currencies_executor)
     ],
 ) -> BalanceListResponse:
-    items = unwrap_result(await balances_executor(AdminBalancesQuery()))
-    currencies = unwrap_result(await currencies_executor(CurrenciesQuery()))
+    items = unwrap_domain_result(await balances_executor(AdminBalancesQuery()))
+    currencies = unwrap_domain_result(await currencies_executor(CurrenciesQuery()))
     precision_by_label = {item.label: item.precision for item in currencies}
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_asset_amount_wtih_precision(item.available, item.asset, precision_by_label),
+                available=format_amount_with_precision(item.available, item.asset, precision_by_label),
             )
             for item in items
         ]
@@ -1262,9 +1262,6 @@ Create pagination types in `backend/app/domain/read_models/pagination.py`:
 
 ```python
 from dataclasses import dataclass
-from typing import TypeVar
-
-T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1375,7 +1372,7 @@ async def list_admin_transactions(
         Depends(get_list_admin_transactions_executor),
     ] = ...,
 ) -> TransactionListResponse:
-    page = unwrap_result(
+    page = unwrap_domain_result(
         await executor(
             AdminTransactionsQuery(
                 PaginationParams(page_number=page_number, page_size=page_size)

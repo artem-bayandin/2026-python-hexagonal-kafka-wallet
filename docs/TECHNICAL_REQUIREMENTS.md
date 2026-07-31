@@ -20,6 +20,7 @@ The product behavior is defined in [FUNCTIONAL_REQUIREMENTS.md](FUNCTIONAL_REQUI
 - `uv` for Python versions, environments, dependencies, and locking
 - `ruff` for linting and formatting
 - `mypy` with strict mode; do not use the deprecated SQLAlchemy mypy plugin
+- Use [PEP 695](https://peps.python.org/pep-0695/) generic syntax (`class Result[T]`, `def foo[T]()`) and Python 3.14 native deferred annotations; avoid legacy `TypeVar` boilerplate unless required for a third-party stub
 - pytest, pytest-asyncio, and HTTPX
 - `testcontainers` with its PostgreSQL extra for PostgreSQL integration tests
 - `email-validator` for Pydantic email validation
@@ -31,7 +32,7 @@ Password hashing and `passlib` are not needed because authentication is OTP-only
 - Vite 8 with `@vitejs/plugin-react` 6
 - React 19
 - TypeScript
-- React Router 8
+- `react-router-dom` (installed at scaffold time; version 1 UI uses React state for view switching — no URL routes wired yet)
 - Native `fetch` through a small typed API client
 - Plain CSS
 - ESLint for linting, Vitest and React Testing Library for a minimal set of UI tests
@@ -65,7 +66,7 @@ The scaffold declares direct dependencies with bounded compatible ranges and com
 - The current baseline is Python 3.14.6, FastAPI 0.139.2, Pydantic 2.13.4, `pydantic-settings` 2.14.2, SQLAlchemy 2.0.51, `uv` 0.11.31, `testcontainers` 4.14.2, `email-validator` 2.3.0, and `aiokafka` 0.14.0.
 - PostgreSQL 18.4 is the supported database baseline. Pin Compose to an exact patch tag and upgrade after backup/restore and integration-test verification.
 - Apache Kafka 4.3.1 is the broker baseline. Pin its image to an exact patch tag or immutable digest.
-- The frontend baseline is Node.js 22.22 or later supported LTS, Vite 8, React 19.2, React Router 8, and the latest compatible Vitest and Testing Library releases resolved by Yarn.
+- The frontend baseline is Node.js 22.22 or later supported LTS, Vite 8, React 19.2, `react-router-dom` 7.x (installed, optional for version 1 UI), and the latest compatible Vitest and Testing Library releases resolved by Yarn.
 - Enable Corepack before frontend setup with `corepack enable`, then use `yarn install --immutable`. Yarn's download cache remains an implementation detail; `nodeLinker: node-modules` is the required setting that stores the installed package tree in `frontend/node_modules`.
 - Check supported Python versions and release notes for every direct-dependency upgrade, update a dedicated lockfile change, scan dependencies for known vulnerabilities, and run the complete quality suite before merging.
 - Review dependency versions at least monthly and apply security updates on an expedited path. Major-version upgrades require explicit compatibility tests and documented migration notes.
@@ -117,47 +118,43 @@ project-root/
 │   │   ├── config.py
 │   │   ├── dependencies.py
 │   │   ├── domain/
-│   │   │   ├── entities/
 │   │   │   ├── value_objects/
+│   │   │   │   ├── asset.py
 │   │   │   │   └── money.py
-│   │   │   ├── enums.py
 │   │   │   ├── current_user.py
 │   │   │   ├── error_codes.py
 │   │   │   ├── result.py
-│   │   │   ├── read_models.py
+│   │   │   ├── read_models/          # frozen query/persistence shapes (UserItem, BalanceItem, …)
 │   │   │   ├── ports/
-│   │   │   │   ├── command_repositories.py
-│   │   │   │   ├── current_user_provider.py
-│   │   │   │   ├── query_repositories.py
-│   │   │   │   ├── services.py
-│   │   │   │   └── messaging.py
-│   │   │   └── use_cases/
-│   │   │       ├── commands/
-│   │   │       └── queries/
+│   │   │   │   ├── repositories/       # one Protocol file per entity/concern (command vs query split)
+│   │   │   │   ├── services/
+│   │   │   │   └── current_user_provider.py
+│   │   │   └── use_cases/              # nested by entity/concern, not commands/ vs queries/
 │   │   ├── api/
 │   │   │   ├── current_user_provider.py
+│   │   │   ├── db_session.py           # read_session / write_session
 │   │   │   ├── dependencies.py
-│   │   │   ├── executors/
+│   │   │   ├── executors/              # one file per use case
+│   │   │   ├── formatting.py
 │   │   │   ├── routers/
 │   │   │   │   ├── auth.py
+│   │   │   │   ├── admin.py
 │   │   │   │   ├── wallet.py
-│   │   │   │   └── admin.py
+│   │   │   │   ├── reference.py
+│   │   │   │   └── health.py
 │   │   │   ├── schemas/
-│   │   │   ├── mappers.py
+│   │   │   │   └── shared.py           # DataList[T], ErrorEnvelope
 │   │   │   ├── exception_handlers.py
 │   │   │   └── result_mapping.py
 │   │   ├── auth/
 │   │   │   ├── jwt_service.py
-│   │   │   └── otp_service.py
+│   │   │   ├── otp_service.py
+│   │   │   └── system_clock.py
 │   │   ├── db/
-│   │   │   ├── models.py
-│   │   │   ├── mappers.py
+│   │   │   ├── models/                 # one ORM module per table
+│   │   │   ├── mappers/
 │   │   │   ├── session.py
-│   │   │   └── repositories/
-│   │   │       ├── user_repository.py
-│   │   │       ├── auth_repository.py
-│   │   │       ├── command_repositories.py
-│   │   │       └── query_repositories.py
+│   │   │   └── repositories/           # *CommandRepositoryImpl / *QueryRepositoryImpl
 │   │   ├── messaging/                 # version 2
 │   │   │   ├── contracts.py
 │   │   │   ├── kafka_adapter.py
@@ -196,8 +193,9 @@ Two modules named `dependencies.py` serve different layers. Do not merge them.
 **File roles under `app/api/`:**
 
 - `dependencies.py` — auth gates (`require_admin_key`, `bind_current_user`, `require_admin_or_user_auth`), shared HTTP constants (`bearer_scheme`, `ADMIN_KEY_HEADER`), and re-exports of all executor symbols for routers.
+- `db_session.py` — `read_session(request)` for query routes (short-lived session, no explicit write transaction) and `write_session(request)` for commands (`session.begin()`).
 - `current_user_provider.py` — `ContextVarCurrentUserProvider` implementation, module singleton, and `get_current_user_provider()`.
-- `executors/<use_case>.py` — one file per executor: type alias (e.g. `ExchangeExecutor`) plus `get_*_executor(request)` closure that opens a short-lived session (and `session.begin()` for writes), calls the matching `build_*_handler` from `app/dependencies.py`, and invokes the handler. Includes `current_user.py` for `get_current_user_executor`, which `bind_current_user` injects even though no route declares it as a handler parameter.
+- `executors/<use_case>.py` — one file per executor: type alias (e.g. `ExchangeExecutor`) plus `get_*_executor(request)` closure that opens `read_session` or `write_session`, calls the matching `build_*_handler` from `app/dependencies.py`, and invokes the handler. Includes `current_user.py` for `get_current_user_executor`, which `bind_current_user` injects even though no route declares it as a handler parameter.
 
 **Two FastAPI dependency roles:**
 
@@ -257,10 +255,13 @@ The operation's financial terms are immutable after creation. Its lifecycle stat
 
 User transaction history is scoped by wallet ownership (`source_wallet_id` or `dest_wallet_id` in the user's wallet IDs). Phase 5 query repositories use a CTE + `IN` pattern (see [PHASE_3_WALLET_SCHEMA.md](implementation/PHASE_3_WALLET_SCHEMA.md)). Admin transaction listing queries all rows.
 
-### 4.5 Authentication entities
+### 4.5 Authentication read models
 
-- `OtpChallenge`: user ID, email, keyed OTP digest, expiry, failed-attempt count, consumed/invalidated timestamps.
-- `AuthSession`: `jti`, user ID, expiry, created timestamp, and optional revoked timestamp.
+Persisted authentication shapes live in `domain/read_models/`:
+
+- `OtpChallengeItem`: user ID, keyed OTP digest, expiry, failed-attempt count, consumed/invalidated timestamps.
+- `AuthSessionItem`: `jti`, user ID, expiry, optional revoked timestamp.
+- `UserItem`: user ID and normalized email.
 - `CurrentUser`: frozen dataclass with user ID, normalized email, and the current authentication-session `jti`. A later user-lifecycle phase may add and enforce active state.
 
 OTP digests use a keyed one-way digest so the six-digit value is not stored in plain text. Random OTP generation uses Python's `secrets` module.
@@ -278,7 +279,8 @@ Version 1 command handlers include:
 - revoke current auth session;
 - create immediate admin deposit;
 - execute immediate exchange;
-- execute immediate withdrawal.
+- execute immediate withdrawal;
+- execute immediate transfer to another user by email.
 
 Version 2 separates submission from execution for wallet mutations:
 
@@ -319,10 +321,10 @@ Unexpected infrastructure and programming failures are not converted to `Result.
 
 ### 6.1 ORM separation
 
-Domain entities, Pydantic DTOs, and SQLAlchemy ORM models are separate:
+Domain read models, Pydantic DTOs, and SQLAlchemy ORM models are separate:
 
-- API mapping lives under `api/`;
-- persistence mapping lives under `db/`;
+- API mapping lives under `api/` (routers, schemas, formatting);
+- persistence mapping lives under `db/mappers/`;
 - ORM instrumentation and Pydantic models never enter domain handlers.
 
 ### 6.2 Transaction boundary
@@ -466,18 +468,18 @@ The canonical request/response, pagination, status, error, and compatibility rul
 - `GET /health/ready`
 - `GET /health/authenticated`
 
-### 8.6 Result unwrapping
+### 8.7 Result unwrapping
 
-`api/result_mapping.py` owns the generic `unwrap_result(result: Result[T]) -> T` helper and an API-layer result exception carrying only `error_code`. For a no-content success, `T` is `None`.
+`api/result_mapping.py` owns the generic `unwrap_domain_result(result: Result[T]) -> T` helper and `DomainResultError` carrying only `error_code`. For a no-content success, `T` is `None`.
 
-- for success, `unwrap_result` returns `result.data`;
-- for failure, it raises the API-layer exception using `result.error_code`;
+- for success, `unwrap_domain_result` returns `result.data`;
+- for failure, it raises `DomainResultError` using `result.error_code`;
 - it never includes or exposes `result.reason`;
-- routers call it only after a transactional command executor has returned, so raising the API-layer exception cannot roll back a committed expected outcome;
-- `api/exception_handlers.py` maps the API-layer exception's error code to the status and safe `ErrorEnvelope` message defined in [API_CONTRACT.md](API_CONTRACT.md);
+- routers call it only after a transactional command executor has returned, so raising `DomainResultError` cannot roll back a committed expected outcome;
+- `api/exception_handlers.py` maps `DomainResultError`'s error code to the status and safe `ErrorEnvelope` message defined in [API_CONTRACT.md](API_CONTRACT.md);
 - an unmapped error code is treated as `500 INTERNAL_ERROR`, not exposed verbatim, and logged as an application defect.
 
-Success status codes remain route-specific (`200`, `201`, `202`, or `204`) and are not selected by `unwrap_result`. Request-validation failures bypass `Result[T]` and remain `422 VALIDATION_ERROR`; uncaught exceptions remain `500 INTERNAL_ERROR`.
+Success status codes remain route-specific (`200`, `201`, `202`, or `204`) and are not selected by `unwrap_domain_result`. Request-validation failures bypass `Result[T]` and remain `422 VALIDATION_ERROR`; uncaught exceptions remain `500 INTERNAL_ERROR`.
 
 Version 1 wallet commands return completed results. Version 2 deposit, exchange, and withdrawal submissions return `202 Accepted` and an operation identifier. HTTP idempotency keys are deferred to the roadmap's final optional hardening phase.
 
@@ -529,12 +531,12 @@ It queries PostgreSQL message records, not Kafka directly. Core wallet domain an
 
 ## 10. Frontend
 
-The frontend contains Login, Wallet, History, Admin, and version-2 Kafka pages.
+The frontend contains Login, Wallet (including paginated history), Admin, and version-2 Kafka views. Version 1 switches views with React state in `App.tsx`; URL routing is optional future work.
 
 - A small API client attaches JWT or admin headers as appropriate.
 - JWT and admin key use `sessionStorage` for this demo.
-- Protected user routes redirect to Login when no token is present.
-- Admin and Kafka pages are development-only; production builds must omit those routes until production authorization and observability controls exist.
+- Protected user views return to Login when no token is present.
+- Admin and Kafka views are development-only; production builds must omit those views until production authorization and observability controls exist.
 - Version 2 polls operation, balance, transaction, and diagnostics queries using the bounded exponential-backoff defaults in [CONFIGURATION.md](CONFIGURATION.md); WebSockets are not required.
 - Error responses and pending/rejected/failed statuses are visible in simple text UI.
 
@@ -544,11 +546,13 @@ Expected domain/use-case failures use stable `Result.failure` error codes, for e
 
 - invalid/expired/consumed OTP;
 - invalid/expired/revoked token;
-- inactive or missing user;
+- unknown user (`USER_NOT_FOUND`);
 - unsupported asset;
 - invalid amount or precision;
-- same source and destination asset;
-- insufficient funds;
+- same source and destination asset (`SAME_ASSET`);
+- transfer to self (`TRANSFER_TO_SELF`);
+- insufficient funds (`INSUFFICIENT_FUNDS`);
+- failed credit (`CREDIT_FAILED`);
 - invalid balance bucket;
 - invalid operation transition.
 
@@ -560,7 +564,7 @@ Worker business failures returned through `Result.failure` become `REJECTED` out
 
 ### 12.1 Unit tests
 
-- Domain entities and `Money` invariants.
+- Domain read models and `Money` invariants.
 - OTP and auth-session behavior.
 - Current-user-provider behavior with a fake provider, plus API integration coverage proving request binding is reset and isolated.
 - Command handlers with fake command repositories/services, asserting successful and failed `Result` values.

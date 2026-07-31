@@ -1,8 +1,8 @@
 # Operations and release contract
 
-## Current limitation
+## Current status
 
-The repository is pre-implementation. The commands below are the required operating interface once the scaffold, Compose file, manifests, and services exist; they are not executable yet. An implementation is incomplete if it cannot satisfy this contract.
+Version 1 (Phases 1–5) is implemented: backend, frontend, PostgreSQL schema, auth, admin wallet, and user wallet flows run locally with the commands below. Automated test suites, CI, and version 2 (Kafka) are not yet complete.
 
 ## Service lifecycle
 
