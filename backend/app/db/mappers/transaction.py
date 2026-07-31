@@ -1,20 +1,26 @@
-from app.domain import Transaction, TransactionListItem
+from uuid import UUID
+
+from app.domain import TransactionListRow, TransactionItem
 
 from ..models import TransactionModel
 
 
-def transaction_to_list_item(
+def to_list_row(
     model: TransactionModel,
     *,
     source_asset: str | None,
     dest_asset: str | None,
-) -> TransactionListItem:
+    source_precision: int | None,
+    dest_precision: int | None,
+    source_user_id: UUID | None,
+    dest_user_id: UUID | None,
+) -> TransactionListRow:
     if model.source_wallet_id is None or model.source_amount == 0:
         amount = model.dest_amount
     else:
         amount = model.source_amount
 
-    return TransactionListItem(
+    return TransactionListRow(
         id=model.id,
         type=model.type,
         status=model.status,
@@ -22,10 +28,14 @@ def transaction_to_list_item(
         amount=amount,
         source_asset=source_asset,
         dest_asset=dest_asset,
+        source_precision=source_precision,
+        dest_precision=dest_precision,
+        source_user_id=source_user_id,
+        dest_user_id=dest_user_id,
     )
 
 
-def transaction_to_model(entity: Transaction) -> TransactionModel:
+def to_model(entity: TransactionItem) -> TransactionModel:
     return TransactionModel(
         id=entity.id,
         type=entity.type,

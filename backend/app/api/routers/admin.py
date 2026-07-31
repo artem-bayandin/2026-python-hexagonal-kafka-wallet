@@ -4,9 +4,8 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.domain import (
     AdminDepositCommand,
-    GetAdminBalancesQuery,
-    ListAdminTransactionsQuery,
-    ListCurrenciesQuery,
+    AdminBalancesQuery,
+    AdminTransactionsQuery,
     PaginationParams,
 )
 
@@ -14,17 +13,16 @@ from ..dependencies import (
     AdminDepositExecutor,
     GetAdminBalancesExecutor,
     ListAdminTransactionsExecutor,
-    ListCurrenciesExecutor,
     get_admin_deposit_executor,
     get_get_admin_balances_executor,
     get_list_admin_transactions_executor,
-    get_list_currencies_executor,
     require_admin_key,
 )
-from ..formatting import amount_precision_asset, format_amount
-from ..result_mapping import unwrap_result
-from ..schemas.admin import AdminDepositRequest, AdminDepositResponse
-from ..schemas.wallet import (
+from ..formatting import format_amount_with_precision, map_not_null_asset_precision
+from ..result_mapping import unwrap_domain_result
+from ..schemas import (
+    AdminDepositRequest,
+    AdminDepositResponse,
     BalanceItemResponse,
     BalanceListResponse,
     TransactionItemResponse,
@@ -50,7 +48,7 @@ async def create_deposit(
             amount_str=body.amount,
         )
     )
-    data = unwrap_result(result)
+    data = unwrap_domain_result(result)
     return AdminDepositResponse(id=data.transaction_id)
 
 
@@ -62,16 +60,13 @@ async def get_admin_balances(
     balances_executor: Annotated[
         GetAdminBalancesExecutor, Depends(get_get_admin_balances_executor)
     ],
-    currencies_executor: Annotated[ListCurrenciesExecutor, Depends(get_list_currencies_executor)],
 ) -> BalanceListResponse:
-    items = unwrap_result(await balances_executor(GetAdminBalancesQuery()))
-    currencies = unwrap_result(await currencies_executor(ListCurrenciesQuery()))
-    precision_by_label = {item.label: item.precision for item in currencies}
+    items = unwrap_domain_result(await balances_executor(AdminBalancesQuery()))
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_amount(item.available, item.asset, precision_by_label),
+                available=format_amount_with_precision(item.available, item.precision),
             )
             for item in items
         ]
@@ -87,19 +82,14 @@ async def list_admin_transactions(
         ListAdminTransactionsExecutor,
         Depends(get_list_admin_transactions_executor),
     ],
-    currencies_executor: Annotated[ListCurrenciesExecutor, Depends(get_list_currencies_executor)],
     page_number: Annotated[int, Query(ge=0)] = 0,
     page_size: Annotated[int, Query(gt=0, le=100)] = 20,
 ) -> TransactionListResponse:
-    page = unwrap_result(
+    page = unwrap_domain_result(
         await executor(
-            ListAdminTransactionsQuery(
-                PaginationParams(page_number=page_number, page_size=page_size)
-            )
+            AdminTransactionsQuery(PaginationParams(page_number=page_number, page_size=page_size))
         )
     )
-    currencies = unwrap_result(await currencies_executor(ListCurrenciesQuery()))
-    precision_by_label = {item.label: item.precision for item in currencies}
     return TransactionListResponse(
         total_items=page.total_items,
         items=[
@@ -109,10 +99,14 @@ async def list_admin_transactions(
                 status=item.status.upper(),
                 source_asset=item.source_asset,
                 dest_asset=item.dest_asset,
-                amount=format_amount(
+                amount=format_amount_with_precision(
                     item.amount,
-                    amount_precision_asset(item.source_asset, item.dest_asset),
-                    precision_by_label,
+                    map_not_null_asset_precision(
+                        item.source_asset,
+                        item.dest_asset,
+                        item.source_precision,
+                        item.dest_precision,
+                    ),
                 ),
                 created_at=item.created_at,
             )

@@ -1,7 +1,7 @@
 from typing import Protocol
 
-from ...entities import Transaction
+from ...read_models import TransactionItem
 
 
 class TransactionCommandRepository(Protocol):
-    async def add(self, transaction: Transaction) -> None: ...
+    async def add(self, transaction: TransactionItem) -> None: ...

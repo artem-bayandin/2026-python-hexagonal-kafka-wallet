@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from ...entities import AuthSession
+from ...read_models import AuthSessionItem
 from ...error_codes import (
     OTP_CONSUMED,
     OTP_EXPIRED,
@@ -86,7 +86,7 @@ class VerifyOtpHandler:
             )
             await self._otp_challenge_cmd_repo.mark_consumed(matching_otp_challenge.id, now)
             await self._auth_session_cmd_repo.add(
-                AuthSession(
+                AuthSessionItem(
                     jti=session_jti,
                     user_id=user.id,
                     expires_at=token_expires_at,

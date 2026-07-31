@@ -1,8 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 
 from app.domain import AdminWalletCommandRepository
 
@@ -23,7 +25,7 @@ class AdminWalletCommandRepositoryImpl(AdminWalletCommandRepository):
         result = await self.session.execute(stmt)
         result.scalar_one()
 
-    async def credit(self, currency_id: UUID, amount: Decimal, now: datetime) -> None:
+    async def credit(self, currency_id: UUID, amount: Decimal, now: datetime) -> bool:
         stmt = (
             update(AdminWalletModel)
             .where(AdminWalletModel.currency_id == currency_id)
@@ -32,4 +34,8 @@ class AdminWalletCommandRepositoryImpl(AdminWalletCommandRepository):
                 updated_at=now,
             )
         )
-        await self.session.execute(stmt)
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0

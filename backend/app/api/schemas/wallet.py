@@ -21,6 +21,7 @@ class TransactionItemResponse(BaseModel):
     dest_asset: str | None = None
     amount: str
     created_at: datetime
+    direction: str | None = None
 
 
 class TransactionListResponse(BaseModel):

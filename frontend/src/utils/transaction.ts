@@ -16,3 +16,15 @@ export function formatTransactionAsset(
   }
   return source || dest
 }
+
+/** Type column label; appends direction for user transfer rows. */
+export function formatTransactionType(
+  type: string,
+  direction?: string | null,
+): string {
+  const normalizedType = type.toUpperCase()
+  if (normalizedType === 'TRANSFER' && direction != null && direction !== '') {
+    return `TRANSFER ${direction.toUpperCase()}`
+  }
+  return normalizedType
+}

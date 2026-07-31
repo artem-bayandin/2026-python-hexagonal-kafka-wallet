@@ -1,7 +1,7 @@
 from typing import Protocol
 
-from ...read_models.balance_item import BalanceItem
+from ...read_models import BalanceItem
 
 
 class AdminWalletQueryRepository(Protocol):
-    async def list_all_with_labels(self) -> list[BalanceItem]: ...
+    async def get_admin_balances(self) -> list[BalanceItem]: ...

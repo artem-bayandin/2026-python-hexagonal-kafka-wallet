@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-from ...entities import Transaction
+from ...read_models import TransactionItem
 from ...error_codes import (
+    SAME_ASSET,
+    CREDIT_FAILED,
     INSUFFICIENT_FUNDS,
     INVALID_AMOUNT,
     INVALID_PRECISION,
@@ -50,7 +52,7 @@ class ExchangeHandler:
         source_label = command.source_asset_label.strip().upper()
         dest_label = command.destination_asset_label.strip().upper()
         if source_label == dest_label:
-            return Result.failure(INVALID_AMOUNT)
+            return Result.failure(SAME_ASSET)
 
         source_currency = await self._currency_query_repo.get_by_label(source_label)
         dest_currency = await self._currency_query_repo.get_by_label(dest_label)
@@ -83,10 +85,13 @@ class ExchangeHandler:
         if not debited:
             return Result.failure(INSUFFICIENT_FUNDS)
 
-        await self._user_wallets_repo.credit(dest_wallet.id, money.amount, now)
+        credited = await self._user_wallets_repo.credit(dest_wallet.id, money.amount, now)
+        if not credited:
+            return Result.failure(CREDIT_FAILED)
+
         transaction_id = uuid4()
         await self._transactions_repo.add(
-            Transaction(
+            TransactionItem(
                 id=transaction_id,
                 type="exchange",
                 source_wallet_id=source_wallet.id,

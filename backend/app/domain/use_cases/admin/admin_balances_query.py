@@ -1,19 +1,19 @@
 from dataclasses import dataclass
 
 from ...ports.repositories.admin_wallet_query_repository import AdminWalletQueryRepository
-from ...read_models.balance_item import BalanceItem
+from ...read_models import BalanceItem
 from ...result import Result
 
 
 @dataclass(frozen=True, slots=True)
-class GetAdminBalancesQuery:
+class AdminBalancesQuery:
     pass
 
 
-class GetAdminBalancesHandler:
+class AdminBalancesHandler:
     def __init__(self, admin_wallet_query_repo: AdminWalletQueryRepository) -> None:
         self._admin_wallet_query_repo = admin_wallet_query_repo
 
-    async def handle(self, _: GetAdminBalancesQuery) -> Result[list[BalanceItem]]:
-        items = await self._admin_wallet_query_repo.list_all_with_labels()
+    async def handle(self, _: AdminBalancesQuery) -> Result[list[BalanceItem]]:
+        items = await self._admin_wallet_query_repo.get_admin_balances()
         return Result.success(items)

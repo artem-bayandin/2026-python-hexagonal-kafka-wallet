@@ -8,10 +8,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.api import (
-    ApiResultError,
-    handle_api_result_error,
+    DomainResultError,
+    handle_domain_result_error,
     handle_uncaught_exception,
-    handle_validation_error,
+    handle_api_validation_error,
     admin_router,
     auth_router,
     health_router,
@@ -49,8 +49,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.add_exception_handler(RequestValidationError, handle_validation_error)
-    app.add_exception_handler(ApiResultError, handle_api_result_error)
+    app.add_exception_handler(RequestValidationError, handle_api_validation_error)
+    app.add_exception_handler(DomainResultError, handle_domain_result_error)
     app.add_exception_handler(Exception, handle_uncaught_exception)
 
     app.include_router(auth_router)

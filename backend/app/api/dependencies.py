@@ -1,60 +1,50 @@
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 import secrets
 from typing import Annotated
 
 from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.dependencies import (
-    build_admin_deposit_handler,
-    build_exchange_handler,
-    build_get_admin_balances_handler,
-    build_get_current_user_handler,
-    build_get_user_balances_handler,
-    build_list_admin_transactions_handler,
-    build_list_currencies_handler,
-    build_list_user_transactions_handler,
-    build_list_users_handler,
-    build_logout_handler,
-    build_request_otp_handler,
-    build_transfer_handler,
-    build_verify_otp_handler,
-    build_withdraw_handler,
-)
 from app.domain import (
     ADMIN_ACCESS_DENIED,
     AUTHENTICATION_FAILED,
-    AdminDepositCommand,
-    AdminDepositResult,
-    BalanceItem,
-    CurrencyCatalogItem,
     CurrentUser,
-    ExchangeCommand,
-    ExchangeResult,
-    GetAdminBalancesQuery,
-    GetCurrentUserQuery,
-    GetUserBalancesQuery,
-    ListAdminTransactionsQuery,
-    ListCurrenciesQuery,
-    ListUserTransactionsQuery,
-    ListUsersQuery,
-    LogoutCommand,
-    PaginatedResult,
-    RequestOtpCommand,
-    RequestOtpResult,
+    CurrentUserQuery,
     Result,
-    TransactionListItem,
-    TransferCommand,
-    TransferResult,
-    UserReferenceItem,
-    VerifyOtpCommand,
-    VerifyOtpResult,
-    WithdrawCommand,
-    WithdrawResult,
 )
 
-from .current_user_provider import ContextVarCurrentUserProvider
-from .result_mapping import unwrap_result
+from .current_user_provider import ContextVarCurrentUserProvider, get_current_user_provider
+from .executors import (
+    AdminDepositExecutor,
+    ExchangeExecutor,
+    GetAdminBalancesExecutor,
+    GetCurrentUserExecutor,
+    GetUserBalancesExecutor,
+    ListAdminTransactionsExecutor,
+    ListCurrenciesExecutor,
+    ListUserTransactionsExecutor,
+    ListUsersExecutor,
+    LogoutExecutor,
+    RequestOtpExecutor,
+    TransferExecutor,
+    VerifyOtpExecutor,
+    WithdrawExecutor,
+    get_admin_deposit_executor,
+    get_current_user_executor,
+    get_exchange_executor,
+    get_get_admin_balances_executor,
+    get_get_user_balances_executor,
+    get_list_admin_transactions_executor,
+    get_list_currencies_executor,
+    get_list_user_transactions_executor,
+    get_list_users_executor,
+    get_logout_executor,
+    get_request_otp_executor,
+    get_transfer_executor,
+    get_verify_otp_executor,
+    get_withdraw_executor,
+)
+from .result_mapping import unwrap_domain_result
 
 # Bearer scheme
 
@@ -62,318 +52,125 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 ADMIN_KEY_HEADER = "X-Admin-Key"
 
-# Current user provider
-
-_current_user_provider = ContextVarCurrentUserProvider()
-
-# Current user executor
-
-GetCurrentUserExecutor = Callable[[GetCurrentUserQuery], Awaitable[Result[CurrentUser]]]
-
-
-def get_current_user_provider() -> ContextVarCurrentUserProvider:
-    return _current_user_provider
-
-
-def get_current_user_executor(request: Request) -> GetCurrentUserExecutor:
-    async def execute(query: GetCurrentUserQuery) -> Result[CurrentUser]:
-        async with request.app.state.session_factory() as session:
-            handler = build_get_current_user_handler(
-                session,
-                request.app.state.settings,
-            )
-            return await handler.handle(query)
-
-    return execute
-
-
-# Logout executor
-
-LogoutExecutor = Callable[[LogoutCommand], Awaitable[Result[None]]]
-
-
-def get_logout_executor(request: Request) -> LogoutExecutor:
-    async def execute(command: LogoutCommand) -> Result[None]:
-        async with request.app.state.session_factory() as session, session.begin():
-            handler = build_logout_handler(
-                session,
-                get_current_user_provider(),
-            )
-            return await handler.handle(command)
-
-    return execute
-
-
-# Request OTP executor
-
-RequestOtpExecutor = Callable[[RequestOtpCommand], Awaitable[Result[RequestOtpResult]]]
-
-
-def get_request_otp_executor(request: Request) -> RequestOtpExecutor:
-    async def execute(command: RequestOtpCommand) -> Result[RequestOtpResult]:
-        async with request.app.state.session_factory() as session, session.begin():
-            handler = build_request_otp_handler(
-                session,
-                request.app.state.settings,
-            )
-            return await handler.handle(command)
-
-    return execute
-
-
-# Verify OTP executor
-
-VerifyOtpExecutor = Callable[[VerifyOtpCommand], Awaitable[Result[VerifyOtpResult]]]
-
-
-def get_verify_otp_executor(request: Request) -> VerifyOtpExecutor:
-    async def execute(command: VerifyOtpCommand) -> Result[VerifyOtpResult]:
-        async with request.app.state.session_factory() as session, session.begin():
-            handler = build_verify_otp_handler(
-                session,
-                request.app.state.settings,
-            )
-            return await handler.handle(command)
-
-    return execute
-
-
 # Authenticated request binding
 
 
+async def _extract_current_user(
+    executor: GetCurrentUserExecutor,
+    http_credentials: HTTPAuthorizationCredentials | None,
+) -> CurrentUser | None:
+    if http_credentials is not None and http_credentials.scheme.casefold() == "bearer":
+        result = await executor(CurrentUserQuery(token=http_credentials.credentials))
+        current_user = unwrap_domain_result(result)
+        return current_user
+    return None
+
+
+# auth: logout
+# wallet: balances, txs, exch, withd, trnsfr
 async def bind_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    http_credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     executor: Annotated[GetCurrentUserExecutor, Depends(get_current_user_executor)],
-    provider: Annotated[
-        ContextVarCurrentUserProvider,
-        Depends(get_current_user_provider),
+    current_user_provider: Annotated[
+        ContextVarCurrentUserProvider, Depends(get_current_user_provider)
     ],
 ) -> AsyncIterator[None]:
-    if credentials is None or credentials.scheme.casefold() != "bearer":
-        unwrap_result(Result.failure(AUTHENTICATION_FAILED))
-    assert credentials is not None
-    result = await executor(GetCurrentUserQuery(token=credentials.credentials))
-    current_user = unwrap_result(result)
+    current_user = await _extract_current_user(executor, http_credentials)
+    if current_user is None:
+        unwrap_domain_result(Result.failure(AUTHENTICATION_FAILED))
+    assert current_user is not None
     # store user in a ContextVar for this request
-    token = provider.bind(current_user)
+    token = current_user_provider.bind(current_user)
     try:
         # hand off to the route handler (or next dependency)
         yield
     finally:
         # clean up after the request
-        provider.reset(token)
-
-
-# Reference auth
-
-
-async def require_reference_auth(
-    request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    x_admin_key: Annotated[str | None, Header(alias=ADMIN_KEY_HEADER)] = None,
-) -> None:
-    settings = request.app.state.settings
-    if (
-        x_admin_key is not None
-        and settings.admin_api_key is not None
-        and secrets.compare_digest(x_admin_key, settings.admin_api_key)
-    ):
-        return
-    if credentials is not None and credentials.scheme.casefold() == "bearer":
-        async with request.app.state.session_factory() as session:
-            handler = build_get_current_user_handler(session, settings)
-            result = await handler.handle(GetCurrentUserQuery(token=credentials.credentials))
-            if result.is_success:
-                return
-    unwrap_result(Result.failure(AUTHENTICATION_FAILED))
+        current_user_provider.reset(token)
 
 
 # Admin auth
 
 
+# Not for import
+def _valid_admin_key(x_admin_key: str | None, settings_admin_api_key: str | None) -> bool:
+    return (
+        x_admin_key is not None
+        and settings_admin_api_key is not None
+        and secrets.compare_digest(x_admin_key, settings_admin_api_key)
+    )
+
+
+# admin: depo, bal, txs
 async def require_admin_key(
     request: Request,
     x_admin_key: Annotated[str | None, Header(alias=ADMIN_KEY_HEADER)] = None,
 ) -> None:
     settings = request.app.state.settings
     if settings.app_env != "development":
-        unwrap_result(Result.failure(ADMIN_ACCESS_DENIED))
+        unwrap_domain_result(Result.failure(ADMIN_ACCESS_DENIED))
+    if not _valid_admin_key(x_admin_key, settings.admin_api_key):
+        unwrap_domain_result(Result.failure(ADMIN_ACCESS_DENIED))
+
+
+# Reference auth
+
+
+# references: currencies, users
+async def require_admin_or_user_auth(
+    request: Request,
+    http_credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    current_user_executor: Annotated[GetCurrentUserExecutor, Depends(get_current_user_executor)],
+    x_admin_key: Annotated[str | None, Header(alias=ADMIN_KEY_HEADER)] = None,
+) -> None:
+    settings = request.app.state.settings
+    # validate admin key
     if (
-        x_admin_key is None
-        or settings.admin_api_key is None
-        or not secrets.compare_digest(x_admin_key, settings.admin_api_key)
+        # valid only id dev mode
+        settings.app_env == "development" and _valid_admin_key(x_admin_key, settings.admin_api_key)
     ):
-        unwrap_result(Result.failure(ADMIN_ACCESS_DENIED))
+        # admin key exists and is valid
+        return
+    # validate user auth
+    if await _extract_current_user(current_user_executor, http_credentials) is None:
+        unwrap_domain_result(Result.failure(AUTHENTICATION_FAILED))
 
 
-# List currencies executor
-
-ListCurrenciesExecutor = Callable[
-    [ListCurrenciesQuery], Awaitable[Result[list[CurrencyCatalogItem]]]
+__all__ = [
+    # Current file references
+    "ADMIN_KEY_HEADER",
+    "bearer_scheme",
+    "bind_current_user",
+    "require_admin_or_user_auth",
+    "require_admin_key",
+    # Executors
+    "AdminDepositExecutor",
+    "ExchangeExecutor",
+    "GetAdminBalancesExecutor",
+    "GetCurrentUserExecutor",
+    "GetUserBalancesExecutor",
+    "ListAdminTransactionsExecutor",
+    "ListCurrenciesExecutor",
+    "ListUserTransactionsExecutor",
+    "ListUsersExecutor",
+    "LogoutExecutor",
+    "RequestOtpExecutor",
+    "TransferExecutor",
+    "VerifyOtpExecutor",
+    "WithdrawExecutor",
+    "get_admin_deposit_executor",
+    "get_current_user_executor",
+    "get_current_user_provider",
+    "get_exchange_executor",
+    "get_get_admin_balances_executor",
+    "get_get_user_balances_executor",
+    "get_list_admin_transactions_executor",
+    "get_list_currencies_executor",
+    "get_list_user_transactions_executor",
+    "get_list_users_executor",
+    "get_logout_executor",
+    "get_request_otp_executor",
+    "get_transfer_executor",
+    "get_verify_otp_executor",
+    "get_withdraw_executor",
 ]
-
-
-def get_list_currencies_executor(request: Request) -> ListCurrenciesExecutor:
-    async def execute(query: ListCurrenciesQuery) -> Result[list[CurrencyCatalogItem]]:
-        async with request.app.state.session_factory() as session:
-            handler = build_list_currencies_handler(session)
-            return await handler.handle(query)
-
-    return execute
-
-
-# List users executor
-
-ListUsersExecutor = Callable[[ListUsersQuery], Awaitable[Result[list[UserReferenceItem]]]]
-
-
-def get_list_users_executor(request: Request) -> ListUsersExecutor:
-    async def execute(query: ListUsersQuery) -> Result[list[UserReferenceItem]]:
-        async with request.app.state.session_factory() as session:
-            handler = build_list_users_handler(session)
-            return await handler.handle(query)
-
-    return execute
-
-
-# Create admin deposit executor
-
-AdminDepositExecutor = Callable[[AdminDepositCommand], Awaitable[Result[AdminDepositResult]]]
-
-
-def get_admin_deposit_executor(request: Request) -> AdminDepositExecutor:
-    async def execute(
-        command: AdminDepositCommand,
-    ) -> Result[AdminDepositResult]:
-        async with request.app.state.session_factory() as session, session.begin():
-            handler = build_admin_deposit_handler(session)
-            return await handler.handle(command)
-
-    return execute
-
-
-# Get admin balances executor
-
-GetAdminBalancesExecutor = Callable[[GetAdminBalancesQuery], Awaitable[Result[list[BalanceItem]]]]
-
-
-def get_get_admin_balances_executor(request: Request) -> GetAdminBalancesExecutor:
-    async def execute(query: GetAdminBalancesQuery) -> Result[list[BalanceItem]]:
-        async with request.app.state.session_factory() as session:
-            handler = build_get_admin_balances_handler(session)
-            return await handler.handle(query)
-
-    return execute
-
-
-# List admin transactions executor
-
-ListAdminTransactionsExecutor = Callable[
-    [ListAdminTransactionsQuery],
-    Awaitable[Result[PaginatedResult[TransactionListItem]]],
-]
-
-
-def get_list_admin_transactions_executor(
-    request: Request,
-) -> ListAdminTransactionsExecutor:
-    async def execute(
-        query: ListAdminTransactionsQuery,
-    ) -> Result[PaginatedResult[TransactionListItem]]:
-        async with request.app.state.session_factory() as session:
-            handler = build_list_admin_transactions_handler(session)
-            return await handler.handle(query)
-
-    return execute
-
-
-# Get user balances executor
-
-GetUserBalancesExecutor = Callable[[GetUserBalancesQuery], Awaitable[Result[list[BalanceItem]]]]
-
-
-def get_get_user_balances_executor(request: Request) -> GetUserBalancesExecutor:
-    async def execute(query: GetUserBalancesQuery) -> Result[list[BalanceItem]]:
-        async with request.app.state.session_factory() as session:
-            handler = build_get_user_balances_handler(
-                session,
-                get_current_user_provider(),
-            )
-            return await handler.handle(query)
-
-    return execute
-
-
-# List user transactions executor
-
-ListUserTransactionsExecutor = Callable[
-    [ListUserTransactionsQuery],
-    Awaitable[Result[PaginatedResult[TransactionListItem]]],
-]
-
-
-def get_list_user_transactions_executor(
-    request: Request,
-) -> ListUserTransactionsExecutor:
-    async def execute(
-        query: ListUserTransactionsQuery,
-    ) -> Result[PaginatedResult[TransactionListItem]]:
-        async with request.app.state.session_factory() as session:
-            handler = build_list_user_transactions_handler(
-                session,
-                get_current_user_provider(),
-            )
-            return await handler.handle(query)
-
-    return execute
-
-
-# Exchange executor
-
-ExchangeExecutor = Callable[[ExchangeCommand], Awaitable[Result[ExchangeResult]]]
-
-
-def get_exchange_executor(request: Request) -> ExchangeExecutor:
-    async def execute(command: ExchangeCommand) -> Result[ExchangeResult]:
-        async with request.app.state.session_factory() as session, session.begin():
-            handler = build_exchange_handler(
-                session,
-                get_current_user_provider(),
-            )
-            return await handler.handle(command)
-
-    return execute
-
-
-# Withdraw executor
-
-WithdrawExecutor = Callable[[WithdrawCommand], Awaitable[Result[WithdrawResult]]]
-
-
-def get_withdraw_executor(request: Request) -> WithdrawExecutor:
-    async def execute(command: WithdrawCommand) -> Result[WithdrawResult]:
-        async with request.app.state.session_factory() as session, session.begin():
-            handler = build_withdraw_handler(
-                session,
-                get_current_user_provider(),
-            )
-            return await handler.handle(command)
-
-    return execute
-
-
-# Transfer executor
-
-TransferExecutor = Callable[[TransferCommand], Awaitable[Result[TransferResult]]]
-
-
-def get_transfer_executor(request: Request) -> TransferExecutor:
-    async def execute(command: TransferCommand) -> Result[TransferResult]:
-        async with request.app.state.session_factory() as session, session.begin():
-            handler = build_transfer_handler(
-                session,
-                get_current_user_provider(),
-            )
-            return await handler.handle(command)
-
-    return execute

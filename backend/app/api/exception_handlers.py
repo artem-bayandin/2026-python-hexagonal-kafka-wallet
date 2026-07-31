@@ -4,7 +4,7 @@ from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .result_mapping import ApiResultError
+from .result_mapping import DomainResultError
 
 ERROR_RESPONSES: dict[str, tuple[int, str]] = {
     "OTP_INVALID": (
@@ -43,6 +43,14 @@ ERROR_RESPONSES: dict[str, tuple[int, str]] = {
         status.HTTP_422_UNPROCESSABLE_CONTENT,
         "The asset is not supported.",
     ),
+    "SAME_ASSET": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The source and destination assets cannot be the same.",
+    ),
+    "TRANSFER_TO_SELF": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The transfer cannot be to the same user.",
+    ),
     "INVALID_AMOUNT": (
         status.HTTP_422_UNPROCESSABLE_CONTENT,
         "The amount is invalid.",
@@ -54,6 +62,10 @@ ERROR_RESPONSES: dict[str, tuple[int, str]] = {
     "INSUFFICIENT_FUNDS": (
         status.HTTP_409_CONFLICT,
         "The available balance is insufficient for this operation.",
+    ),
+    "CREDIT_FAILED": (
+        status.HTTP_409_CONFLICT,
+        "The credit failed.",
     ),
 }
 
@@ -74,7 +86,7 @@ def error_response(
     )
 
 
-async def handle_validation_error(_: Request, error: Exception) -> JSONResponse:
+async def handle_api_validation_error(_: Request, error: Exception) -> JSONResponse:
     if not isinstance(error, RequestValidationError):
         raise error
     return error_response(
@@ -85,8 +97,8 @@ async def handle_validation_error(_: Request, error: Exception) -> JSONResponse:
     )
 
 
-async def handle_api_result_error(_: Request, error: Exception) -> JSONResponse:
-    if not isinstance(error, ApiResultError):
+async def handle_domain_result_error(_: Request, error: Exception) -> JSONResponse:
+    if not isinstance(error, DomainResultError):
         raise error
     mapped = ERROR_RESPONSES.get(error.error_code)
     if mapped is None:

@@ -136,6 +136,8 @@ project-root/
 │   │   │       └── queries/
 │   │   ├── api/
 │   │   │   ├── current_user_provider.py
+│   │   │   ├── dependencies.py
+│   │   │   ├── executors/
 │   │   │   ├── routers/
 │   │   │   │   ├── auth.py
 │   │   │   │   ├── wallet.py
@@ -181,6 +183,36 @@ project-root/
 ```
 
 Files may be split further when they become large, but layer boundaries and dependency direction must remain unchanged.
+
+### 3.4 API dependency wiring
+
+Two modules named `dependencies.py` serve different layers. Do not merge them.
+
+| Module | Role |
+| --- | --- |
+| `app/dependencies.py` | Handler builders (`build_*_handler`). Composition root for domain handlers with inward adapters (`app.auth`, `app.db`, `app.domain`). No FastAPI imports. Must never import from `app.api`. |
+| `app/api/` | Incoming-adapter wiring only: auth gates, request-scoped current-user state, and FastAPI executors. |
+
+**File roles under `app/api/`:**
+
+- `dependencies.py` — auth gates (`require_admin_key`, `bind_current_user`, `require_admin_or_user_auth`), shared HTTP constants (`bearer_scheme`, `ADMIN_KEY_HEADER`), and re-exports of all executor symbols for routers.
+- `current_user_provider.py` — `ContextVarCurrentUserProvider` implementation, module singleton, and `get_current_user_provider()`.
+- `executors/<use_case>.py` — one file per executor: type alias (e.g. `ExchangeExecutor`) plus `get_*_executor(request)` closure that opens a short-lived session (and `session.begin()` for writes), calls the matching `build_*_handler` from `app/dependencies.py`, and invokes the handler. Includes `current_user.py` for `get_current_user_executor`, which `bind_current_user` injects even though no route declares it as a handler parameter.
+
+**Two FastAPI dependency roles:**
+
+| Role | Used as | Examples | Purpose |
+| --- | --- | --- | --- |
+| Auth gates | `dependencies=[Depends(...)]` on the route | `bind_current_user`, `require_admin_key`, `require_admin_or_user_auth` | Run before the handler; side effects (ContextVar bind, 401/403) |
+| Executor creators | `Annotated[..., Depends(get_*_executor)]` on handler or auth-gate parameters | `get_exchange_executor`, `get_logout_executor`, `get_current_user_executor` | Inject a request-scoped async closure the caller invokes |
+
+Every executor creator lives under `executors/`, including those consumed only by auth gates (e.g. `get_current_user_executor` used inside `bind_current_user`).
+
+**Import rules:**
+
+- Routers import executors via `from ..dependencies import ...` (facade re-export). Do not import executor modules from routers unless deliberately opting out of the facade.
+- Executor modules import `get_current_user_provider` from `current_user_provider`, not from `dependencies.py`, to avoid circular imports.
+- Adding a new use case: add `build_*_handler` in `app/dependencies.py`, add `executors/<use_case>.py`, register symbols in `executors/__init__.py`, and re-export from `api/dependencies.py`.
 
 ## 4. Domain model
 

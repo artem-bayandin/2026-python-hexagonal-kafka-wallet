@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 
-from app.domain import UserWallet, UserWalletCommandRepository
+from app.domain import UserWalletItem, UserWalletCommandRepository
 
 from ..mappers import user_wallet_to_domain
 from ..models import UserWalletModel
@@ -20,7 +20,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
 
     async def get_or_create_for_update(
         self, user_id: UUID, currency_id: UUID, wallet_id: UUID, now: datetime
-    ) -> UserWallet:
+    ) -> UserWalletItem:
         stmt = (
             select(UserWalletModel)
             .where(
@@ -47,7 +47,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             model = locked.scalar_one()
         return user_wallet_to_domain(model)
 
-    async def lock_for_update_ordered(self, wallet_ids: Sequence[UUID]) -> list[UserWallet]:
+    async def lock_for_update_ordered(self, wallet_ids: Sequence[UUID]) -> list[UserWalletItem]:
         ordered_ids = sorted(set(wallet_ids))
         stmt = (
             select(UserWalletModel)
@@ -58,7 +58,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
         result = await self.session.execute(stmt)
         return [user_wallet_to_domain(row) for row in result.scalars().all()]
 
-    async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> None:
+    async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
         stmt = (
             update(UserWalletModel)
             .where(UserWalletModel.id == wallet_id)
@@ -67,7 +67,11 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
                 updated_at=now,
             )
         )
-        await self.session.execute(stmt)
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0
 
     async def debit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
         stmt = (

@@ -1,10 +1,10 @@
-from app.domain import OtpChallenge
+from app.domain import OtpChallengeItem
 
 from ..models import OtpChallengeModel
 
 
-def to_domain(model: OtpChallengeModel) -> OtpChallenge:
-    return OtpChallenge(
+def to_domain(model: OtpChallengeModel) -> OtpChallengeItem:
+    return OtpChallengeItem(
         id=model.id,
         user_id=model.user_id,
         otp_digest=model.otp_digest,
@@ -16,7 +16,7 @@ def to_domain(model: OtpChallengeModel) -> OtpChallenge:
     )
 
 
-def to_model(entity: OtpChallenge) -> OtpChallengeModel:
+def to_model(entity: OtpChallengeItem) -> OtpChallengeModel:
     return OtpChallengeModel(
         id=entity.id,
         user_id=entity.user_id,

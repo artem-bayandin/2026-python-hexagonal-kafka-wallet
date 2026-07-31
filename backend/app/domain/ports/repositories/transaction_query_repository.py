@@ -1,15 +1,14 @@
 from typing import Protocol
 from uuid import UUID
 
-from ...read_models.pagination import PaginatedResult, PaginationParams
-from ...read_models.transaction_list_item import TransactionListItem
+from ...read_models import PaginatedResult, PaginationParams, TransactionListRow
 
 
 class TransactionQueryRepository(Protocol):
-    async def list_admin_page(
+    async def get_all_transactions_page(
         self, params: PaginationParams
-    ) -> PaginatedResult[TransactionListItem]: ...
+    ) -> PaginatedResult[TransactionListRow]: ...
 
-    async def list_user_page(
+    async def get_user_transactions_page(
         self, user_id: UUID, params: PaginationParams
-    ) -> PaginatedResult[TransactionListItem]: ...
+    ) -> PaginatedResult[TransactionListRow]: ...

@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
 
-from app.domain import AuthSession, AuthSessionCommandRepository
+from app.domain import AuthSessionItem, AuthSessionCommandRepository
 
 from ..mappers import auth_session_to_model
 from ..models import AuthSessionModel
@@ -16,7 +16,7 @@ class AuthSessionCommandRepositoryImpl(AuthSessionCommandRepository):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def add(self, session: AuthSession) -> None:
+    async def add(self, session: AuthSessionItem) -> None:
         self.session.add(auth_session_to_model(session))
 
     async def revoke(self, jti: UUID, revoked_at: datetime) -> bool:

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from ...entities import OtpChallenge
+from ...read_models import OtpChallengeItem
 from ...ports import (
     ClockService,
     OtpChallengeCommandRepository,
@@ -46,7 +46,7 @@ class RequestOtpHandler:
         now = self._clock_service.now()
         proposed_user_id = uuid4()
 
-        await self._user_cmd_repo.ensure_by_email(email, proposed_user_id, now)
+        await self._user_cmd_repo.create_by_email_if_not_exists(email, proposed_user_id, now)
         user = await self._user_cmd_repo.get_by_email_for_update(email)
         assert user is not None
 
@@ -55,7 +55,7 @@ class RequestOtpHandler:
         code = self._otp_service.generate_code()
         expires_at = now + timedelta(seconds=self._otp_ttl_seconds)
         await self._otp_challenge_cmd_repo.add(
-            OtpChallenge(
+            OtpChallengeItem(
                 id=uuid4(),
                 user_id=user.id,
                 otp_digest=self._otp_service.digest(email, code),

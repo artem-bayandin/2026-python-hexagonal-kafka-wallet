@@ -1,10 +1,10 @@
-from app.domain import AuthSession
+from app.domain import AuthSessionItem
 
 from ..models import AuthSessionModel
 
 
-def to_domain(model: AuthSessionModel) -> AuthSession:
-    return AuthSession(
+def to_domain(model: AuthSessionModel) -> AuthSessionItem:
+    return AuthSessionItem(
         jti=model.jti,
         user_id=model.user_id,
         expires_at=model.expires_at,
@@ -13,7 +13,7 @@ def to_domain(model: AuthSessionModel) -> AuthSession:
     )
 
 
-def to_model(entity: AuthSession) -> AuthSessionModel:
+def to_model(entity: AuthSessionItem) -> AuthSessionModel:
     return AuthSessionModel(
         jti=entity.jti,
         user_id=entity.user_id,

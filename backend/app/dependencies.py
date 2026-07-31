@@ -23,13 +23,13 @@ from app.domain import (
     AdminDepositHandler,
     CurrentUserProvider,
     ExchangeHandler,
-    GetAdminBalancesHandler,
-    GetCurrentUserHandler,
-    GetUserBalancesHandler,
-    ListAdminTransactionsHandler,
-    ListCurrenciesHandler,
-    ListUserTransactionsHandler,
-    ListUsersHandler,
+    AdminBalancesHandler,
+    CurrentUserHandler,
+    UserBalancesHandler,
+    AdminTransactionsHandler,
+    CurrenciesHandler,
+    UserTransactionsHandler,
+    UsersHandler,
     LogoutHandler,
     RequestOtpHandler,
     TransferHandler,
@@ -37,20 +37,42 @@ from app.domain import (
     WithdrawHandler,
 )
 
-# GetCurrentUser
+# # # # Region: routes.admin
+
+# AdminDeposit
 
 
-def build_get_current_user_handler(
+def build_admin_deposit_handler(
     session: AsyncSession,
-    settings: Settings,
-) -> GetCurrentUserHandler:
-    return GetCurrentUserHandler(
-        PyJwtTokenService(settings.jwt_secret),
-        SystemClock(),
-        AuthSessionQueryRepositoryImpl(session),
+) -> AdminDepositHandler:
+    return AdminDepositHandler(
         UserQueryRepositoryImpl(session),
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
     )
 
+
+# GetAdminBalances
+
+
+def build_get_admin_balances_handler(
+    session: AsyncSession,
+) -> AdminBalancesHandler:
+    return AdminBalancesHandler(AdminWalletQueryRepositoryImpl(session))
+
+
+# ListAdminTransactions
+
+
+def build_list_admin_transactions_handler(
+    session: AsyncSession,
+) -> AdminTransactionsHandler:
+    return AdminTransactionsHandler(TransactionQueryRepositoryImpl(session))
+
+
+# # # # Region: routes.auth
 
 # Logout
 
@@ -65,6 +87,17 @@ def build_logout_handler(
         SystemClock(),
     )
 
+
+# # # # Region: routes.currency
+
+# ListCurrencies
+
+
+def build_list_currencies_handler(session: AsyncSession) -> CurrenciesHandler:
+    return CurrenciesHandler(CurrencyQueryRepositoryImpl(session))
+
+
+# # # # Region: routes.otp
 
 # RequestOTP
 
@@ -103,51 +136,28 @@ def build_verify_otp_handler(
     )
 
 
-# ListCurrencies
+# # # # Region: routes.user
+
+# GetCurrentUser
 
 
-def build_list_currencies_handler(session: AsyncSession) -> ListCurrenciesHandler:
-    return ListCurrenciesHandler(CurrencyQueryRepositoryImpl(session))
+def build_get_current_user_handler(
+    session: AsyncSession,
+    settings: Settings,
+) -> CurrentUserHandler:
+    return CurrentUserHandler(
+        PyJwtTokenService(settings.jwt_secret),
+        SystemClock(),
+        AuthSessionQueryRepositoryImpl(session),
+        UserQueryRepositoryImpl(session),
+    )
 
 
 # ListUsers
 
 
-def build_list_users_handler(session: AsyncSession) -> ListUsersHandler:
-    return ListUsersHandler(UserQueryRepositoryImpl(session))
-
-
-# AdminDeposit
-
-
-def build_admin_deposit_handler(
-    session: AsyncSession,
-) -> AdminDepositHandler:
-    return AdminDepositHandler(
-        UserCommandRepositoryImpl(session),
-        CurrencyQueryRepositoryImpl(session),
-        UserWalletCommandRepositoryImpl(session),
-        TransactionCommandRepositoryImpl(session),
-        SystemClock(),
-    )
-
-
-# GetAdminBalances
-
-
-def build_get_admin_balances_handler(
-    session: AsyncSession,
-) -> GetAdminBalancesHandler:
-    return GetAdminBalancesHandler(AdminWalletQueryRepositoryImpl(session))
-
-
-# ListAdminTransactions
-
-
-def build_list_admin_transactions_handler(
-    session: AsyncSession,
-) -> ListAdminTransactionsHandler:
-    return ListAdminTransactionsHandler(TransactionQueryRepositoryImpl(session))
+def build_list_users_handler(session: AsyncSession) -> UsersHandler:
+    return UsersHandler(UserQueryRepositoryImpl(session))
 
 
 # GetUserBalances
@@ -156,8 +166,8 @@ def build_list_admin_transactions_handler(
 def build_get_user_balances_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> GetUserBalancesHandler:
-    return GetUserBalancesHandler(
+) -> UserBalancesHandler:
+    return UserBalancesHandler(
         current_user_provider,
         UserWalletQueryRepositoryImpl(session),
     )
@@ -169,12 +179,14 @@ def build_get_user_balances_handler(
 def build_list_user_transactions_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> ListUserTransactionsHandler:
-    return ListUserTransactionsHandler(
+) -> UserTransactionsHandler:
+    return UserTransactionsHandler(
         current_user_provider,
         TransactionQueryRepositoryImpl(session),
     )
 
+
+# # # # Region: routes.wallet
 
 # Exchange
 
@@ -218,7 +230,7 @@ def build_transfer_handler(
 ) -> TransferHandler:
     return TransferHandler(
         current_user_provider,
-        UserCommandRepositoryImpl(session),
+        UserQueryRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),

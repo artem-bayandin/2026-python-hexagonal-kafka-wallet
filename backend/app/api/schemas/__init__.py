@@ -1,31 +1,40 @@
+from .admin import AdminDepositRequest, AdminDepositResponse
 from .auth import (
     RequestOtpRequest,
     RequestOtpResponse,
     VerifyOtpRequest,
     VerifyOtpResponse,
 )
-from .data_list import DataList
 from .reference import CurrencyItemResponse, UserReferenceItemResponse
-from .admin import AdminDepositRequest, AdminDepositResponse
+from .shared import DataList, ErrorEnvelope
 from .wallet import (
     BalanceItemResponse,
     BalanceListResponse,
     TransactionItemResponse,
     TransactionListResponse,
+    ExchangeRequest,
+    WithdrawRequest,
+    TransferRequest,
+    WalletMutationResponse,
 )
 
 __all__ = [
+    "AdminDepositRequest",
+    "AdminDepositResponse",
     "RequestOtpRequest",
     "RequestOtpResponse",
     "VerifyOtpRequest",
     "VerifyOtpResponse",
-    "DataList",
     "CurrencyItemResponse",
     "UserReferenceItemResponse",
-    "AdminDepositRequest",
-    "AdminDepositResponse",
+    "DataList",
+    "ErrorEnvelope",
     "BalanceItemResponse",
     "BalanceListResponse",
     "TransactionItemResponse",
     "TransactionListResponse",
+    "ExchangeRequest",
+    "WithdrawRequest",
+    "TransferRequest",
+    "WalletMutationResponse",
 ]

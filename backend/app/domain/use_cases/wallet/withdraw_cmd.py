@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-from ...entities import Transaction
+from ...read_models import TransactionItem
 from ...error_codes import (
     INSUFFICIENT_FUNDS,
     INVALID_AMOUNT,
     INVALID_PRECISION,
     UNSUPPORTED_ASSET,
+    CREDIT_FAILED,
 )
 from ...ports import (
     ClockService,
@@ -51,7 +52,7 @@ class WithdrawHandler:
         self._clock_service = clock_service
 
     async def handle(self, command: WithdrawCommand) -> Result[WithdrawResult]:
-        currency = await self._currency_query_repo.get_by_label(command.asset_label.strip().upper())
+        currency = await self._currency_query_repo.get_by_label(command.asset_label.strip())
         if currency is None:
             return Result.failure(UNSUPPORTED_ASSET)
         try:
@@ -76,10 +77,13 @@ class WithdrawHandler:
         if not debited:
             return Result.failure(INSUFFICIENT_FUNDS)
 
-        await self._admin_wallets_repo.credit(currency.id, money.amount, now)
+        credited = await self._admin_wallets_repo.credit(currency.id, money.amount, now)
+        if not credited:
+            return Result.failure(CREDIT_FAILED)
+
         transaction_id = uuid4()
         await self._transactions_repo.add(
-            Transaction(
+            TransactionItem(
                 id=transaction_id,
                 type="withdrawal",
                 source_wallet_id=wallet.id,

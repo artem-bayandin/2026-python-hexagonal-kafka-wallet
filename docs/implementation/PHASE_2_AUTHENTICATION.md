@@ -43,7 +43,7 @@ A browser can request a development demo OTP, verify it, show **Authorized**, su
 - `app.api`, `app.auth`, `app.db`, and `app.domain` are regular packages with an `__init__.py` public façade.
 - **Cross-layer imports** use only the top-level façade of the target layer (for example, `from app.domain import Result`, `from app.db import UserRepositoryImpl`). Never import another layer's nested modules (for example, `app.domain.entities.user`, `app.db.models.user`).
 - **Same-layer imports** use relative paths through subpackage façades in every layer — not absolute same-layer paths such as `app.db.models.user` or `app.api.schemas.auth`. Examples: domain handlers use `from ...entities import User` and `from ..ports import ClockService`; db repositories use `from ..models import UserModel` and `from ..mappers import user_to_domain`; api routers use `from ..schemas import RequestOtpRequest`; auth's package `__init__.py` uses `from .otp_service import HmacOtpService`. Re-export shared symbols from each subpackage's `__init__.py` (`entities/`, `ports/`, `use_cases/`, `models/`, `mappers/`, `repositories/`, `routers/`, `schemas/`, and so on) so callers import the façade, not the leaf module.
-- Every command and query handler returns the immutable generic `Result[T]` from `app.domain` (PEP 695 class syntax; classmethod factories return `Self`). When a handler carries a success payload, name that dataclass `…Result` (for example `VerifyOtpResult`, `RequestOtpResult`) — not `…Data`. Two deliberate exceptions: queries may return an existing domain value directly (for example `GetCurrentUserHandler.handle(...) -> Result[CurrentUser]`), and side-effect-only commands may use `Result[None]` (for example logout).
+- Every command and query handler returns the immutable generic `Result[T]` from `app.domain` (classmethod factories return `Self`). When a handler carries a success payload, name that dataclass `…Result` (for example `VerifyOtpResult`, `RequestOtpResult`) — not `…Data`. Two deliberate exceptions: queries may return an existing domain value directly (for example `CurrentUserHandler.handle(...) -> Result[CurrentUser]`), and side-effect-only commands may use `Result[None]` (for example logout).
 - `CurrentUser` is an immutable domain value; `CurrentUserProvider` is a domain port implemented by the API with request-scoped state.
 - Domain ports are split by responsibility and main entity: `ports/services/<service>.py` for services and `ports/repositories/<entity>_repository.py` for repositories.
 - SQLAlchemy repositories live under `backend/app/db/repositories/<entity>_repository.py` and structurally implement their matching domain ports. Concrete classes use the `*Impl` suffix (for example `UserRepositoryImpl`) so they do not collide with domain Protocol names when re-exported from `app.db`.
@@ -141,7 +141,7 @@ backend/
             │   ├── request_otp_cmd.py
             │   └── verify_otp_cmd.py
             └── user/
-                └── get_current_user_query.py
+                └── current_user_query.py
 ```
 
 ### Shared transaction target
@@ -302,7 +302,7 @@ from ...entities import User
 
 
 class UserRepository(Protocol):
-    async def ensure_by_email(
+    async def create_by_email_if_not_exists(
         self, email: str, user_id: UUID, created_at: datetime
     ) -> None: ...
 
@@ -380,7 +380,7 @@ class RequestOtpHandler:
         now = self._clock_service.now()
         proposed_user_id = uuid4()
 
-        await self._users_repo.ensure_by_email(email, proposed_user_id, now)
+        await self._users_repo.create_by_email_if_not_exists(email, proposed_user_id, now)
         user = await self._users_repo.get_by_email_for_update(email)
         assert user is not None
 
@@ -604,7 +604,7 @@ Create `User` and `OtpChallenge` domain/ORM mappers in `backend/app/db/mappers/u
 
 Implement `backend/app/db/repositories/user_repository.py`. Same-layer imports use subpackage façades (`from ..models import UserModel`, `from ..mappers import user_to_domain`, `from ..session import AsyncSession`); domain ports and entities come from `app.domain`:
 
-1. `ensure_by_email` executes `INSERT INTO users (id, email, created_at) VALUES (:id, :email, :created_at) ON CONFLICT (email) DO NOTHING`.
+1. `create_by_email_if_not_exists` executes `INSERT INTO users (id, email, created_at) VALUES (:id, :email, :created_at) ON CONFLICT (email) DO NOTHING`.
 2. `get_by_email_for_update` selects the complete `UserModel` where `email = :email` and applies `FOR UPDATE`.
 3. The insert and select run in the same transaction. If another request is creating the same email, PostgreSQL waits for that insert to resolve; the subsequent row lock serializes challenge changes for that user.
 
@@ -796,7 +796,7 @@ def error_response(
     )
 
 
-async def handle_validation_error(_: Request, error: Exception) -> JSONResponse:
+async def handle_api_validation_error(_: Request, error: Exception) -> JSONResponse:
     if not isinstance(error, RequestValidationError):
         raise error
     return error_response(
@@ -807,7 +807,7 @@ async def handle_validation_error(_: Request, error: Exception) -> JSONResponse:
     )
 
 
-async def handle_api_result_error(_: Request, error: Exception) -> JSONResponse:
+async def handle_domain_result_error(_: Request, error: Exception) -> JSONResponse:
     if not isinstance(error, ApiResultError):
         raise error
     mapped = ERROR_RESPONSES.get(error.error_code)
@@ -865,7 +865,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post(
     "/otp/request",
     status_code=status.HTTP_201_CREATED,
-    response_model=RequestOtpResponse,
     response_model_exclude_none=True,
 )
 async def request_otp(
@@ -894,9 +893,9 @@ At the end of this API section, complete `backend/app/api/__init__.py`:
 
 ```python
 from .exception_handlers import (
-    handle_api_result_error,
+    handle_domain_result_error,
     handle_uncaught_exception,
-    handle_validation_error,
+    handle_api_validation_error,
 )
 from .result_mapping import ApiResultError
 from .routers import auth_router
@@ -904,9 +903,9 @@ from .routers import auth_router
 __all__ = [
     "auth_router",
     "ApiResultError",
-    "handle_api_result_error",
+    "handle_domain_result_error",
     "handle_uncaught_exception",
-    "handle_validation_error",
+    "handle_api_validation_error",
 ]
 ```
 
@@ -914,7 +913,7 @@ Only after the API façade, router, and handlers exist, update `backend/app/main
 
 - create the async engine with `create_async_engine`, pass it to `build_session_factory`, store settings and the session factory on `app.state`, and dispose the engine during lifespan shutdown;
 - register `auth_router` and `health_router` from `app.api`;
-- register `handle_validation_error`, `handle_api_result_error` (for `ApiResultError`), and `handle_uncaught_exception` for their respective exception types;
+- register `handle_api_validation_error`, `handle_domain_result_error` (for `ApiResultError`), and `handle_uncaught_exception` for their respective exception types;
 - configure CORS by splitting `settings.cors_allowed_origins` on commas, trimming whitespace, and discarding empty origins;
 - preserve the app's `/health/ready` probe and `/health/live` route.
 
@@ -1318,7 +1317,6 @@ from app.domain import VerifyOtpCommand
 @router.post(
     "/otp/verify",
     status_code=status.HTTP_200_OK,
-    response_model=VerifyOtpResponse,
 )
 async def verify_otp(
     payload: VerifyOtpRequest,
@@ -1421,10 +1419,10 @@ Alter `backend/app/domain/ports/repositories/user_repository.py`:
 async def get_by_id(self, user_id: UUID) -> User | None: ...
 ```
 
-Create `GetCurrentUserQuery(token: str)` and `GetCurrentUserHandler` in `backend/app/domain/use_cases/user/get_current_user_query.py`. The handler returns `Result[CurrentUser]` — the existing domain value, not a separate `GetCurrentUserResult` wrapper. It depends only on `token_service`, `clock_service`, `auth_sessions_repo`, and `users_repo`, typed against the matching domain ports:
+Create `CurrentUserQuery(token: str)` and `CurrentUserHandler` in `backend/app/domain/use_cases/user/current_user_query.py`. The handler returns `Result[CurrentUser]` — the existing domain value, not a separate `GetCurrentUserResult` wrapper. It depends only on `token_service`, `clock_service`, `auth_sessions_repo`, and `users_repo`, typed against the matching domain ports:
 
 ```python
-async def handle(self, query: GetCurrentUserQuery) -> Result[CurrentUser]:
+async def handle(self, query: CurrentUserQuery) -> Result[CurrentUser]:
     claims_result = self._token_service.decode(query.token)
     if not claims_result.is_success:
         return Result.failure(
@@ -1466,13 +1464,13 @@ At the end of this Domain section, alter `backend/app/domain/__init__.py`:
 ```python
 from .current_user import CurrentUser
 from .ports import CurrentUserProvider
-from .use_cases import GetCurrentUserHandler, GetCurrentUserQuery
+from .use_cases import CurrentUserHandler, CurrentUserQuery
 
 __all__ += [
     "CurrentUser",
     "CurrentUserProvider",
-    "GetCurrentUserHandler",
-    "GetCurrentUserQuery",
+    "CurrentUserHandler",
+    "CurrentUserQuery",
 ]
 ```
 
@@ -1523,7 +1521,7 @@ It structurally implements the domain `CurrentUserProvider.get() -> CurrentUser`
 
 Create one provider instance in application composition and reuse that instance for request binding and handler injection. The stored value is task-local request context, not a process-global mutable user.
 
-In `backend/app/dependencies.py`, add `build_get_current_user_handler(session, settings)` that wires `PyJwtTokenService`, `SystemClock`, `AuthSessionRepositoryImpl`, `UserRepositoryImpl`, and `GetCurrentUserHandler`.
+In `backend/app/dependencies.py`, add `build_get_current_user_handler(session, settings)` that wires `PyJwtTokenService`, `SystemClock`, `AuthSessionRepositoryImpl`, `UserRepositoryImpl`, and `CurrentUserHandler`.
 
 In `backend/app/api/dependencies.py`, add:
 
@@ -1553,7 +1551,7 @@ async def bind_current_user(
         unwrap_result(Result.failure(AUTHENTICATION_FAILED))
     assert credentials is not None
     result = await executor(
-        GetCurrentUserQuery(token=credentials.credentials)
+        CurrentUserQuery(token=credentials.credentials)
     )
     current_user = unwrap_result(result)
     token = provider.bind(current_user)

@@ -105,8 +105,8 @@ backend/
     ├── dependencies.py              # extend with user-wallet handler builders
     ├── main.py                      # register wallet router
     ├── api/
-    │   ├── dependencies.py          # bind_current_user; user-wallet executors; require_reference_auth fix (Slice 6)
-    │   ├── formatting.py            # reuse format_amount
+    │   ├── dependencies.py          # bind_current_user; user-wallet executors; require_admin_or_user_auth fix (Slice 6)
+    │   ├── formatting.py            # reuse format_asset_amount_wtih_precision
     │   ├── exception_handlers.py    # map INSUFFICIENT_FUNDS → 409 (Slice 3)
     │   ├── routers/
     │   │   └── wallet.py            # new — /me/* routes
@@ -117,7 +117,7 @@ backend/
     │       ├── user_wallet_query_repository.py      # new (Slice 1)
     │       ├── user_wallet_command_repository.py    # extend: debit, lock ordered (Slice 3)
     │       ├── admin_wallet_command_repository.py   # new (Slice 4)
-        │       └── transaction_query_repository.py      # extend: list_user_page (Slice 2); currency joins (Slice 6)
+        │       └── transaction_query_repository.py      # extend: get_user_transactions_page (Slice 2); currency joins (Slice 6)
     └── domain/
         ├── ports/repositories/
         │   ├── user_wallet_query_repository.py      # new
@@ -126,7 +126,7 @@ backend/
         │   └── transaction_query_repository.py      # extend
         └── use_cases/
             └── wallet/
-                ├── get_user_balances_query.py
+                ├── user_balances_query.py
                 ├── list_user_transactions_query.py
                 ├── exchange_cmd.py
                 ├── withdraw_cmd.py
@@ -174,8 +174,8 @@ WHERE t.source_wallet_id IN (SELECT id FROM user_wallet_ids)
 ORDER BY t.created_at DESC, t.id DESC;
 ```
 
-- **Reference reuse:** exchange/transfer UI loads currencies and users from Phase 4 `GET /reference/*` with the user's Bearer token (already accepted by `require_reference_auth`).
-- **Shared response DTOs:** reuse `BalanceItemResponse`, `BalanceListResponse`, `TransactionItemResponse`, `TransactionListResponse` from `api/schemas/wallet.py` and `format_amount` from `api/formatting.py`. From Slice 6 onward, `TransactionItemResponse` includes `source_asset`, `dest_asset`, and formatted `amount` (see Slice 6).
+- **Reference reuse:** exchange/transfer UI loads currencies and users from Phase 4 `GET /reference/*` with the user's Bearer token (already accepted by `require_admin_or_user_auth`).
+- **Shared response DTOs:** reuse `BalanceItemResponse`, `BalanceListResponse`, `TransactionItemResponse`, `TransactionListResponse` from `api/schemas/wallet.py` and `format_asset_amount_wtih_precision` from `api/formatting.py`. From Slice 6 onward, `TransactionItemResponse` includes `source_asset`, `dest_asset`, and formatted `amount` (see Slice 6).
 
 ### Error codes introduced incrementally
 
@@ -209,12 +209,12 @@ from ...read_models.balance_item import BalanceItem
 
 
 class UserWalletQueryRepository(Protocol):
-    async def list_balances_for_user(self, user_id: UUID) -> list[BalanceItem]: ...
+    async def get_user_balances(self, user_id: UUID) -> list[BalanceItem]: ...
 ```
 
 Return one `BalanceItem` per catalog currency (ordered by `label` asc). If the user has no `user_wallets` row for a currency, `available` is `Decimal("0")`.
 
-Create `backend/app/domain/use_cases/wallet/get_user_balances_query.py`:
+Create `backend/app/domain/use_cases/user/user_balances_query.py`:
 
 ```python
 from dataclasses import dataclass
@@ -226,11 +226,11 @@ from ...result import Result
 
 
 @dataclass(frozen=True, slots=True)
-class GetUserBalancesQuery:
+class UserBalancesQuery:
     pass
 
 
-class GetUserBalancesHandler:
+class UserBalancesHandler:
     def __init__(
         self,
         current_user_provider: CurrentUserProvider,
@@ -239,9 +239,9 @@ class GetUserBalancesHandler:
         self._current_user_provider = current_user_provider
         self._user_wallet_query_repo = user_wallet_query_repo
 
-    async def handle(self, _: GetUserBalancesQuery) -> Result[list[BalanceItem]]:
+    async def handle(self, _: UserBalancesQuery) -> Result[list[BalanceItem]]:
         user = self._current_user_provider.get()
-        items = await self._user_wallet_query_repo.list_balances_for_user(user.id)
+        items = await self._user_wallet_query_repo.get_user_balances(user.id)
         return Result.success(items)
 ```
 
@@ -249,7 +249,7 @@ Create `backend/app/domain/use_cases/wallet/__init__.py` re-exporting the query 
 
 #### Package façade update
 
-Export `UserWalletQueryRepository`, `GetUserBalancesHandler`, and `GetUserBalancesQuery` from `domain/ports/__init__.py` / `domain/use_cases/__init__.py` / `domain/__init__.py` as appropriate (match Phase 4 façade style).
+Export `UserWalletQueryRepository`, `UserBalancesHandler`, and `UserBalancesQuery` from `domain/ports/__init__.py` / `domain/use_cases/__init__.py` / `domain/__init__.py` as appropriate (match Phase 4 façade style).
 
 ### DB
 
@@ -271,7 +271,7 @@ class UserWalletQueryRepositoryImpl(UserWalletQueryRepository):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def list_balances_for_user(self, user_id: UUID) -> list[BalanceItem]:
+    async def get_user_balances(self, user_id: UUID) -> list[BalanceItem]:
         stmt = (
             select(CurrencyModel.label, UserWalletModel.amount)
             .select_from(CurrencyModel)
@@ -298,8 +298,8 @@ In `backend/app/dependencies.py`, add:
 def build_get_user_balances_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> GetUserBalancesHandler:
-    return GetUserBalancesHandler(
+) -> UserBalancesHandler:
+    return UserBalancesHandler(
         current_user_provider,
         UserWalletQueryRepositoryImpl(session),
     )
@@ -318,7 +318,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.domain import GetUserBalancesQuery, ListCurrenciesQuery
+from app.domain import UserBalancesQuery, CurrenciesQuery
 
 from ..dependencies import (
     GetUserBalancesExecutor,
@@ -327,7 +327,7 @@ from ..dependencies import (
     get_get_user_balances_executor,
     get_list_currencies_executor,
 )
-from ..formatting import format_amount
+from ..formatting import format_asset_amount_wtih_precision
 from ..result_mapping import unwrap_result
 from ..schemas.wallet import BalanceItemResponse, BalanceListResponse
 
@@ -346,14 +346,14 @@ async def get_user_balances(
         ListCurrenciesExecutor, Depends(get_list_currencies_executor)
     ],
 ) -> BalanceListResponse:
-    items = unwrap_result(await balances_executor(GetUserBalancesQuery()))
-    currencies = unwrap_result(await currencies_executor(ListCurrenciesQuery()))
+    items = unwrap_result(await balances_executor(UserBalancesQuery()))
+    currencies = unwrap_result(await currencies_executor(CurrenciesQuery()))
     precision_by_label = {item.label: item.precision for item in currencies}
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_amount(
+                available=format_asset_amount_wtih_precision(
                     item.available, item.asset, precision_by_label
                 ),
             )
@@ -443,11 +443,11 @@ from ...read_models.transaction_list_item import TransactionListItem
 
 
 class TransactionQueryRepository(Protocol):
-    async def list_admin_page(
+    async def get_all_transactions_page(
         self, params: PaginationParams
     ) -> PaginatedResult[TransactionListItem]: ...
 
-    async def list_user_page(
+    async def get_user_transactions_page(
         self, user_id: UUID, params: PaginationParams
     ) -> PaginatedResult[TransactionListItem]: ...
 ```
@@ -467,11 +467,11 @@ from ...result import Result
 
 
 @dataclass(frozen=True, slots=True)
-class ListUserTransactionsQuery:
+class UserTransactionsQuery:
     params: PaginationParams
 
 
-class ListUserTransactionsHandler:
+class UserTransactionsHandler:
     def __init__(
         self,
         current_user_provider: CurrentUserProvider,
@@ -481,10 +481,10 @@ class ListUserTransactionsHandler:
         self._transaction_query_repo = transaction_query_repo
 
     async def handle(
-        self, query: ListUserTransactionsQuery
+        self, query: UserTransactionsQuery
     ) -> Result[PaginatedResult[TransactionListItem]]:
         user = self._current_user_provider.get()
-        page = await self._transaction_query_repo.list_user_page(
+        page = await self._transaction_query_repo.get_user_transactions_page(
             user.id, query.params
         )
         return Result.success(page)
@@ -492,14 +492,14 @@ class ListUserTransactionsHandler:
 
 #### Package façade update
 
-Export `ListUserTransactionsHandler` and `ListUserTransactionsQuery` from domain façades.
+Export `UserTransactionsHandler` and `UserTransactionsQuery` from domain façades.
 
 ### DB
 
-Extend `TransactionQueryRepositoryImpl` with `list_user_page` using the Phase 3 ownership filter. Prefer a SQLAlchemy formulation equivalent to the CTE (subquery of the user's wallet ids, then `source_wallet_id IN (…) OR dest_wallet_id IN (…)`). Apply the same `ORDER BY created_at DESC, id DESC`, offset/limit, and `total_items` count as `list_admin_page`.
+Extend `TransactionQueryRepositoryImpl` with `get_user_transactions_page` using the Phase 3 ownership filter. Prefer a SQLAlchemy formulation equivalent to the CTE (subquery of the user's wallet ids, then `source_wallet_id IN (…) OR dest_wallet_id IN (…)`). Apply the same `ORDER BY created_at DESC, id DESC`, offset/limit, and `total_items` count as `get_all_transactions_page`.
 
 ```python
-async def list_user_page(
+async def get_user_transactions_page(
     self, user_id: UUID, params: PaginationParams
 ) -> PaginatedResult[TransactionListItem]:
     offset = params.page_number * params.page_size
@@ -551,7 +551,7 @@ async def list_user_transactions(
 ) -> TransactionListResponse:
     page = unwrap_result(
         await executor(
-            ListUserTransactionsQuery(
+            UserTransactionsQuery(
                 PaginationParams(page_number=page_number, page_size=page_size)
             )
         )
@@ -1310,7 +1310,7 @@ Update `backend/app/db/mappers/transaction.py` — `transaction_to_list_item` ac
 Extend `TransactionQueryRepositoryImpl` (`backend/app/db/repositories/transaction_query_repository.py`):
 
 - Add `_list_item_select()` with `OUTER JOIN` on source/dest `user_wallets` and `currencies` (aliased) so each row carries currency labels.
-- Use the enriched select in both `list_admin_page` and `list_user_page` (user filter unchanged).
+- Use the enriched select in both `get_all_transactions_page` and `get_user_transactions_page` (user filter unchanged).
 
 No new repository ports; only mapper and existing query impl changes.
 
@@ -1332,11 +1332,11 @@ class TransactionItemResponse(BaseModel):
 In both `api/routers/wallet.py` (`list_user_transactions`) and `api/routers/admin.py` (`list_admin_transactions`):
 
 - Inject `ListCurrenciesExecutor` alongside the transaction executor.
-- Build `precision_by_label` from `ListCurrenciesQuery`.
-- Map each item with `format_amount(item.amount, amount_precision_asset(item.source_asset, item.dest_asset), precision_by_label)` (`amount_precision_asset` in `api/formatting.py` prefers source label, else dest).
+- Build `precision_by_label` from `CurrenciesQuery`.
+- Map each item with `format_asset_amount_wtih_precision(item.amount, map_not_null_asset_label(item.source_asset, item.dest_asset), precision_by_label)` (`map_not_null_asset_label` in `api/formatting.py` prefers source label, else dest).
 - Keep uppercase `type` / `status`. Response exposes raw `source_asset` / `dest_asset`; combined labels are a UI concern.
 
-**Reference auth fix (required for wallet page):** In `api/dependencies.py`, `require_reference_auth` must declare `credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]` **without** `= None` as the parameter default (FastAPI otherwise skips dependency injection and Bearer JWT is ignored → `401` on `/reference/*` from the wallet UI). Place `credentials` before optional `x_admin_key` to satisfy Python parameter ordering. This function is shared with Phase 4 reference routes; the fix applies to both admin-key and Bearer callers.
+**Reference auth fix (required for wallet page):** In `api/dependencies.py`, `require_admin_or_user_auth` must declare `credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]` **without** `= None` as the parameter default (FastAPI otherwise skips dependency injection and Bearer JWT is ignored → `401` on `/reference/*` from the wallet UI). Place `credentials` before optional `x_admin_key` to satisfy Python parameter ordering. This function is shared with Phase 4 reference routes; the fix applies to both admin-key and Bearer callers.
 
 ### UI
 

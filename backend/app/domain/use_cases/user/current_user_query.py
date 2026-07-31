@@ -12,11 +12,11 @@ from ...result import Result
 
 
 @dataclass(frozen=True, slots=True)
-class GetCurrentUserQuery:
+class CurrentUserQuery:
     token: str
 
 
-class GetCurrentUserHandler:
+class CurrentUserHandler:
     def __init__(
         self,
         token_service: TokenService,
@@ -29,7 +29,7 @@ class GetCurrentUserHandler:
         self._auth_session_query_repo = auth_session_query_repo
         self._user_query_repo = user_query_repo
 
-    async def handle(self, query: GetCurrentUserQuery) -> Result[CurrentUser]:
+    async def handle(self, query: CurrentUserQuery) -> Result[CurrentUser]:
         claims_result = self._token_service.decode(query.token)
         if not claims_result.is_success:
             return Result.failure(

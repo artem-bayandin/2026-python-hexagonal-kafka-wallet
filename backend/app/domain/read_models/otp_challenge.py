@@ -4,7 +4,7 @@ from uuid import UUID
 
 
 @dataclass(frozen=True, slots=True)
-class OtpChallenge:
+class OtpChallengeItem:
     id: UUID
     user_id: UUID
     otp_digest: str

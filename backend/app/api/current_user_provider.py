@@ -18,3 +18,10 @@ class ContextVarCurrentUserProvider:
             return self._current_user.get()
         except LookupError as error:
             raise RuntimeError("No current user is bound.") from error
+
+
+_current_user_provider = ContextVarCurrentUserProvider()
+
+
+def get_current_user_provider() -> ContextVarCurrentUserProvider:
+    return _current_user_provider

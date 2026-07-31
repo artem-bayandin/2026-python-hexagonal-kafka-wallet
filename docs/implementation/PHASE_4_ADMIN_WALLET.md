@@ -95,8 +95,8 @@ backend/
     ├── dependencies.py              # extend with wallet handler builders
     ├── main.py                      # register reference + admin routers
     ├── api/
-    │   ├── dependencies.py          # require_reference_auth, require_admin_key, executors
-    │   ├── formatting.py            # format_amount helper (Slice 3)
+    │   ├── dependencies.py          # require_admin_or_user_auth, require_admin_key, executors
+    │   ├── formatting.py            # format_asset_amount_wtih_precision helper (Slice 3)
     │   ├── exception_handlers.py    # extend ERROR_RESPONSES with wallet codes
     │   ├── routers/
     │   │   ├── reference.py         # Slice 1a/1b
@@ -143,11 +143,11 @@ backend/
         │   ├── transaction_query_repository.py
         │   └── admin_wallet_query_repository.py
         └── use_cases/
-            ├── currency/list_currencies_query.py
-            ├── user/list_users_query.py
+            ├── currency/currencies_query.py
+            ├── user/users_query.py
             ├── admin/admin_deposit_cmd.py
-            ├── admin/get_admin_balances_query.py
-            └── transaction/list_admin_transactions_query.py
+            ├── admin/admin_balances_query.py
+            └── admin/admin_transactions_query.py
 
 frontend/src/
 ├── types/admin.ts
@@ -158,7 +158,7 @@ frontend/src/
 ### Cross-cutting rules
 
 - **Command vs query ports:** command repositories lock and mutate; query repositories project read models only. Concrete classes use the `*Impl` suffix and live under `app/db/repositories/`.
-- **Reference auth:** `GET /reference/*` succeeds when either `X-Admin-Key` matches `settings.admin_api_key` (timing-safe compare) **or** the Bearer JWT passes the existing `GetCurrentUserHandler` path.
+- **Reference auth:** `GET /reference/*` succeeds when either `X-Admin-Key` matches `settings.admin_api_key` (timing-safe compare) **or** the Bearer JWT passes the existing `CurrentUserHandler` path.
 - **Admin auth:** `POST` and `GET /admin/*` require a valid `X-Admin-Key` only. No user JWT.
 - **Deposit semantics:** mint from admin/system (`source_wallet_id = NULL`), credit user wallet, insert one `completed` deposit row; **do not debit** `admin_wallets`.
 - **Concurrency:** deposit locks the target user wallet with `SELECT … FOR UPDATE` before credit (future-proofs Phase 5).
@@ -217,10 +217,10 @@ from ...read_models import CurrencyCatalogItem
 
 
 class CurrencyQueryRepository(Protocol):
-    async def list_all_ordered_by_label(self) -> list[CurrencyCatalogItem]: ...
+    async def get_all_ordered_by_label(self) -> list[CurrencyCatalogItem]: ...
 ```
 
-Create `ListCurrenciesQuery` (empty dataclass) and `ListCurrenciesHandler` in `backend/app/domain/use_cases/currency/list_currencies_query.py`:
+Create `CurrenciesQuery` (empty dataclass) and `CurrenciesHandler` in `backend/app/domain/use_cases/currency/currencies_query.py`:
 
 ```python
 from dataclasses import dataclass
@@ -231,18 +231,18 @@ from ...result import Result
 
 
 @dataclass(frozen=True, slots=True)
-class ListCurrenciesQuery:
+class CurrenciesQuery:
     pass
 
 
-class ListCurrenciesHandler:
+class CurrenciesHandler:
     def __init__(self, currency_query_repo: CurrencyQueryRepository) -> None:
         self._currency_query_repo = currency_query_repo
 
     async def handle(
-        self, _: ListCurrenciesQuery
+        self, _: CurrenciesQuery
     ) -> Result[list[CurrencyCatalogItem]]:
-        items = await self._currency_query_repo.list_all_ordered_by_label()
+        items = await self._currency_query_repo.get_all_ordered_by_label()
         return Result.success(items)
 ```
 
@@ -255,13 +255,13 @@ At the end of this Domain section, alter `backend/app/domain/__init__.py`:
 ```python
 from .read_models import CurrencyCatalogItem
 from .ports import CurrencyQueryRepository
-from .use_cases import ListCurrenciesHandler, ListCurrenciesQuery
+from .use_cases import CurrenciesHandler, CurrenciesQuery
 
 __all__ += [
     "CurrencyCatalogItem",
     "CurrencyQueryRepository",
-    "ListCurrenciesHandler",
-    "ListCurrenciesQuery",
+    "CurrenciesHandler",
+    "CurrenciesQuery",
 ]
 ```
 
@@ -304,7 +304,7 @@ class CurrencyQueryRepositoryImpl(CurrencyQueryRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_all_ordered_by_label(self) -> list[CurrencyCatalogItem]:
+    async def get_all_ordered_by_label(self) -> list[CurrencyCatalogItem]:
         stmt = select(CurrencyModel).order_by(CurrencyModel.label.asc())
         result = await self._session.execute(stmt)
         return [currency_to_catalog_item(row) for row in result.scalars().all()]
@@ -313,8 +313,8 @@ class CurrencyQueryRepositoryImpl(CurrencyQueryRepository):
 In `backend/app/dependencies.py`, add:
 
 ```python
-def build_list_currencies_handler(session: AsyncSession) -> ListCurrenciesHandler:
-    return ListCurrenciesHandler(CurrencyQueryRepositoryImpl(session))
+def build_list_currencies_handler(session: AsyncSession) -> CurrenciesHandler:
+    return CurrenciesHandler(CurrencyQueryRepositoryImpl(session))
 ```
 
 Re-export `CurrencyQueryRepositoryImpl` from `app/db/__init__.py`.
@@ -353,12 +353,12 @@ from typing import Annotated
 from fastapi import Header, Request
 
 from app.dependencies import build_get_current_user_handler
-from app.domain import AUTHENTICATION_FAILED, GetCurrentUserQuery, Result
+from app.domain import AUTHENTICATION_FAILED, CurrentUserQuery, Result
 
 ADMIN_KEY_HEADER = "X-Admin-Key"
 
 
-async def require_reference_auth(
+async def require_admin_or_user_auth(
     request: Request,
     x_admin_key: Annotated[str | None, Header(alias=ADMIN_KEY_HEADER)] = None,
     credentials: Annotated[
@@ -373,7 +373,7 @@ async def require_reference_auth(
         async with request.app.state.session_factory() as session:
             handler = build_get_current_user_handler(session, settings)
             result = await handler.handle(
-                GetCurrentUserQuery(token=credentials.credentials)
+                CurrentUserQuery(token=credentials.credentials)
             )
             if result.is_success:
                 return
@@ -386,12 +386,12 @@ Add read executor and route wiring:
 
 ```python
 ListCurrenciesExecutor = Callable[
-    [ListCurrenciesQuery], Awaitable[Result[list[CurrencyCatalogItem]]]
+    [CurrenciesQuery], Awaitable[Result[list[CurrencyCatalogItem]]]
 ]
 
 
 def get_list_currencies_executor(request: Request) -> ListCurrenciesExecutor:
-    async def execute(query: ListCurrenciesQuery) -> Result[list[CurrencyCatalogItem]]:
+    async def execute(query: CurrenciesQuery) -> Result[list[CurrencyCatalogItem]]:
         async with request.app.state.session_factory() as session:
             handler = build_list_currencies_handler(session)
             return await handler.handle(query)
@@ -406,9 +406,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.domain import ListCurrenciesQuery
+from app.domain import CurrenciesQuery
 
-from ..dependencies import ListCurrenciesExecutor, get_list_currencies_executor, require_reference_auth
+from ..dependencies import ListCurrenciesExecutor, get_list_currencies_executor, require_admin_or_user_auth
 from ..result_mapping import unwrap_result
 from ..schemas import CurrencyItemResponse, DataList
 
@@ -417,14 +417,14 @@ router = APIRouter(prefix="/reference", tags=["reference"])
 
 @router.get(
     "/currencies",
-    dependencies=[Depends(require_reference_auth)],
+    dependencies=[Depends(require_admin_or_user_auth)],
 )
 async def list_currencies(
     executor: Annotated[
         ListCurrenciesExecutor, Depends(get_list_currencies_executor)
     ],
 ) -> DataList[CurrencyItemResponse]:
-    items = unwrap_result(await executor(ListCurrenciesQuery()))
+    items = unwrap_result(await executor(CurrenciesQuery()))
     return DataList(
         items=[
             CurrencyItemResponse(
@@ -557,10 +557,10 @@ from ...read_models import UserReferenceItem
 
 
 class UserQueryRepository(Protocol):
-    async def list_all_ordered_by_email(self) -> list[UserReferenceItem]: ...
+    async def get_all_ordered_by_email(self) -> list[UserReferenceItem]: ...
 ```
 
-Create `ListUsersQuery` and `ListUsersHandler` in `backend/app/domain/use_cases/user/list_users_query.py`:
+Create `UsersQuery` and `UsersHandler` in `backend/app/domain/use_cases/user/users_query.py`:
 
 ```python
 from dataclasses import dataclass
@@ -571,16 +571,16 @@ from ...result import Result
 
 
 @dataclass(frozen=True, slots=True)
-class ListUsersQuery:
+class UsersQuery:
     pass
 
 
-class ListUsersHandler:
+class UsersHandler:
     def __init__(self, user_query_repo: UserQueryRepository) -> None:
         self._user_query_repo = user_query_repo
 
-    async def handle(self, _: ListUsersQuery) -> Result[list[UserReferenceItem]]:
-        items = await self._user_query_repo.list_all_ordered_by_email()
+    async def handle(self, _: UsersQuery) -> Result[list[UserReferenceItem]]:
+        items = await self._user_query_repo.get_all_ordered_by_email()
         return Result.success(items)
 ```
 
@@ -593,13 +593,13 @@ At the end of this Domain section, alter `backend/app/domain/__init__.py`:
 ```python
 from .read_models import UserReferenceItem
 from .ports import UserQueryRepository
-from .use_cases import ListUsersHandler, ListUsersQuery
+from .use_cases import UsersHandler, UsersQuery
 
 __all__ += [
     "UserReferenceItem",
     "UserQueryRepository",
-    "ListUsersHandler",
-    "ListUsersQuery",
+    "UsersHandler",
+    "UsersQuery",
 ]
 ```
 
@@ -620,7 +620,7 @@ class UserQueryRepositoryImpl(UserQueryRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_all_ordered_by_email(self) -> list[UserReferenceItem]:
+    async def get_all_ordered_by_email(self) -> list[UserReferenceItem]:
         stmt = select(UserModel.id, UserModel.email).order_by(UserModel.email.asc())
         result = await self._session.execute(stmt)
         return [
@@ -632,8 +632,8 @@ class UserQueryRepositoryImpl(UserQueryRepository):
 In `backend/app/dependencies.py`, add:
 
 ```python
-def build_list_users_handler(session: AsyncSession) -> ListUsersHandler:
-    return ListUsersHandler(UserQueryRepositoryImpl(session))
+def build_list_users_handler(session: AsyncSession) -> UsersHandler:
+    return UsersHandler(UserQueryRepositoryImpl(session))
 ```
 
 ### API
@@ -656,12 +656,12 @@ Add executor and route to `backend/app/api/routers/reference.py`:
 ```python
 @router.get(
     "/users",
-    dependencies=[Depends(require_reference_auth)],
+    dependencies=[Depends(require_admin_or_user_auth)],
 )
 async def list_users(
     executor: Annotated[ListUsersExecutor, Depends(get_list_users_executor)],
 ) -> DataList[UserReferenceItemResponse]:
-    items = unwrap_result(await executor(ListUsersQuery()))
+    items = unwrap_result(await executor(UsersQuery()))
     return DataList(
         items=[
             UserReferenceItemResponse(user_id=item.user_id, email=item.email)
@@ -782,7 +782,7 @@ class UserWallet:
     updated_at: datetime
 ```
 
-Extend command `UserCommandRepository` in `backend/app/domain/ports/repositories/user_command_repository.py`:
+Extend command `UserQueryRepository` in `backend/app/domain/ports/repositories/user_query_repository.py`:
 
 ```python
 async def get_by_normalized_email(self, email: str) -> User | None: ...
@@ -1119,31 +1119,31 @@ class BalanceItem:
     available: Decimal
 ```
 
-Create `GetAdminBalancesQuery` and `GetAdminBalancesHandler` in `backend/app/domain/use_cases/admin/get_admin_balances_query.py`:
+Create `AdminBalancesQuery` and `AdminBalancesHandler` in `backend/app/domain/use_cases/admin/admin_balances_query.py`:
 
 ```python
-class GetAdminBalancesHandler:
+class AdminBalancesHandler:
     def __init__(
         self, admin_wallet_query_repo: AdminWalletQueryRepository
     ) -> None:
         self._admin_wallet_query_repo = admin_wallet_query_repo
 
     async def handle(
-        self, _: GetAdminBalancesQuery
+        self, _: AdminBalancesQuery
     ) -> Result[list[BalanceItem]]:
-        items = await self._admin_wallet_query_repo.list_all_with_labels()
+        items = await self._admin_wallet_query_repo.get_admin_balances()
         return Result.success(items)
 ```
 
 Create `AdminWalletQueryRepository` port:
 
 ```python
-async def list_all_with_labels(self) -> list[BalanceItem]: ...
+async def get_admin_balances(self) -> list[BalanceItem]: ...
 ```
 
 #### Package façade update
 
-Export `BalanceItem`, `AdminWalletQueryRepository`, `GetAdminBalancesHandler`, and `GetAdminBalancesQuery` from `domain/__init__.py`.
+Export `BalanceItem`, `AdminWalletQueryRepository`, `AdminBalancesHandler`, and `AdminBalancesQuery` from `domain/__init__.py`.
 
 ### DB
 
@@ -1152,7 +1152,7 @@ Create `backend/app/db/mappers/admin_wallet.py` projecting joined currency label
 Implement `AdminWalletQueryRepositoryImpl`:
 
 ```python
-async def list_all_with_labels(self) -> list[BalanceItem]:
+async def get_admin_balances(self) -> list[BalanceItem]:
     stmt = (
         select(CurrencyModel.label, AdminWalletModel.amount)
         .join(AdminWalletModel, AdminWalletModel.currency_id == CurrencyModel.id)
@@ -1190,7 +1190,7 @@ Format `available` as a decimal string with scale matching the currency precisio
 from decimal import Decimal
 
 
-def format_amount(
+def format_asset_amount_wtih_precision(
     amount: Decimal,
     asset: str,
     precision_by_label: dict[str, int],
@@ -1216,14 +1216,14 @@ async def get_admin_balances(
         ListCurrenciesExecutor, Depends(get_list_currencies_executor)
     ],
 ) -> BalanceListResponse:
-    items = unwrap_result(await balances_executor(GetAdminBalancesQuery()))
-    currencies = unwrap_result(await currencies_executor(ListCurrenciesQuery()))
+    items = unwrap_result(await balances_executor(AdminBalancesQuery()))
+    currencies = unwrap_result(await currencies_executor(CurrenciesQuery()))
     precision_by_label = {item.label: item.precision for item in currencies}
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_amount(item.available, item.asset, precision_by_label),
+                available=format_asset_amount_wtih_precision(item.available, item.asset, precision_by_label),
             )
             for item in items
         ]
@@ -1279,40 +1279,40 @@ class PaginatedResult[T]:
     items: list[T]
 ```
 
-Create `ListAdminTransactionsQuery` carrying `PaginationParams` and `ListAdminTransactionsHandler` in `backend/app/domain/use_cases/transaction/list_admin_transactions_query.py`:
+Create `AdminTransactionsQuery` carrying `PaginationParams` and `AdminTransactionsHandler` in `backend/app/domain/use_cases/admin/admin_transactions_query.py`:
 
 ```python
-class ListAdminTransactionsHandler:
+class AdminTransactionsHandler:
     def __init__(
         self, transaction_query_repo: TransactionQueryRepository
     ) -> None:
         self._transaction_query_repo = transaction_query_repo
 
     async def handle(
-        self, query: ListAdminTransactionsQuery
+        self, query: AdminTransactionsQuery
     ) -> Result[PaginatedResult[TransactionListItem]]:
-        page = await self._transaction_query_repo.list_admin_page(query.params)
+        page = await self._transaction_query_repo.get_all_transactions_page(query.params)
         return Result.success(page)
 ```
 
 Create `TransactionQueryRepository` port:
 
 ```python
-async def list_admin_page(
+async def get_all_transactions_page(
     self, params: PaginationParams
 ) -> PaginatedResult[TransactionListItem]: ...
 ```
 
 #### Package façade update
 
-Export pagination read models, `TransactionListItem`, `TransactionQueryRepository`, `ListAdminTransactionsHandler`, and `ListAdminTransactionsQuery` from `domain/__init__.py`.
+Export pagination read models, `TransactionListItem`, `TransactionQueryRepository`, `AdminTransactionsHandler`, and `AdminTransactionsQuery` from `domain/__init__.py`.
 
 ### DB
 
-Implement `TransactionQueryRepositoryImpl.list_admin_page` in `backend/app/db/repositories/transaction_query_repository.py`:
+Implement `TransactionQueryRepositoryImpl.get_all_transactions_page` in `backend/app/db/repositories/transaction_query_repository.py`:
 
 ```python
-async def list_admin_page(
+async def get_all_transactions_page(
     self, params: PaginationParams
 ) -> PaginatedResult[TransactionListItem]:
     offset = params.page_number * params.page_size
@@ -1377,7 +1377,7 @@ async def list_admin_transactions(
 ) -> TransactionListResponse:
     page = unwrap_result(
         await executor(
-            ListAdminTransactionsQuery(
+            AdminTransactionsQuery(
                 PaginationParams(page_number=page_number, page_size=page_size)
             )
         )

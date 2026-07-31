@@ -1,20 +1,22 @@
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-from ...entities import Transaction
+from ...read_models import TransactionItem
 from ...error_codes import (
     INSUFFICIENT_FUNDS,
     INVALID_AMOUNT,
     INVALID_PRECISION,
     UNSUPPORTED_ASSET,
     USER_NOT_FOUND,
+    TRANSFER_TO_SELF,
+    CREDIT_FAILED,
 )
 from ...ports import (
     ClockService,
     CurrencyQueryRepository,
     CurrentUserProvider,
     TransactionCommandRepository,
-    UserCommandRepository,
+    UserQueryRepository,
     UserWalletCommandRepository,
 )
 from ...result import Result
@@ -37,14 +39,14 @@ class TransferHandler:
     def __init__(
         self,
         current_user_provider: CurrentUserProvider,
-        user_cmd_repo: UserCommandRepository,
+        user_query_repo: UserQueryRepository,
         currency_query_repo: CurrencyQueryRepository,
         user_wallets_repo: UserWalletCommandRepository,
         transactions_repo: TransactionCommandRepository,
         clock_service: ClockService,
     ) -> None:
         self._current_user_provider = current_user_provider
-        self._user_cmd_repo = user_cmd_repo
+        self._user_query_repo = user_query_repo
         self._currency_query_repo = currency_query_repo
         self._user_wallets_repo = user_wallets_repo
         self._transactions_repo = transactions_repo
@@ -52,7 +54,7 @@ class TransferHandler:
 
     async def handle(self, command: TransferCommand) -> Result[TransferResult]:
         email = command.recipient_email.strip().casefold()
-        currency = await self._currency_query_repo.get_by_label(command.asset_label.strip().upper())
+        currency = await self._currency_query_repo.get_by_label(command.asset_label.strip())
         if currency is None:
             return Result.failure(UNSUPPORTED_ASSET)
         try:
@@ -67,9 +69,9 @@ class TransferHandler:
 
         sender = self._current_user_provider.get()
         if email == sender.email.casefold():
-            return Result.failure(INVALID_AMOUNT)
+            return Result.failure(TRANSFER_TO_SELF)
 
-        recipient = await self._user_cmd_repo.get_by_normalized_email(email)
+        recipient = await self._user_query_repo.get_by_email(email)
         if recipient is None:
             return Result.failure(USER_NOT_FOUND)
 
@@ -86,10 +88,13 @@ class TransferHandler:
         if not debited:
             return Result.failure(INSUFFICIENT_FUNDS)
 
-        await self._user_wallets_repo.credit(dest_wallet.id, money.amount, now)
+        credited = await self._user_wallets_repo.credit(dest_wallet.id, money.amount, now)
+        if not credited:
+            return Result.failure(CREDIT_FAILED)
+
         transaction_id = uuid4()
         await self._transactions_repo.add(
-            Transaction(
+            TransactionItem(
                 id=transaction_id,
                 type="transfer",
                 source_wallet_id=source_wallet.id,

@@ -8,11 +8,11 @@ from sqlalchemy.orm import aliased
 from app.domain import (
     PaginatedResult,
     PaginationParams,
-    TransactionListItem,
     TransactionQueryRepository,
+    TransactionListRow,
 )
 
-from ..mappers import transaction_to_list_item
+from ..mappers import transaction_to_list_row
 from ..models import CurrencyModel, TransactionModel, UserWalletModel
 from ..session import AsyncSession
 
@@ -32,6 +32,10 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
                 TransactionModel,
                 SourceCurrencyModel.label,
                 DestCurrencyModel.label,
+                SourceCurrencyModel.precision,
+                DestCurrencyModel.precision,
+                SourceWalletModel.user_id,
+                DestWalletModel.user_id,
             )
             .outerjoin(
                 SourceWalletModel,
@@ -51,19 +55,23 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
             )
         )
 
-    def _rows_to_list_items(self, rows: Sequence[Any]) -> list[TransactionListItem]:
+    def _rows_to_list_rows(self, rows: Sequence[Any]) -> list[TransactionListRow]:
         return [
-            transaction_to_list_item(
+            transaction_to_list_row(
                 row[0],
                 source_asset=row[1],
                 dest_asset=row[2],
+                source_precision=row[3],
+                dest_precision=row[4],
+                source_user_id=row[5],
+                dest_user_id=row[6],
             )
             for row in rows
         ]
 
-    async def list_admin_page(
+    async def get_all_transactions_page(
         self, params: PaginationParams
-    ) -> PaginatedResult[TransactionListItem]:
+    ) -> PaginatedResult[TransactionListRow]:
         offset = params.page_number * params.page_size
 
         count_stmt = select(func.count()).select_from(TransactionModel)
@@ -80,20 +88,19 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
             .limit(params.page_size)
         )
         result = await self.session.execute(stmt)
-        items = self._rows_to_list_items(result.all())
+        items = self._rows_to_list_rows(result.all())
         return PaginatedResult(total_items=total_items, items=items)
 
-    async def list_user_page(
+    async def get_user_transactions_page(
         self, user_id: UUID, params: PaginationParams
-    ) -> PaginatedResult[TransactionListItem]:
+    ) -> PaginatedResult[TransactionListRow]:
         offset = params.page_number * params.page_size
-        wallet_ids = (
-            select(UserWalletModel.id).where(UserWalletModel.user_id == user_id)
-        ).scalar_subquery()
+        wallet_ids = select(UserWalletModel.id).where(UserWalletModel.user_id == user_id)
+        wallet_ids_subquery = wallet_ids.scalar_subquery()
 
         ownership = or_(
-            TransactionModel.source_wallet_id.in_(wallet_ids),
-            TransactionModel.dest_wallet_id.in_(wallet_ids),
+            TransactionModel.source_wallet_id.in_(wallet_ids_subquery),
+            TransactionModel.dest_wallet_id.in_(wallet_ids_subquery),
         )
 
         count_stmt = select(func.count()).select_from(TransactionModel).where(ownership)
@@ -110,5 +117,5 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
             .limit(params.page_size)
         )
         result = await self.session.execute(stmt)
-        items = self._rows_to_list_items(result.all())
+        items = self._rows_to_list_rows(result.all())
         return PaginatedResult(total_items=total_items, items=items)

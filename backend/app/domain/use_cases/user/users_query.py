@@ -6,14 +6,14 @@ from ...result import Result
 
 
 @dataclass(frozen=True, slots=True)
-class ListUsersQuery:
+class UsersQuery:
     pass
 
 
-class ListUsersHandler:
+class UsersHandler:
     def __init__(self, user_query_repo: UserQueryRepository) -> None:
         self._user_query_repo = user_query_repo
 
-    async def handle(self, _: ListUsersQuery) -> Result[list[UserReferenceItem]]:
-        items = await self._user_query_repo.list_all_ordered_by_email()
+    async def handle(self, _: UsersQuery) -> Result[list[UserReferenceItem]]:
+        items = await self._user_query_repo.get_all_ordered_by_email()
         return Result.success(items)

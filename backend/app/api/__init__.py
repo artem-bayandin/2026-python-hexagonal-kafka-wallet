@@ -1,9 +1,9 @@
 from .exception_handlers import (
-    handle_api_result_error,
+    handle_domain_result_error,
     handle_uncaught_exception,
-    handle_validation_error,
+    handle_api_validation_error,
 )
-from .result_mapping import ApiResultError
+from .result_mapping import DomainResultError
 from .routers import admin_router, auth_router, health_router, reference_router, wallet_router
 
 __all__ = [
@@ -14,8 +14,8 @@ __all__ = [
     "reference_router",
     "wallet_router",
     # Other
-    "handle_api_result_error",
+    "handle_domain_result_error",
     "handle_uncaught_exception",
-    "handle_validation_error",
-    "ApiResultError",
+    "handle_api_validation_error",
+    "DomainResultError",
 ]

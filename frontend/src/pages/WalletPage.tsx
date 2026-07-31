@@ -16,7 +16,7 @@ import type {
   UserReferenceItem,
 } from '../types/wallet'
 import { normalizeEmail } from '../utils/email'
-import { formatTransactionAsset } from '../utils/transaction'
+import { formatTransactionAsset, formatTransactionType } from '../utils/transaction'
 
 type WalletPageProps = {
   onOpenAdmin?: () => void
@@ -635,7 +635,7 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
             <tbody>
               {transactions.map((transaction) => (
                 <tr key={transaction.id}>
-                  <td>{transaction.type}</td>
+                  <td>{formatTransactionType(transaction.type, transaction.direction)}</td>
                   <td>
                     {formatTransactionAsset(
                       transaction.type,

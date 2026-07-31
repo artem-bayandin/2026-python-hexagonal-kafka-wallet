@@ -15,6 +15,7 @@ export type TransactionItem = {
   dest_asset: string | null
   amount: string
   created_at: string
+  direction?: string | null
 }
 
 export type TransactionList = {

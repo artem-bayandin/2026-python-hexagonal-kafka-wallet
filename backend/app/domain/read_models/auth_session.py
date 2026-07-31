@@ -1,13 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from uuid import UUID
 
 
 @dataclass(frozen=True, slots=True)
-class UserWallet:
-    id: UUID
+class AuthSessionItem:
+    jti: UUID
     user_id: UUID
-    currency_id: UUID
-    amount: Decimal
-    updated_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+    created_at: datetime

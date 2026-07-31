@@ -1,9 +1,9 @@
-from app.domain import Currency, CurrencyCatalogItem
+from app.domain import CurrencyItem, CurrencyCatalogItem
 
 from ..models import CurrencyModel
 
 
-def currency_to_catalog_item(model: CurrencyModel) -> CurrencyCatalogItem:
+def to_catalog_item(model: CurrencyModel) -> CurrencyCatalogItem:
     return CurrencyCatalogItem(
         label=model.label,
         name=model.name,
@@ -12,8 +12,8 @@ def currency_to_catalog_item(model: CurrencyModel) -> CurrencyCatalogItem:
     )
 
 
-def currency_to_domain(model: CurrencyModel) -> Currency:
-    return Currency(
+def to_domain(model: CurrencyModel) -> CurrencyItem:
+    return CurrencyItem(
         id=model.id,
         type=model.type,
         name=model.name,

@@ -13,7 +13,7 @@ from ..dependencies import (
     get_request_otp_executor,
     get_verify_otp_executor,
 )
-from ..result_mapping import unwrap_result
+from ..result_mapping import unwrap_domain_result
 from ..schemas import (
     RequestOtpRequest,
     RequestOtpResponse,
@@ -27,7 +27,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post(
     "/otp/request",
     status_code=status.HTTP_201_CREATED,
-    response_model=RequestOtpResponse,
     response_model_exclude_none=True,
 )
 async def request_otp(
@@ -35,7 +34,7 @@ async def request_otp(
     executor: Annotated[RequestOtpExecutor, Depends(get_request_otp_executor)],
 ) -> RequestOtpResponse:
     result = await executor(RequestOtpCommand(email=str(payload.email)))
-    data = unwrap_result(result)
+    data = unwrap_domain_result(result)
     assert data is not None
     return RequestOtpResponse(
         expires_at=data.expires_at,
@@ -46,7 +45,6 @@ async def request_otp(
 @router.post(
     "/otp/verify",
     status_code=status.HTTP_200_OK,
-    response_model=VerifyOtpResponse,
 )
 async def verify_otp(
     payload: VerifyOtpRequest,
@@ -55,7 +53,7 @@ async def verify_otp(
     result = await executor(
         VerifyOtpCommand(email=str(payload.email), otp=payload.otp),
     )
-    data = unwrap_result(result)
+    data = unwrap_domain_result(result)
     assert data is not None
     return VerifyOtpResponse(
         access_token=data.access_token,
@@ -73,5 +71,5 @@ async def logout(
     executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
 ) -> Response:
     result = await executor(LogoutCommand())
-    unwrap_result(result)
+    unwrap_domain_result(result)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

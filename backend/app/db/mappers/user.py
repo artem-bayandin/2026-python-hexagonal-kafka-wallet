@@ -1,17 +1,17 @@
-from app.domain import User, UserReferenceItem
+from app.domain import UserItem, UserReferenceItem
 
 from ..models import UserModel
 
 
-def to_domain(model: UserModel) -> User:
-    return User(
+def to_domain(model: UserModel) -> UserItem:
+    return UserItem(
         id=model.id,
         email=model.email,
         created_at=model.created_at,
     )
 
 
-def to_model(entity: User) -> UserModel:
+def to_model(entity: UserItem) -> UserModel:
     return UserModel(
         id=entity.id,
         email=entity.email,
@@ -19,7 +19,7 @@ def to_model(entity: User) -> UserModel:
     )
 
 
-def user_to_reference_item(model: UserModel) -> UserReferenceItem:
+def to_reference_item(model: UserModel) -> UserReferenceItem:
     return UserReferenceItem(
         user_id=model.id,
         email=model.email,

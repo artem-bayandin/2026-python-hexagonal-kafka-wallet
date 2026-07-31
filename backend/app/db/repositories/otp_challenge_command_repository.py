@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 
-from app.domain import OtpChallenge, OtpChallengeCommandRepository
+from app.domain import OtpChallengeItem, OtpChallengeCommandRepository
 
 from ..mappers import otp_challenge_to_domain, otp_challenge_to_model
 from ..models import OtpChallengeModel
@@ -32,10 +32,10 @@ class OtpChallengeCommandRepositoryImpl(OtpChallengeCommandRepository):
         )
         return result.rowcount
 
-    async def add(self, challenge: OtpChallenge) -> None:
+    async def add(self, challenge: OtpChallengeItem) -> None:
         self.session.add(otp_challenge_to_model(challenge))
 
-    async def get_current_for_user_for_update(self, user_id: UUID) -> OtpChallenge | None:
+    async def get_current_for_user_for_update(self, user_id: UUID) -> OtpChallengeItem | None:
         stmt = (
             select(OtpChallengeModel)
             .where(
@@ -53,7 +53,7 @@ class OtpChallengeCommandRepositoryImpl(OtpChallengeCommandRepository):
 
     async def get_newest_by_digest_for_update(
         self, user_id: UUID, digest: str
-    ) -> OtpChallenge | None:
+    ) -> OtpChallengeItem | None:
         stmt = (
             select(OtpChallengeModel)
             .where(
