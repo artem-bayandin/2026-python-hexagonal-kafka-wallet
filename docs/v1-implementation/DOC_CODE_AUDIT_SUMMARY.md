@@ -36,7 +36,7 @@ Audit date: 2026-07-31. **Code is canonical**; docs were updated to match the ru
 | [README.md](../README.md) | "Pre-implementation" | Updated to implemented v1 sample (not production-ready) |
 | [OPERATIONS.md](../OPERATIONS.md) | Commands "not executable" | Updated current status; lifecycle commands valid for v1 |
 | [PHASE_5A_TECH_REVIEW.md](PHASE_5A_TECH_REVIEW.md) | Open doc-drift items | Closed doc items; code-only follow-ups noted |
-| [LEARN_PY.md](../LEARN_PY.md) | `unwrap_result` in examples | Renamed to `unwrap_domain_result` |
+| [LEARN_PY.md](../../LEARN_PY.md) | `unwrap_result` in examples | Renamed to `unwrap_domain_result` |
 
 ## Intentionally unchanged (not doc bugs)
 

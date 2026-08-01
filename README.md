@@ -37,7 +37,7 @@ project-root/
 
 ## Documentation
 
-One of the first docs created - [Wallet Proposal](docs/proposals/WALLET_SAMPLE_PROPOSAL_0.md). Contains some early stage requirements, gathered in a single file to start AI development from. When Version_1 was implemented, the doc was aligned with the code, and stored in [Wallet Proposal v1-aligned](docs/proposals/WALLET_SAMPLE_PROPOSAL_ALIGNED_V1.md)
+One of the first docs created - [Wallet Proposal](docs/proposals/WALLET_SAMPLE_PROPOSAL_0.md). Contains some early stage requirements, gathered in a single file to start AI development from. When Version_1 was implemented, the doc was aligned with the code, and stored in [Wallet Proposal v1-aligned](docs/proposals/WALLET_SAMPLE_PROPOSAL_ALIGNED_V1.md).
 
 Start with [the documentation index](docs/README.md). The canonical documents are:
 
@@ -47,6 +47,8 @@ Start with [the documentation index](docs/README.md). The canonical documents ar
 4. [Configuration](docs/CONFIGURATION.md) — environment variables, profiles, local ports, and secret handling.
 5. [Operations](docs/OPERATIONS.md) — lifecycle, migration, release, rollback, backup, observability, and incident expectations.
 6. [Implementation steps](docs/IMPLEMENTATION_STEPS.md) — build order and verification criteria.
+
+Bite-sized notes on the “why” behind the code: patterns, trade-offs, and things worth remembering: [LEARN_PY](LEARN_PY.md)
 
 ## Bootstrap and verification
 

@@ -2,7 +2,7 @@
 
 ## Authority and status
 
-This documentation describes an **implemented version-1 sample** (synchronous wallet). It is not authorization to deploy a real custodial-wallet service. The application must not be called production-ready until automated checks, deployment configuration, and operational controls described here pass review.
+This documentation describes a **version-1 sample** (synchronous wallet).
 
 ## Repository layout
 

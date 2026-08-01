@@ -126,7 +126,7 @@ Canonical rules: [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md) §3.4
 
 - Rename `backend/app/dependencies.py` (e.g. `handler_builders.py`) to disambiguate from `api/dependencies.py` — larger blast radius.
 - `require_admin_or_user_auth` inlines `build_get_current_user_handler` instead of reusing `get_current_user_executor` — optional consistency follow-up.
-- Review how executors and handlers are created for routers (executors vs yield-handler injection) — see [LEARN_PY.md](../LEARN_PY.md).
+- Review how executors and handlers are created for routers (executors vs yield-handler injection) — see [LEARN_PY.md](../../LEARN_PY.md).
 
 ## Other
 
