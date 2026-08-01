@@ -2,9 +2,7 @@
 
 ## Authority and status
 
-This documentation describes an **implemented version-1 educational sample** (synchronous wallet). It is not authorization to deploy a real custodial-wallet service. The application must not be called production-ready until automated checks, deployment configuration, and operational controls described here pass review.
-
-The developer implements the sample. AI provides planning, explanations, review, and diagnosis when requested.
+This documentation describes an **implemented version-1 sample** (synchronous wallet). It is not authorization to deploy a real custodial-wallet service. The application must not be called production-ready until automated checks, deployment configuration, and operational controls described here pass review.
 
 ## Repository layout
 
@@ -27,7 +25,7 @@ project-root/
 | [Implementation steps](IMPLEMENTATION_STEPS.md) | Canonical delivery plan | Defines the build sequence and its completion criteria. |
 | [Phase guides](implementation/) | Runnable delivery guides | Step-by-step terminal commands for each implementation phase. |
 
-`WALLET_SAMPLE_REQUIREMENTS_PROPOSAL.md` is retained only as an archived decision record. It is non-authoritative and must not be updated to introduce or change requirements.
+`WALLET_SAMPLE_PROPOSAL_0.md` is retained only as an archived decision record. It is non-authoritative and must not be updated to introduce or change requirements. Its aligned with code of the Version_1 copy is in `WALLET_SAMPLE_PROPOSAL_ALIGNED_V1_.md`, which is also non-authoritative and must not be updated to introduce or change requirements. 
 
 ## Version boundaries
 

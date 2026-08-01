@@ -1,15 +1,28 @@
 # Clean Architecture Wallet
 
+## Intro
+
+This project presents a wallet code sample. 99.72% AI-coded under human guidance through the SDLC, with human review of docs and code.
+
+The project will be built in two versions:
+
+1. **Synchronous wallet processing** — Python hexagonal API, dockerized PostgreSQL, minimalistic React UI.
+2. **Async transaction processing** — Kafka-based command pipeline.
+
 ## Status
 
-This repository is an educational wallet sample. The version-1 foundation is implemented: the Python/FastAPI and Vite/React scaffolds, validated configuration, PostgreSQL Compose service, health endpoints, dependency locks, and framework-free money rules are available. Authentication, persistence, and wallet workflows remain to be implemented. Do not treat it as a production-deployable service.
+- **Version 1** — implemented.
+- **Version 1 documentation** — AI-updated to reflect the current codebase; not human-reviewed.
+- **Version 2** — docs to be created.
 
-The target is a two-version Python/React wallet sample:
+## Functional requirements
 
-- version 1 executes wallet commands synchronously against PostgreSQL;
-- version 2 submits those commands asynchronously through a transactional outbox and Kafka worker.
-
-The developer implements the sample. AI may help with planning, explanation, review, and diagnosis when requested.
+- User should be able to log in with OTP.
+- User should be able to view balances and transactions.
+- User should be able to exchange assets, transfer to another user, and withdraw.
+- Admin should be able to log in with a custom temp dev key.
+- Admin should be able to see balances and all transactions.
+- Admin should be able to deposit initial funds for a user.
 
 ## Repository layout
 
@@ -24,6 +37,8 @@ project-root/
 
 ## Documentation
 
+One of the first docs created - [Wallet Proposal](docs/proposals/WALLET_SAMPLE_PROPOSAL_0.md). Contains some early stage requirements, gathered in a single file to start AI development from. When Version_1 was implemented, the doc was aligned with the code, and stored in [Wallet Proposal v1-aligned](docs/proposals/WALLET_SAMPLE_PROPOSAL_ALIGNED_V1.md)
+
 Start with [the documentation index](docs/README.md). The canonical documents are:
 
 1. [Functional requirements](docs/FUNCTIONAL_REQUIREMENTS.md) — product behavior and non-goals.
@@ -35,7 +50,7 @@ Start with [the documentation index](docs/README.md). The canonical documents ar
 
 ## Bootstrap and verification
 
-No command can run successfully until Step 1 of the implementation plan creates the listed artifacts. Once the scaffold exists, the supported local workflow is:
+Run database and api (teminal 1):
 
 ```sh
 cd backend
@@ -47,7 +62,7 @@ uv run alembic upgrade head
 uv run uvicorn app.main:create_app --factory --reload
 ```
 
-In a second terminal:
+Run frontend (terminal 2):
 
 ```sh
 cd frontend

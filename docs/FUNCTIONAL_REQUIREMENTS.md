@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-Build a small educational custodial-wallet web application in two versions. It uses a React UI and a Python API to demonstrate OTP authentication, USDT/USD balances, mocked deposits, 1:1 exchange, withdrawals, user-to-user transfers, transaction history, Clean/Hexagonal Architecture, CQRS, and asynchronous Kafka processing.
+Build a small custodial-wallet web application in two versions. It uses a React UI and a Python API to demonstrate OTP authentication, USDT/USD balances, mocked deposits, 1:1 exchange, withdrawals, user-to-user transfers, transaction history, Clean/Hexagonal Architecture, CQRS, and asynchronous Kafka processing.
 
 The application is a learning sample. It does not move real money, send real email, perform real AML checks, or provide production-grade administration. [README.md](README.md) defines this document's authority and the version-specific reading order.
 
