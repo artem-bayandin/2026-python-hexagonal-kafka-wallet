@@ -51,6 +51,8 @@ One of the first docs created - [Wallet Proposal](docs/proposals/WALLET_SAMPLE_P
 
 Bite-sized notes on the “why” behind the code: patterns, trade-offs, and things worth remembering: [LEARN_PY](LEARN_PY.md)
 
+[Initial task](INITIAL_TASK.md) - Technology-agnostic starting point for a fresh two-version wallet implementation; it is separate from the current implementation contracts.
+
 Version 1 [Readme.md](docs/v1/README.md) and all the other v1 docs are in `/docs/v1/` folder.
 
 Version 2 [Readme.md](docs/v2-draft/README.md) (empty for now) with v2 requirements cut from v1 but not reviewed are in `/docs/v2-draft/` folder.
