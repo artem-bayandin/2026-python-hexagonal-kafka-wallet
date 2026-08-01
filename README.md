@@ -24,6 +24,16 @@ The project will be built in two versions:
 - Admin should be able to see balances and all transactions.
 - Admin should be able to deposit initial funds for a user.
 
+## Version boundaries
+
+| Area | Version 1 | Version 2 |
+| --- | --- | --- |
+| Wallet mutations | Execute synchronously and return completed results. | Submit an operation and return `202 Accepted`; the worker later completes, rejects, or fails it. |
+| Balances | Single amount per wallet row. | Pending/rejected amounts per currency (strategy TBD). |
+| Infrastructure | PostgreSQL. | PostgreSQL, Kafka, outbox relay, and worker. |
+| Wallet feedback | Immediate result or error. | Pending operation ID and polling feedback. |
+| Kafka diagnostics | Not present. | Development-only diagnostics, disabled outside development. |
+
 ## Repository layout
 
 ```
@@ -39,16 +49,11 @@ project-root/
 
 One of the first docs created - [Wallet Proposal](docs/proposals/WALLET_SAMPLE_PROPOSAL_0.md). Contains some early stage requirements, gathered in a single file to start AI development from. When Version_1 was implemented, the doc was aligned with the code, and stored in [Wallet Proposal v1-aligned](docs/proposals/WALLET_SAMPLE_PROPOSAL_ALIGNED_V1.md).
 
-Start with [the documentation index](docs/README.md). The canonical documents are:
-
-1. [Functional requirements](docs/FUNCTIONAL_REQUIREMENTS.md) — product behavior and non-goals.
-2. [Technical requirements](docs/TECHNICAL_REQUIREMENTS.md) — architecture, dependencies, quality constraints, and security boundaries.
-3. [API contract](docs/API_CONTRACT.md) — stable HTTP payload, pagination, status, and error conventions.
-4. [Configuration](docs/CONFIGURATION.md) — environment variables, profiles, local ports, and secret handling.
-5. [Operations](docs/OPERATIONS.md) — lifecycle, migration, release, rollback, backup, observability, and incident expectations.
-6. [Implementation steps](docs/IMPLEMENTATION_STEPS.md) — build order and verification criteria.
-
 Bite-sized notes on the “why” behind the code: patterns, trade-offs, and things worth remembering: [LEARN_PY](LEARN_PY.md)
+
+Version 1 [Readme.md](docs/v1/README.md) and all the other v1 docs are in `/docs/v1/` folder.
+
+Version 2 [Readme.md](docs/v2-draft/README.md) (empty for now) with v2 requirements cut from v1 but not reviewed are in `/docs/v2-draft/` folder.
 
 ## Bootstrap and verification
 

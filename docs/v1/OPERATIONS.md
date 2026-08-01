@@ -2,7 +2,7 @@
 
 ## Current status
 
-Version 1 (Phases 1–5) is implemented: backend, frontend, PostgreSQL schema, auth, admin wallet, and user wallet flows run locally with the commands below. Automated test suites, CI, and version 2 (Kafka) are not yet complete.
+Version 1 (Phases 1–5) is implemented: backend, frontend, PostgreSQL schema, auth, admin wallet, and user wallet flows run locally with the commands below. Automated test suites and CI are not yet complete.
 
 ## Service lifecycle
 
@@ -18,21 +18,12 @@ uv run alembic upgrade head
 uv run uvicorn app.main:create_app --factory --reload
 ```
 
-Local version 2:
-
-```sh
-docker compose --env-file backend/.env up -d postgres kafka worker
-```
-
-The worker must start only after migrations have completed and its readiness check confirms PostgreSQL and Kafka reachability. Shutdown must stop HTTP intake before stopping the worker, allow in-flight database transactions to finish, and leave unprocessed outbox records for retry.
-
 ## Health and observability
 
 - `GET /health/live` proves the API process is running.
 - `GET /health/ready` checks required dependencies and returns `503` while the application cannot serve traffic.
-- Emit structured logs with request ID, correlation ID, operation ID, message ID, route, status, and duration. Never log secrets, OTPs, JWTs, or raw credentials.
-- Emit metrics for HTTP latency/errors, database connectivity, outbox backlog, publication/consumption failures, operation outcomes, and worker retry age.
-- Propagate correlation IDs from HTTP submission through the outbox, Kafka envelope, worker logs, diagnostics records, and operation queries.
+- Emit structured logs with request ID, route, status, and duration. Never log secrets, OTPs, JWTs, or raw credentials.
+- Emit metrics for HTTP latency/errors and database connectivity.
 
 ## Database migrations and recovery
 
@@ -60,5 +51,5 @@ Rollback application code only when the database schema remains compatible. Othe
 ## Backup and incident response
 
 - Take logical PostgreSQL backups on a schedule matched to recovery objectives; verify restore regularly.
-- Retain structured logs and metrics sufficient to trace one operation from HTTP submission through Kafka to final balance/history state.
+- Retain structured logs and metrics sufficient to trace one operation through its HTTP request to final balance/history state.
 - Treat secret exposure, data corruption, and prolonged `503` readiness as incidents requiring documented response steps.
