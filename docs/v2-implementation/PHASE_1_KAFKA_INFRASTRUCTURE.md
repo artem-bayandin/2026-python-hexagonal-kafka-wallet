@@ -15,7 +15,7 @@ Work in this order:
 
 ## Current implementation status
 
-- **Not started.** Version 1 (FastAPI, React, PostgreSQL, Alembic, synchronous wallet mutations) is the running baseline.
+- **Steps 1–4 complete (2026-08-05); Steps 5–8 not started.** Version 1 (FastAPI, React, PostgreSQL, Alembic, synchronous wallet mutations) is the running baseline.
 - Prerequisite gate from [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Prerequisites is green: Version 1 reproduces from a clean checkout, the Alembic baseline head (`d377d8c90992`) is recorded, baseline quality-command failures are written down, and an implementation branch with a rollback point exists.
 
 Canonical behavior is defined by [README.md](../v2/README.md), [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §3/§5/§9, [CONFIGURATION.md](../v2/CONFIGURATION.md) §4/§5/§10–§12, and [API_CONTRACT.md](../v2/API_CONTRACT.md) §Diagnostics and health.
@@ -66,16 +66,16 @@ Kafka infrastructure is reproducible, secured by configuration boundaries, obser
 
 ## Step 1 — Dependency and image selection
 
-Record the decision at the top of this section when made; the recommended selection is:
+Pinned selections (rollback restores these exact versions):
 
-- **Broker image:** `apache/kafka:<exact-tag>` (KRaft mode, single node locally). Pick the newest maintained tag, verify it is vulnerability-reviewed, and pin the exact tag (or digest) in `docker-compose.yml`.
-- **Python client:** `aiokafka` (async, matches the FastAPI/asyncpg stack). Add a bounded compatible range to `backend/pyproject.toml`.
+- **Broker image:** `apache/kafka:4.3.1` (KRaft mode, single node locally). CLI tools at `/opt/kafka/bin/` (verified against the pinned image).
+- **Python client:** `aiokafka==0.14.0` (`backend/pyproject.toml`, `uv.lock`).
 
 Commands:
 
 ```bash
 cd backend
-uv add "aiokafka>=0.12,<0.13"
+uv add aiokafka
 uv lock
 ```
 
@@ -87,6 +87,14 @@ uv tree | grep -i kafka
 ```
 
 Note the pinned client version and broker tag in this file once selected, so rollback restores the exact prior dependency graph.
+
+**Decision record (2026-08-05, Step 1 complete):**
+
+- Broker: `apache/kafka:4.3.1` confirmed published on Docker Hub (multi-arch amd64/arm64, index digest `sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837`); CLI tools live at `/opt/kafka/bin/` in this image.
+- Client: `aiokafka==0.14.0` added to `backend/pyproject.toml` and pinned in `backend/uv.lock` (exact pin, not a range). Transitive graph is minimal: `async-timeout==5.0.1`, `packaging==26.2`, `typing-extensions==4.16.0`.
+- Protocol compatibility: aiokafka 0.14.0 negotiates API versions per connection and is verified working against Kafka 4.x brokers (KIP-896 old-protocol removal handled); compatible with the 4.3.1 broker.
+- Vulnerability review of the resolved graph: no known vulnerabilities reported for `aiokafka 0.14.0` (Sonatype Guide / ReversingLabs scans, checked 2026-08-05); transitive deps are small, maintained utility packages with no outstanding advisories.
+- Rollback anchor: pre-Phase-1 `pyproject.toml`/`uv.lock` (without `aiokafka`) is the recorded rollback state.
 
 ## Step 2 — Compose broker and topics
 
@@ -148,6 +156,8 @@ docker compose run --rm kafka-init
 docker compose ps
 ```
 
+**Verification record (2026-08-05, Step 2 complete):** CLI paths `/opt/kafka/bin/` confirmed against `apache/kafka:4.3.1` (health check passes, `kafka-topics.sh` runs unmodified). `docker compose up -d kafka` → healthy; `docker compose run --rm kafka-init` → created `wallet` (3 partitions, RF 1) and `wallet.dlq` (1 partition, RF 1), both described in output above. `docker compose ps` shows Kafka healthy with `9092/tcp` internal only — no host port published. The broker's one-time metric-name warning about `.`/`_` topic collision is informational; `wallet` and `wallet.dlq` do not collide.
+
 ## Step 3 — Settings
 
 Update `backend/app/config.py` — add the Version 2 settings groups using `pydantic-settings`, following the existing `Settings` pattern. Each process validates only the settings it owns.
@@ -186,6 +196,8 @@ class KafkaSettings(BaseSettings):
 ```
 
 Also update `.env.example` (or the documented local env template) with the development values: `KAFKA_BOOTSTRAP_SERVERS=kafka:9092` when the API runs in Compose, or the host-reachable address when run locally against the Compose broker.
+
+**Implementation record (2026-08-05, Step 3 complete):** `backend/app/config.py` now defines `SharedSettings` (APP_ENV/DATABASE_URL/LOG_LEVEL, owned by every process), `Settings` (API, unchanged public surface, plus rejection of `ADMIN_API_KEY` in production and `ENABLE_DEMO_OTP=true` outside development), `KafkaSettings` (`KAFKA_` prefix: connection, fixed topic/group values, SASL/SSL pairing, producer reliability bounds), `WorkerSettings` (`WORKER_` prefix), `ReaperSettings` (`REAPER_` prefix), and `StreamingSettings` (admin long-poll/SSE, no prefix). Cross-group invariants live in `validate_kafka_connection` / `validate_worker_composition` / `validate_reaper_composition`, applied by the per-process `load_api_runtime` / `load_worker_runtime` / `load_reaper_runtime` loaders so each process validates only what it owns and fails at startup on any violation. `WORKER_MAX_POLL_INTERVAL_MS` must cover one poll plus the full retry schedule plus the bounded DLQ publication wait. Empty strings normalize to missing. `.env.example` documents all development values (`KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, Compose-network address). Verified: `ruff check`, `ruff format --check`, `mypy app` pass; 22-case validator matrix (fixed topics, timeout orderings, SASL/SSL pairing, production protocol/CA/admin-key/demo-OTP rejection, reaper/worker composition bounds) all reject/accept as specified; `create_app` still boots with existing Version 1 settings.
 
 ## Step 4 — Domain ports and envelope
 
@@ -229,6 +241,8 @@ class CommandPublisher(Protocol):
 Envelope validation rules (domain level): `type` is exactly one of the four command types; `submitted_at` is timezone-aware UTC; `request_id` is a UUID. Parsing helpers that tolerate malformed wire input return a domain failure rather than raising transport exceptions.
 
 Update package façades (`domain/__init__.py`, `domain/ports/__init__.py`) to export `CommandEnvelope`, `CommandType`, and `CommandPublisher`, matching the existing export style.
+
+**Implementation record (2026-08-05, Step 4 complete):** `domain/messaging/command_envelope.py` defines `CommandType` (StrEnum: deposit/withdrawal/exchange/transfer) and frozen `CommandEnvelope`; the constructor raises on non-UUID `request_id`, non-`CommandType` type, or naive/non-UTC `submitted_at`, while `CommandEnvelope.try_parse` tolerates raw wire values (strings or typed) and returns `Result.failure(COMMAND_ENVELOPE_INVALID, reason)` for malformed input, unknown types, or naive timestamps — never transport exceptions. New error code `COMMAND_ENVELOPE_INVALID` added to `domain/error_codes.py`. `domain/ports/services/command_publisher.py` defines the `CommandPublisher` protocol (`publish(*, key, envelope)`, returns after broker acknowledgement, raises on bounded failure). Both façades export the new symbols; the existing `ClockService` port remains the single clock source for `submitted_at`. Verified: ruff/mypy pass; construction, valid parse, and all four malformed-input cases behave as specified; grep confirms `domain/` has zero FastAPI/Pydantic/SQLAlchemy/Kafka imports.
 
 ## Step 5 — Producer adapter
 

@@ -15,6 +15,11 @@ from .error_codes import (
     INVALID_PRECISION,
     INSUFFICIENT_FUNDS,
     CREDIT_FAILED,
+    COMMAND_ENVELOPE_INVALID,
+)
+from .messaging import (
+    CommandEnvelope,
+    CommandType,
 )
 from .ports import (
     # Providers
@@ -34,6 +39,7 @@ from .ports import (
     UserWalletQueryRepository,
     # Services
     ClockService,
+    CommandPublisher,
     OtpService,
     TokenService,
 )
@@ -119,6 +125,10 @@ __all__ = [
     "INVALID_PRECISION",
     "INSUFFICIENT_FUNDS",
     "CREDIT_FAILED",
+    "COMMAND_ENVELOPE_INVALID",
+    # Messaging
+    "CommandEnvelope",
+    "CommandType",
     # Value objects
     "Asset",
     "Money",
@@ -154,6 +164,7 @@ __all__ = [
     "UserWalletCommandRepository",
     "UserWalletQueryRepository",
     "ClockService",
+    "CommandPublisher",
     "OtpService",
     "TokenService",
     # Result
