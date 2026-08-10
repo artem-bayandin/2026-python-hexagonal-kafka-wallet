@@ -40,14 +40,14 @@ Production deployment must not expose admin routes until static `X-Admin-Key` ac
 
 ## 4. Kafka connection and topic contract
 
-The API producer, worker, and reaper use the same command topic identity and compatible broker-security settings. The Version 2 semantic values `wallet`, `wallet.dlq`, and `wallet-worker` are fixed: defaults make local setup explicit, and startup validation rejects different values until a future version deliberately revises the message contract and deployment plan.
+The API producer, worker, and reaper use the same command topic identity and compatible broker-security settings. Local development defaults are `wallet`, `wallet_dlq`, and `wallet_worker`; all three are overridable through environment variables provided every process in a deployment uses matching values and the broker provisions the configured topic names.
 
 | Variable | Required | Default | Validation and meaning |
 | --- | --- | --- | --- |
 | `KAFKA_BOOTSTRAP_SERVERS` | API, worker, reaper | None | Non-empty comma-separated broker endpoints. Local Compose uses `kafka:9092`; production must provide multiple bootstrap endpoints when the broker topology supports them. |
-| `KAFKA_COMMAND_TOPIC` | API, worker, reaper | `wallet` | Must equal `wallet` in Version 2. User commands are keyed by submitting user UUID; admin deposits use the literal key `admin`. |
-| `KAFKA_DLQ_TOPIC` | Worker | `wallet.dlq` | Must equal `wallet.dlq` in Version 2 and must not equal the command topic. |
-| `KAFKA_WORKER_GROUP_ID` | Worker | `wallet-worker` | Must equal `wallet-worker` in Version 2. Every command-worker replica joins this one group. |
+| `KAFKA_COMMAND_TOPIC` | API, worker, reaper | `wallet` | Non-empty topic name for wallet commands. User commands are keyed by submitting user UUID; admin deposits use the literal key `admin`. |
+| `KAFKA_DLQ_TOPIC` | Worker | `wallet_dlq` | Non-empty dead-letter topic; must not equal the command topic. |
+| `KAFKA_WORKER_GROUP_ID` | Worker | `wallet_worker` | Non-empty consumer group id. Every command-worker replica in one deployment joins this group. |
 | `KAFKA_SECURITY_PROTOCOL` | API, worker, reaper | `PLAINTEXT` | One of `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, or `SASL_SSL`. Production requires `SSL` or `SASL_SSL`; plaintext modes are local/test only. |
 | `KAFKA_SASL_MECHANISM` | When SASL is selected | None | Deployment-approved mechanism supported by the selected broker and client. |
 | `KAFKA_SASL_USERNAME` | When SASL is selected | None | Secret credential; must be paired with `KAFKA_SASL_PASSWORD`. |
@@ -56,7 +56,7 @@ The API producer, worker, and reaper use the same command topic identity and com
 | `KAFKA_SSL_CERT_FILE` | When mutual TLS is selected | None | Readable client certificate; must be paired with `KAFKA_SSL_KEY_FILE`. |
 | `KAFKA_SSL_KEY_FILE` | When mutual TLS is selected | None | Readable private key; must be paired with `KAFKA_SSL_CERT_FILE` and must be secret-mounted. |
 
-TLS certificate verification and broker hostname verification are mandatory in production and are not disableable settings. SASL credentials and mutual-TLS identities should be distinct by role so ACLs can grant the API and reaper write access to `wallet`, the worker read access to `wallet` and write access to `wallet.dlq`, and no application process broad broker-administration rights.
+TLS certificate verification and broker hostname verification are mandatory in production and are not disableable settings. SASL credentials and mutual-TLS identities should be distinct by role so ACLs can grant the API and reaper write access to the command topic, the worker read access to the command topic and write access to the DLQ topic, and no application process broad broker-administration rights.
 
 ## 5. Producer reliability settings
 
@@ -74,11 +74,11 @@ All producers always use `acks=all` and Kafka producer idempotence; these guaran
 
 ## 6. Worker consumption and execution
 
-One consumed command receives exactly three in-process execution attempts in Version 2. Retry settings govern that local loop only; they do not create a persisted attempt count or a cross-redelivery budget.
+Each consumed command receives up to `WORKER_MAX_ATTEMPTS` in-process execution attempts (default `3`). Retry settings govern that local loop only; they do not create a persisted attempt count or a cross-redelivery budget.
 
 | Variable | Required | Default | Validation and meaning |
 | --- | --- | --- | --- |
-| `WORKER_MAX_ATTEMPTS` | Worker | `3` | Must equal `3` in Version 2 and includes the initial execution attempt. |
+| `WORKER_MAX_ATTEMPTS` | Worker | `3` | Positive integer; includes the initial execution attempt. |
 | `WORKER_RETRY_BACKOFF_MS` | Worker | `500` | Positive initial delay before retrying a retryable execution failure. |
 | `WORKER_RETRY_BACKOFF_MAX_MS` | Worker | `5000` | Positive retry-delay ceiling, not less than the initial backoff. |
 | `WORKER_POLL_TIMEOUT_MS` | Worker | `1000` | Positive maximum wait for a poll to return work or control to shutdown handling. |
@@ -111,7 +111,7 @@ The reaper scans only stale `submitted` rows, republishes the original command k
 
 Admin long polling remains a PostgreSQL query over the `(updated_at, id)` cursor and never reads Kafka. SSE heartbeats carry no application meaning, must not advance the event cursor, and should be shorter than the idle timeout of every trusted reverse proxy or load balancer. The server may close a stream at any time; reconnect remains at least once, uses `Last-Event-ID`, and requires a database-backed snapshot reconciliation as defined by the API contract.
 
-Reverse proxies must disable buffering and response compression for `GET /me/stream`, permit connections longer than `SSE_HEARTBEAT_INTERVAL_SECONDS`, forward `Last-Event-ID`, and avoid caching SSE responses. Proxy idle and request timeouts are deployment settings rather than application environment variables, but deployment validation must confirm they are compatible with the heartbeat interval and the 30-second maximum admin long poll.
+Reverse proxies must disable buffering and response compression for `GET /me/stream`, permit connections longer than `SSE_HEARTBEAT_INTERVAL_SECONDS`, forward `Last-Event-ID`, and avoid caching SSE responses. Proxy idle and request timeouts are deployment settings rather than application environment variables, but deployment validation must confirm they are compatible with the heartbeat interval and the configured admin long-poll maximum.
 
 ## 9. Frontend variables
 
@@ -135,9 +135,9 @@ Settings shared by processes must resolve to compatible values in one deployment
 
 ## 11. Topic provisioning
 
-Local bootstrap creates `wallet` and `wallet.dlq` before application readiness, with `wallet` using three partitions by default and a replication factor of one for a single local broker. Production deployment must declare partition count, replication factor, retention, cleanup policy, minimum in-sync replicas, and ACLs in infrastructure configuration; those controls are intentionally not application runtime environment variables.
+Local bootstrap creates `wallet` and `wallet_dlq` before application readiness, with `wallet` using three partitions by default and a replication factor of one for a single local broker. Production deployment must declare partition count, replication factor, retention, cleanup policy, minimum in-sync replicas, and ACLs in infrastructure configuration; those controls are intentionally not application runtime environment variables.
 
-The `wallet` partition count may differ by environment, but production changes require review because increasing it changes future key-to-partition mapping and can interrupt continuity of per-key ordering across the change. `wallet.dlq` retention must be long enough for alerting, investigation, and controlled replay. Both topics use durable retention appropriate to their role and must not rely on broker auto-creation defaults.
+The `wallet` partition count may differ by environment, but production changes require review because increasing it changes future key-to-partition mapping and can interrupt continuity of per-key ordering across the change. `wallet_dlq` retention must be long enough for alerting, investigation, and controlled replay. Both topics use durable retention appropriate to their role and must not rely on broker auto-creation defaults.
 
 ## 12. Local service topology
 
@@ -147,7 +147,7 @@ The `wallet` partition count may differ by environment, but production changes r
 | FastAPI and Swagger UI | `http://127.0.0.1:8000`, `http://127.0.0.1:8000/docs` | Host-facing development API; connects to PostgreSQL and Kafka on the Compose network. |
 | PostgreSQL | `127.0.0.1:5432` from the host; `postgres:5432` in Compose | Named persistent volume; isolated credentials and database per environment. |
 | Kafka | `kafka:9092` in Compose | Internal by default. An optional host listener such as `127.0.0.1:29092` may be added only for explicit local broker debugging. |
-| Command worker | No listening port | Independent process connected to PostgreSQL and Kafka; joins `wallet-worker`. |
+| Command worker | No listening port | Independent process connected to PostgreSQL and Kafka; joins `wallet_worker`. |
 | Reaper | No listening port | Independent process or scheduled task connected to PostgreSQL and Kafka. |
 
 Compose must pin exact container image tags or immutable digests, use health checks and named volumes where state is retained, and start API, worker, and reaper readiness only after their required dependencies and topic configuration are available. Kafka must not be bound to a public interface by default.
@@ -165,12 +165,12 @@ Compose must pin exact container image tags or immutable digests, use health che
 
 In addition to per-variable validation, startup and deployment checks enforce all of the following:
 
-- `KAFKA_COMMAND_TOPIC=wallet`, `KAFKA_DLQ_TOPIC=wallet.dlq`, and `KAFKA_WORKER_GROUP_ID=wallet-worker`; the command and DLQ topics are distinct.
+- `KAFKA_COMMAND_TOPIC`, `KAFKA_DLQ_TOPIC`, and `KAFKA_WORKER_GROUP_ID` are non-empty; the command and DLQ topics are distinct.
 - Every wallet command has a non-empty key: submitting user UUID for user operations and the literal `admin` for deposits.
 - Producer acknowledgement is `all`, producer idempotence is enabled, retries are bounded, and delivery timeout is not shorter than request timeout.
-- `WORKER_MAX_ATTEMPTS=3`; worker retry backoff is bounded; heartbeat is shorter than session timeout; maximum poll interval covers the worst-case local processing and retry duration.
+- `WORKER_MAX_ATTEMPTS` is positive; worker retry backoff is bounded; heartbeat is shorter than session timeout; maximum poll interval covers the worst-case local processing and retry duration.
 - Reaper interval, stale threshold, and batch size are positive and bounded; stale threshold exceeds the producer delivery bound plus operational jitter.
-- Admin default long-poll duration does not exceed its 30-second maximum; SSE retry guidance is at least three seconds; SSE heartbeat is compatible with deployed proxy idle timeouts.
+- Admin default long-poll duration does not exceed `ADMIN_LONG_POLL_MAX_SECONDS`; SSE retry guidance is at least three seconds; SSE heartbeat is compatible with deployed proxy idle timeouts.
 - `ENABLE_DEMO_OTP=true` and `ADMIN_API_KEY` are accepted only in development; production requires explicit HTTPS CORS origins and rejects static admin access.
 - Production database and Kafka connections use authenticated, certificate-verified encryption; paired SASL or mutual-TLS fields are complete and readable.
 - Any future test resources must be isolated from development and production, and no process becomes ready until its database schema, broker connection, required topics, and role permissions are valid.

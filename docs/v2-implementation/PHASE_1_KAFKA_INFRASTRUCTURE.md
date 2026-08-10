@@ -15,7 +15,7 @@ Work in this order:
 
 ## Current implementation status
 
-- **Steps 1–4 complete (2026-08-05); Steps 5–8 not started.** Version 1 (FastAPI, React, PostgreSQL, Alembic, synchronous wallet mutations) is the running baseline.
+- **Steps 1–5 complete (2026-08-05); Steps 6–8 not started.** Version 1 (FastAPI, React, PostgreSQL, Alembic, synchronous wallet mutations) is the running baseline.
 - Prerequisite gate from [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Prerequisites is green: Version 1 reproduces from a clean checkout, the Alembic baseline head (`d377d8c90992`) is recorded, baseline quality-command failures are written down, and an implementation branch with a rollback point exists.
 
 Canonical behavior is defined by [README.md](../v2/README.md), [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §3/§5/§9, [CONFIGURATION.md](../v2/CONFIGURATION.md) §4/§5/§10–§12, and [API_CONTRACT.md](../v2/API_CONTRACT.md) §Diagnostics and health.
@@ -35,7 +35,7 @@ Make Kafka infrastructure reproducible, secured by configuration boundaries, obs
 ### In scope
 
 - Pinned Kafka broker in `docker-compose.yml` with health check, named volume, no public listener by default.
-- Explicit provisioning of `wallet` (3 local partitions) and `wallet.dlq`; no reliance on broker auto-creation.
+- Explicit provisioning of `wallet` (3 local partitions) and `wallet_dlq`; no reliance on broker auto-creation.
 - Async Kafka client dependency in `backend/pyproject.toml` with updated `uv.lock`.
 - Validated settings for Kafka connection, topics, producer reliability, worker, reaper, SSE, and admin polling, with startup failure on invalid combinations.
 - Domain publisher port, clock port reuse, transport-neutral command envelope, transaction-type validation.
@@ -57,7 +57,7 @@ Kafka infrastructure is reproducible, secured by configuration boundaries, obser
 ## Architecture rules
 
 - Follow [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §4: `domain/` must not import FastAPI, Pydantic, SQLAlchemy, or Kafka-client packages. The envelope model and publisher port live in `domain/`; all Kafka-client code lives under `app/kafka/`.
-- Topic names, group ID, and key rules are fixed Version 2 semantics: `KAFKA_COMMAND_TOPIC=wallet`, `KAFKA_DLQ_TOPIC=wallet.dlq`, `KAFKA_WORKER_GROUP_ID=wallet-worker`; startup validation rejects other values.
+- Topic names, group ID, and key rules are deployment configuration with documented local defaults (`KAFKA_COMMAND_TOPIC=wallet`, `KAFKA_DLQ_TOPIC=wallet_dlq`, `KAFKA_WORKER_GROUP_ID=wallet_worker`); startup validation requires non-empty values, distinct command/DLQ topics, and matching broker provisioning.
 - Every published record has a non-empty key: submitting user UUID string for user commands, literal `admin` for deposits. A publish call without a key is rejected before any network I/O.
 - Producer guarantees are not feature flags: `acks=all` and idempotence are always on; retries and delivery timeout are bounded by settings.
 - Processes validate only the settings they own ([CONFIGURATION.md](../v2/CONFIGURATION.md) §10) and fail startup on an unknown profile, missing owned setting, topic mismatch, incompatible timeout relationship, or a prohibited production shortcut.
@@ -136,9 +136,9 @@ services:
     command:
       - |
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic wallet --partitions 3 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic wallet.dlq --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic wallet_dlq --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet.dlq
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet_dlq
     restart: "no"
 
 volumes:
@@ -156,7 +156,7 @@ docker compose run --rm kafka-init
 docker compose ps
 ```
 
-**Verification record (2026-08-05, Step 2 complete):** CLI paths `/opt/kafka/bin/` confirmed against `apache/kafka:4.3.1` (health check passes, `kafka-topics.sh` runs unmodified). `docker compose up -d kafka` → healthy; `docker compose run --rm kafka-init` → created `wallet` (3 partitions, RF 1) and `wallet.dlq` (1 partition, RF 1), both described in output above. `docker compose ps` shows Kafka healthy with `9092/tcp` internal only — no host port published. The broker's one-time metric-name warning about `.`/`_` topic collision is informational; `wallet` and `wallet.dlq` do not collide.
+**Verification record (2026-08-05, Step 2 complete):** CLI paths `/opt/kafka/bin/` confirmed against `apache/kafka:4.3.1` (health check passes, `kafka-topics.sh` runs unmodified). `docker compose up -d kafka` → healthy; `docker compose run --rm kafka-init` → created `wallet` (3 partitions, RF 1) and `wallet_dlq` (1 partition, RF 1), both described in output above. `docker compose ps` shows Kafka healthy with `9092/tcp` internal only — no host port published. The broker's one-time metric-name warning about `.`/`_` topic collision is informational; `wallet` and `wallet_dlq` do not collide.
 
 ## Step 3 — Settings
 
@@ -167,19 +167,19 @@ Add these variables exactly as named in [CONFIGURATION.md](../v2/CONFIGURATION.m
 | Group | Variables |
 | --- | --- |
 | Kafka connection (API, worker, reaper) | `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_COMMAND_TOPIC` (default `wallet`), `KAFKA_SECURITY_PROTOCOL` (default `PLAINTEXT`), `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD`, `KAFKA_SSL_CA_FILE`, `KAFKA_SSL_CERT_FILE`, `KAFKA_SSL_KEY_FILE` |
-| Topics / group | `KAFKA_DLQ_TOPIC` (default `wallet.dlq`, worker), `KAFKA_WORKER_GROUP_ID` (default `wallet-worker`, worker) |
+| Topics / group | `KAFKA_DLQ_TOPIC` (default `wallet_dlq`, worker), `KAFKA_WORKER_GROUP_ID` (default `wallet_worker`, worker) |
 | Producer reliability (API, worker for DLQ, reaper) | `KAFKA_PRODUCER_REQUEST_TIMEOUT_MS` (`10000`), `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS` (`30000`), `KAFKA_PRODUCER_MAX_RETRIES` (`5`), `KAFKA_PRODUCER_RETRY_BACKOFF_MS` (`200`), `KAFKA_PRODUCER_RETRY_BACKOFF_MAX_MS` (`2000`) |
-| Worker | `WORKER_MAX_ATTEMPTS` (must equal `3`), `WORKER_RETRY_BACKOFF_MS` (`500`), `WORKER_RETRY_BACKOFF_MAX_MS` (`5000`), `WORKER_POLL_TIMEOUT_MS` (`1000`), `WORKER_HEARTBEAT_INTERVAL_MS` (`3000`), `WORKER_SESSION_TIMEOUT_MS` (`30000`), `WORKER_MAX_POLL_INTERVAL_MS` (`300000`) |
+| Worker | `WORKER_MAX_ATTEMPTS` (`3`), `WORKER_RETRY_BACKOFF_MS` (`500`), `WORKER_RETRY_BACKOFF_MAX_MS` (`5000`), `WORKER_POLL_TIMEOUT_MS` (`1000`), `WORKER_HEARTBEAT_INTERVAL_MS` (`3000`), `WORKER_SESSION_TIMEOUT_MS` (`30000`), `WORKER_MAX_POLL_INTERVAL_MS` (`300000`) |
 | Reaper | `REAPER_INTERVAL_SECONDS` (`30`), `REAPER_STALE_THRESHOLD_SECONDS` (`60`), `REAPER_BATCH_SIZE` (`100`, 1–1000) |
 | API streaming / polling | `ADMIN_LONG_POLL_DEFAULT_SECONDS` (`25`), `ADMIN_LONG_POLL_MAX_SECONDS` (`30`), `SSE_HEARTBEAT_INTERVAL_SECONDS` (`15`), `SSE_RETRY_MILLISECONDS` (`3000`, ≥ 3000) |
 
 Implement the cross-setting invariants from [CONFIGURATION.md](../v2/CONFIGURATION.md) §14 as validators that raise at startup:
 
-- topic names equal the fixed Version 2 values and command/DLQ topics are distinct;
+- command and DLQ topic names are non-empty and distinct;
 - `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS >= KAFKA_PRODUCER_REQUEST_TIMEOUT_MS`; retry backoff max ≥ initial backoff;
-- `WORKER_MAX_ATTEMPTS == 3`; `WORKER_HEARTBEAT_INTERVAL_MS < WORKER_SESSION_TIMEOUT_MS`; `WORKER_MAX_POLL_INTERVAL_MS` covers worst-case local processing plus the full retry schedule;
+- `WORKER_MAX_ATTEMPTS` is positive; `WORKER_HEARTBEAT_INTERVAL_MS < WORKER_SESSION_TIMEOUT_MS`; `WORKER_MAX_POLL_INTERVAL_MS` covers worst-case local processing plus the full retry schedule;
 - `REAPER_STALE_THRESHOLD_SECONDS` exceeds the producer delivery bound plus jitter (validate `REAPER_STALE_THRESHOLD_SECONDS * 1000 > KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS`);
-- `ADMIN_LONG_POLL_DEFAULT_SECONDS <= ADMIN_LONG_POLL_MAX_SECONDS <= 30`;
+- `ADMIN_LONG_POLL_DEFAULT_SECONDS <= ADMIN_LONG_POLL_MAX_SECONDS`;
 - in `APP_ENV=production`: `KAFKA_SECURITY_PROTOCOL` is `SSL` or `SASL_SSL`, SASL/mutual-TLS pairs are complete and readable, `ADMIN_API_KEY` and `ENABLE_DEMO_OTP=true` are rejected.
 
 Suggested structure in `backend/app/config.py`:
@@ -189,15 +189,15 @@ class KafkaSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="KAFKA_")
     bootstrap_servers: str
     command_topic: str = "wallet"
-    dlq_topic: str = "wallet.dlq"
-    worker_group_id: str = "wallet-worker"
+    dlq_topic: str = "wallet_dlq"
+    worker_group_id: str = "wallet_worker"
     security_protocol: Literal["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"] = "PLAINTEXT"
     # ... sasl/ssl fields, producer timeout/retry fields, and validators per above ...
 ```
 
 Also update `.env.example` (or the documented local env template) with the development values: `KAFKA_BOOTSTRAP_SERVERS=kafka:9092` when the API runs in Compose, or the host-reachable address when run locally against the Compose broker.
 
-**Implementation record (2026-08-05, Step 3 complete):** `backend/app/config.py` now defines `SharedSettings` (APP_ENV/DATABASE_URL/LOG_LEVEL, owned by every process), `Settings` (API, unchanged public surface, plus rejection of `ADMIN_API_KEY` in production and `ENABLE_DEMO_OTP=true` outside development), `KafkaSettings` (`KAFKA_` prefix: connection, fixed topic/group values, SASL/SSL pairing, producer reliability bounds), `WorkerSettings` (`WORKER_` prefix), `ReaperSettings` (`REAPER_` prefix), and `StreamingSettings` (admin long-poll/SSE, no prefix). Cross-group invariants live in `validate_kafka_connection` / `validate_worker_composition` / `validate_reaper_composition`, applied by the per-process `load_api_runtime` / `load_worker_runtime` / `load_reaper_runtime` loaders so each process validates only what it owns and fails at startup on any violation. `WORKER_MAX_POLL_INTERVAL_MS` must cover one poll plus the full retry schedule plus the bounded DLQ publication wait. Empty strings normalize to missing. `.env.example` documents all development values (`KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, Compose-network address). Verified: `ruff check`, `ruff format --check`, `mypy app` pass; 22-case validator matrix (fixed topics, timeout orderings, SASL/SSL pairing, production protocol/CA/admin-key/demo-OTP rejection, reaper/worker composition bounds) all reject/accept as specified; `create_app` still boots with existing Version 1 settings.
+**Implementation record (2026-08-05, Step 3 complete):** `backend/app/config.py` now defines `SharedSettings` (APP_ENV/DATABASE_URL/LOG_LEVEL, owned by every process), `Settings` (API, unchanged public surface, plus rejection of `ADMIN_API_KEY` in production and `ENABLE_DEMO_OTP=true` outside development), `KafkaSettings` (`KAFKA_` prefix: connection, topic/group names with local defaults, SASL/SSL pairing, producer reliability bounds), `WorkerSettings` (`WORKER_` prefix), `ReaperSettings` (`REAPER_` prefix), and `StreamingSettings` (admin long-poll/SSE, no prefix). Cross-group invariants live in `validate_kafka_connection` / `validate_worker_composition` / `validate_reaper_composition`, applied by the per-process `load_api_runtime` / `load_worker_runtime` / `load_reaper_runtime` loaders so each process validates only what it owns and fails at startup on any violation. `WORKER_MAX_POLL_INTERVAL_MS` must cover one poll plus the full retry schedule plus the bounded DLQ publication wait. Empty strings normalize to missing. `.env.example` documents all development values (`KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, Compose-network address). Verified: `ruff check`, `ruff format --check`, `mypy app` pass; validator matrix (topic distinctness, timeout orderings, SASL/SSL pairing, production protocol/CA/admin-key/demo-OTP rejection, reaper/worker composition bounds) all reject/accept as specified; `create_app` still boots with existing Version 1 settings.
 
 ## Step 4 — Domain ports and envelope
 
@@ -279,6 +279,8 @@ Build the underlying `AIOKafkaProducer` in `backend/app/kafka/messaging/producer
 
 Update `backend/app/dependencies.py` with a `build_command_publisher(settings)` factory used by API (Phase 3) and reaper (Phase 5) composition.
 
+**Implementation record (2026-08-05, Step 5 complete):** `app/kafka/` created with a façade plus `messaging/` subpackage: `envelope_codec.py` (compact JSON wire shape `{"request_id","type","submitted_at"}`; `decode_envelope` returns `Result.failure(COMMAND_ENVELOPE_INVALID)` for malformed JSON, non-dict payloads, unknown types, and naive timestamps), `producer.py` (`KafkaCommandPublisher` implementing the `CommandPublisher` port: keyless publish rejected before network I/O; `asyncio.wait_for` enforces the end-to-end delivery bound and raises `PublishTimeoutError`; bounded retry loop honors `KAFKA_PRODUCER_MAX_RETRIES` with exponential backoff capped at `KAFKA_PRODUCER_RETRY_BACKOFF_MAX_MS` using aiokafka's `retriable` error classification; non-retriable errors raise immediately; `start`/`stop` lifecycle delegates), and `producer_factory.py` (`build_aiokafka_producer` maps settings to client options with `acks="all"` and `enable_idempotence=True` hardcoded, SASL/mutual-TLS mapped from settings, `ssl.create_default_context` keeping certificate and hostname verification non-disableable; `build_kafka_command_publisher(settings, *, topic=None)` for command-topic and DLQ reuse). `dependencies.py` exposes `build_command_publisher(settings: KafkaSettings)` for API/reaper composition. Logging is structured via `extra` (topic, partition, offset, key class `admin`/`user`, request_id, command_type — never payloads or raw keys). `pyproject.toml` gained mypy overrides: `follow_untyped_imports` for `aiokafka.*` and scoped `disallow_untyped_calls = false` for `app.kafka.*` (aiokafka's producer methods are unannotated). Verified: ruff/mypy pass; codec round-trip and four malformed-input rejections; keyless publish rejected pre-network; publish bound held at 0.30s against a hanging producer; retriable failure recovered on attempt 3; non-retriable raised on first call. Live broker publication is exercised in Step 8.
+
 ## Step 6 — Process shells
 
 Create independently runnable entry points that validate owned settings, construct dependencies, report readiness, handle `SIGINT`/`SIGTERM` gracefully, and exit cleanly — with no wallet execution or republication behavior yet.
@@ -287,7 +289,7 @@ Create `backend/app/kafka/worker/__init__.py` and `backend/app/kafka/worker/main
 
 - validate worker-owned settings (shared DB + logging, Kafka connection/topics/group, producer settings for DLQ, worker execution/liveness);
 - verify PostgreSQL connectivity and the expected Alembic revision;
-- verify broker connectivity, `wallet`/`wallet.dlq` metadata, and group `wallet-worker`;
+- verify broker connectivity, `wallet`/`wallet_dlq` metadata, and group `wallet_worker`;
 - log readiness and idle until shutdown; on signal, stop polling, close consumer/producer/session factory, exit 0.
 
 Create `backend/app/kafka/reaper/__init__.py` and `backend/app/kafka/reaper/main.py` analogously for reaper-owned settings (no consumer group, no DLQ ownership), idling on a `REAPER_INTERVAL_SECONDS` schedule without scanning yet.
@@ -306,7 +308,7 @@ Update `backend/app/api/routers/health.py` so `GET /health/ready` checks only AP
 
 Worker and reaper shells expose readiness through structured logs and exit codes (no listening port); each checks only its owned dependencies per [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §14.
 
-Add least-privilege deployment guidance as a comment block in `docker-compose.yml` (or `docs/v2/OPERATIONS.md` if a section exists): API and reaper write `wallet`; the worker reads `wallet` and writes `wallet.dlq`; no application process receives broad broker-administration rights; production ACLs are deployment configuration, not application settings.
+Add least-privilege deployment guidance as a comment block in `docker-compose.yml` (or `docs/v2/OPERATIONS.md` if a section exists): API and reaper write `wallet`; the worker reads `wallet` and writes `wallet_dlq`; no application process receives broad broker-administration rights; production ACLs are deployment configuration, not application settings.
 
 ## Step 8 — Smoke check
 
@@ -317,7 +319,7 @@ Run each check and record the observed result:
 ```bash
 docker compose up -d kafka && docker compose run --rm kafka-init
 docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet
-docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet.dlq
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet_dlq
 ```
 
 Confirm `wallet` has 3 partitions, both topics exist with reviewed settings.

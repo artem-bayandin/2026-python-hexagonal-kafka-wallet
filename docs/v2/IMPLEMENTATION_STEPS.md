@@ -41,7 +41,7 @@ Before Phase 1:
 - [ ] Never hold a PostgreSQL transaction open during Kafka I/O, retry backoff, SSE waiting, or admin long-poll waiting.
 - [ ] Commit wallet mutation, reservation settlement or release, and terminal status in one PostgreSQL transaction before acknowledging the source record.
 - [ ] Never republish stale `pending` or `in_progress`; alert and investigate them.
-- [ ] Publish exhausted or poison failures to `wallet.dlq` before acknowledging the original record; duplicate DLQ records are acceptable, silent loss is not.
+- [ ] Publish exhausted or poison failures to `wallet_dlq` before acknowledging the original record; duplicate DLQ records are acceptable, silent loss is not.
 - [ ] Keep domain code free of FastAPI, Pydantic, SQLAlchemy, Kafka-client, and transport DTO imports.
 - [ ] Keep HTTP authentication request-scoped; worker, reaper, and notifier paths receive explicit identifiers and never depend on request context.
 - [ ] Expose only safe client errors; redact secrets, credentials, personal data, raw exceptions, and unrestricted payloads from HTTP, SSE, logs, metrics, traces, and DLQ context.
@@ -86,14 +86,14 @@ The following evidence accumulates throughout the plan and becomes release-block
 ### API and process infrastructure
 
 - [ ] Add a pinned Kafka broker to Docker Compose with a health check, named storage where required, and no public listener by default.
-- [ ] Provision `wallet` and `wallet.dlq` explicitly; use three local `wallet` partitions by default and never rely on broker auto-creation.
+- [ ] Provision `wallet` and `wallet_dlq` explicitly; use three local `wallet` partitions by default and never rely on broker auto-creation.
 - [ ] Add the async Kafka client through the backend package manager, update the lockfile, and review broker/client compatibility.
 - [ ] Implement validated settings exactly as specified for broker security, fixed topic names, producer timeouts/retries, worker group, worker liveness, reaper, SSE, and admin polling ownership.
 - [ ] Fail startup on invalid profile, missing owned settings, topic mismatch, incompatible timeout relationships, or prohibited production shortcuts.
 - [ ] Implement the producer adapter with `acks=all`, producer idempotence, bounded retry/backoff, bounded delivery timeout, explicit key, and safe structured telemetry.
 - [ ] Add independently runnable worker and reaper process shells with dependency validation and graceful startup/shutdown, but no wallet execution or republication behavior yet.
 - [ ] Extend readiness so each process checks only its owned dependencies, schema expectation, topic metadata, and permissions.
-- [ ] Add least-privilege deployment guidance: API and reaper write `wallet`; worker reads `wallet` and writes `wallet.dlq`; applications receive no broad broker-administration rights.
+- [ ] Add least-privilege deployment guidance: API and reaper write `wallet`; worker reads `wallet` and writes `wallet_dlq`; applications receive no broad broker-administration rights.
 
 ### UI
 
@@ -102,7 +102,7 @@ The following evidence accumulates throughout the plan and becomes release-block
 
 ### Smoke check
 
-- [ ] Start the Compose broker and confirm `wallet` and `wallet.dlq` exist with the reviewed partition, retention, and replication settings.
+- [ ] Start the Compose broker and confirm `wallet` and `wallet_dlq` exist with the reviewed partition, retention, and replication settings.
 - [ ] Publish a few sample keyed messages and consume them back, confirming identical keys land on one partition and per-key order holds.
 - [ ] Confirm an attempted publish without a key is rejected before network I/O.
 - [ ] Confirm the worker and reaper shells start, reach readiness, and shut down cleanly.
@@ -228,7 +228,7 @@ Phase 3 and Phase 4 are integration milestones, not production-release points. U
 - [ ] Implement exactly three local attempts for retryable execution failures with bounded backoff while status remains `in_progress`.
 - [ ] Do not hold a database transaction during backoff or Kafka waits.
 - [ ] On success, commit the terminal database transaction before acknowledging the source record.
-- [ ] On exhausted or poison failure, publish the original key/envelope plus safe context to `wallet.dlq` and await acknowledgement before atomically persisting safe terminal failure and releasing any reservation; acknowledge the source record only after both are durable.
+- [ ] On exhausted or poison failure, publish the original key/envelope plus safe context to `wallet_dlq` and await acknowledgement before atomically persisting safe terminal failure and releasing any reservation; acknowledge the source record only after both are durable.
 - [ ] If DLQ publication fails, leave the source record unacknowledged and alert.
 - [ ] Do not commit `failed` before DLQ acknowledgement unless a future schema adds a durable DLQ-publication marker; otherwise a crash can leave a terminal row whose redelivery skips a missing DLQ record.
 - [ ] Emit structured correlation for publish attempt/ack, guard outcome, delivery, claim, retry, terminal commit, DLQ ack, and source ack without implying cross-system atomicity.
@@ -674,4 +674,4 @@ No phase or slice is release-complete until this gate is green. A partially gree
 - [ ] Operations, migration, backup/restore, release, rollback, and incident procedures have been exercised rather than merely written.
 - [ ] No known invariant violation, cross-user disclosure, unbounded retry, silent message loss, stuck reservation, or skipped admin update remains open.
 
-**Version 2 is done when:** all four wallet mutations return `202 Accepted` with `request_id`; debit funds reserve at submission and settle or release atomically; `wallet` commands preserve required key order; the worker processes at least once without double-applying assets; exhausted failures reach `wallet.dlq`; the reaper safely closes the `submitted` publication gap; users reconcile secure live statuses over SSE; administrators receive every database-backed status update through `(updated_at, id)` long polling; and every operational, migration, security, build, and smoke-check gate above is green.
+**Version 2 is done when:** all four wallet mutations return `202 Accepted` with `request_id`; debit funds reserve at submission and settle or release atomically; `wallet` commands preserve required key order; the worker processes at least once without double-applying assets; exhausted failures reach `wallet_dlq`; the reaper safely closes the `submitted` publication gap; users reconcile secure live statuses over SSE; administrators receive every database-backed status update through `(updated_at, id)` long polling; and every operational, migration, security, build, and smoke-check gate above is green.

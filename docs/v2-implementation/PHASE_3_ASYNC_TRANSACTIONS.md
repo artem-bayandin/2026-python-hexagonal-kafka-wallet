@@ -46,7 +46,7 @@ Prove one common asynchronous path — submit, publish, consume, execute, termin
 - On definitive bounded publication failure: guard `submitted → failed`, release any reservation, and store a safe error — atomically, in one transaction.
 - Worker: validate envelope → load by `request_id` → compare stored type → claim `pending → in_progress` → execute with deterministic wallet locks → commit wallet mutation + settlement/release + terminal status in one transaction → acknowledge the source record.
 - Exactly three local attempts for retryable failures with bounded backoff while status remains `in_progress`; poison input (malformed envelope, unknown type, irreconcilable mismatch) fails terminally without pointless retries.
-- Exhausted or poison failure: publish original key/envelope plus safe context to `wallet.dlq`, await acknowledgement, then commit safe terminal failure + reservation release, then acknowledge the source record. If DLQ publication fails, leave the source record unacknowledged and alert. Never commit `failed` before DLQ acknowledgement (no durable DLQ marker exists).
+- Exhausted or poison failure: publish original key/envelope plus safe context to `wallet_dlq`, await acknowledgement, then commit safe terminal failure + reservation release, then acknowledge the source record. If DLQ publication fails, leave the source record unacknowledged and alert. Never commit `failed` before DLQ acknowledgement (no durable DLQ marker exists).
 - Keep each converted route behind an explicit deployment boundary so old synchronous and new asynchronous execution cannot both apply the same submission.
 
 ## Shared skeleton
@@ -121,7 +121,7 @@ Add the bounded visibility delay helper for the worker's `submitted`-race decisi
 
 **Worker side** — extend `backend/app/kafka/worker/`:
 
-Create `backend/app/kafka/worker/consumer.py` — `AIOKafkaConsumer` on topic `wallet`, group `wallet-worker`, `enable_auto_commit=False`, session/heartbeat/max-poll from settings; manual offset commit only after the terminal database commit (and DLQ durability, on failure).
+Create `backend/app/kafka/worker/consumer.py` — `AIOKafkaConsumer` on topic `wallet`, group `wallet_worker`, `enable_auto_commit=False`, session/heartbeat/max-poll from settings; manual offset commit only after the terminal database commit (and DLQ durability, on failure).
 
 Create `backend/app/kafka/worker/dispatcher.py`:
 
@@ -138,7 +138,7 @@ Create `backend/app/kafka/worker/dispatcher.py`:
 
 Create `backend/app/kafka/worker/retry_loop.py` — exactly `WORKER_MAX_ATTEMPTS` (= 3) attempts for retryable failures with `WORKER_RETRY_BACKOFF_MS`→`WORKER_RETRY_BACKOFF_MAX_MS` backoff; no PostgreSQL transaction held during backoff; poison classification short-circuits the loop.
 
-Create `backend/app/kafka/worker/dlq.py` — publish original key and envelope plus safe context (`request_id`, type, safe error classification, attempt count, timestamp) to `wallet.dlq` through the Phase 1 producer adapter; await acknowledgement before the terminal database commit; on DLQ publication failure leave the source record unacknowledged and log an alert-level structured event.
+Create `backend/app/kafka/worker/dlq.py` — publish original key and envelope plus safe context (`request_id`, type, safe error classification, attempt count, timestamp) to `wallet_dlq` through the Phase 1 producer adapter; await acknowledgement before the terminal database commit; on DLQ publication failure leave the source record unacknowledged and log an alert-level structured event.
 
 Emit structured logs correlated by `request_id` for: publish attempt/ack, guard outcome, delivery, claim, retry, terminal commit, DLQ ack, source ack — without implying cross-system atomicity.
 
@@ -156,7 +156,7 @@ Add a shared reconciliation helper in `frontend/src/utils/transaction_status.ts`
 
 ### Smoke check (skeleton)
 
-Carry one no-op command (a staged `submitted` row of a not-yet-enabled type, or a deposit behind a disabled route flag) through: submit → publish → guarded claim → terminal handling → forced redelivery → DLQ path, watching PostgreSQL rows and logs. Restart the worker once mid-processing and confirm redelivery produces no second mutation. Send one malformed envelope and one unknown type and confirm nothing mutates and both reach `wallet.dlq`.
+Carry one no-op command (a staged `submitted` row of a not-yet-enabled type, or a deposit behind a disabled route flag) through: submit → publish → guarded claim → terminal handling → forced redelivery → DLQ path, watching PostgreSQL rows and logs. Restart the worker once mid-processing and confirm redelivery produces no second mutation. Send one malformed envelope and one unknown type and confirm nothing mutates and both reach `wallet_dlq`.
 
 ### Migration and rollback (skeleton)
 

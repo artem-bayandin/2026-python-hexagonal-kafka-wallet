@@ -163,11 +163,11 @@ The command value is the transport-neutral envelope:
 
 The worker dispatches by `type` and loads all authoritative terms from the `transactions` row identified by `request_id`. Additional financial payload is unnecessary and, if later introduced for diagnostics or compatibility, must never override PostgreSQL. The envelope contains no ORM objects, Pydantic request objects, JWTs, admin keys, OTPs, emails, connection strings, or other secrets.
 
-The consumer group is `wallet-worker`. All command-worker instances join this group so each partition has at most one active group consumer at a time while allowing horizontal scaling up to the partition count.
+The consumer group is `wallet_worker`. All command-worker instances join this group so each partition has at most one active group consumer at a time while allowing horizontal scaling up to the partition count.
 
 The producer must request acknowledgement from all in-sync replicas (`acks=all`), enable Kafka producer idempotence, and use bounded retries and timeouts. Producer idempotence reduces duplicate records caused by producer retries within Kafka's supported session semantics; it does not deduplicate reaper publication, make PostgreSQL atomic with Kafka, or justify an exactly-once claim.
 
-The DLQ topic is `wallet.dlq`. DLQ records retain the original key and envelope and add safe failure context sufficient for operations and controlled replay. DLQ consumers must treat `request_id` as the deduplication identity because duplicate DLQ records are possible.
+The DLQ topic is `wallet_dlq`. DLQ records retain the original key and envelope and add safe failure context sufficient for operations and controlled replay. DLQ consumers must treat `request_id` as the deduplication identity because duplicate DLQ records are possible.
 
 Topic creation, partition count, replication, retention, and development bootstrap must be explicit deployment configuration. Production changes to partitioning require review because increasing partitions changes future key-to-partition mapping and therefore the continuity of per-key ordering across the change.
 
@@ -234,7 +234,7 @@ SSE authorization must be enforced before streaming and on every database select
 
 Kafka commands contain only minimum identifiers and no credentials or personal data. Logs, metrics, traces, DLQ context, and error responses must redact OTPs, JWTs, admin keys, database credentials, Kafka credentials, connection strings, and raw unexpected exceptions.
 
-Kafka must not be publicly exposed by default. Production transport encryption, broker authentication, and topic ACL mechanisms are deployment decisions to be selected before production use; whatever mechanism is chosen must give the API producer write access to `wallet`, the worker read access to `wallet` and write access to `wallet.dlq`, and operations only the minimum required administrative access.
+Kafka must not be publicly exposed by default. Production transport encryption, broker authentication, and topic ACL mechanisms are deployment decisions to be selected before production use; whatever mechanism is chosen must give the API producer write access to `wallet`, the worker read access to `wallet` and write access to `wallet_dlq`, and operations only the minimum required administrative access.
 
 Configuration must fail safely when required secrets or broker settings are absent. Development shortcuts may not be enabled in production. Dependency and container images must be scanned, and security fixes follow an expedited update path.
 
@@ -303,4 +303,4 @@ Migrations must be applied before code that depends on the new schema. Rollback 
 
 ## 18. Definition of done
 
-Version 2 is done when all four wallet mutations submit asynchronously with `202` and `request_id`; debit funds are reserved at submission and settle or release atomically; direct post-commit publication and the stale-`submitted` reaper recover the database/Kafka gap; `wallet` commands satisfy key, envelope, ordering, and producer guarantees; the `wallet-worker` group processes every type at least once without double-applying assets; exhausted failures reach `wallet.dlq`; users observe safe status changes over the swappable SSE notifier boundary; administrators observe all inserts and transitions through PostgreSQL long polling on `(updated_at, id)`; security and operational controls are present; and every quality gate passes.
+Version 2 is done when all four wallet mutations submit asynchronously with `202` and `request_id`; debit funds are reserved at submission and settle or release atomically; direct post-commit publication and the stale-`submitted` reaper recover the database/Kafka gap; `wallet` commands satisfy key, envelope, ordering, and producer guarantees; the `wallet_worker` group processes every type at least once without double-applying assets; exhausted failures reach `wallet_dlq`; users observe safe status changes over the swappable SSE notifier boundary; administrators observe all inserts and transitions through PostgreSQL long polling on `(updated_at, id)`; security and operational controls are present; and every quality gate passes.

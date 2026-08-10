@@ -89,8 +89,8 @@ Consequences:
 ## Kafka layout
 
 - Topic `wallet` (dev default 3 partitions). Key = `user_id` (string) for user operations → per-user ordering and even spread. Key = literal `"admin"` for deposits → single admin partition by design (low volume, ordering preserved).
-- Topic `wallet.dlq` — Dead Letter Queue for poison messages after final retry, with error context for replay. After 3 in-process failures the worker marks the tx `failed`, publishes to `wallet.dlq`, and acks the original `wallet` message so the partition does not block. No DLQ table in Postgres unless a replay UI is wanted later.
-- Consumer group `wallet-worker`; dispatch by message `type` field (`deposit|withdrawal|exchange|transfer`).
+- Topic `wallet_dlq` — Dead Letter Queue for poison messages after final retry, with error context for replay. After 3 in-process failures the worker marks the tx `failed`, publishes to `wallet_dlq`, and acks the original `wallet` message so the partition does not block. No DLQ table in Postgres unless a replay UI is wanted later.
+- Consumer group `wallet_worker`; dispatch by message `type` field (`deposit|withdrawal|exchange|transfer`).
 - Message envelope: `{request_id, type, submitted_at}` — the worker loads the transaction row from Postgres (DB is truth); payload in the message is for diagnostics only.
 - Producer: `acks=all`, `enable.idempotence=true`, bounded retries.
 
@@ -155,7 +155,7 @@ Terminal `failed` + `error` is the persisted outcome. Status stays `in_progress`
 
 Strict Domain → DB → API → UI within each slice (where a slice spans those layers).
 
-1. **kafka-infra** — single slice: Docker Compose Kafka broker (pinned image), topic bootstrap (`wallet`, `wallet.dlq`), configuration settings, `app/kafka/messaging/` producer adapter (`aiokafka`).
+1. **kafka-infra** — single slice: Docker Compose Kafka broker (pinned image), topic bootstrap (`wallet`, `wallet_dlq`), configuration settings, `app/kafka/messaging/` producer adapter (`aiokafka`).
 2. **async-schema** — single slice: Alembic migration (statuses, `request_id`, `error`, `updated_at`, `locked_amount`); domain status enum and guarded transition helpers.
 3. **async-submit-worker** — vertical per transaction type. Optional **Slice 0**: shared submit/worker skeleton (producer wiring, consumer process, dispatcher stub, lock helpers, message envelope). Then **Slice 1–4** in order **deposit → withdrawal → exchange → transfer**: each slice takes that type end-to-end through async submit (`202` + lock/publish where applicable) and the command-worker path (consume, guarded transitions, domain settle/release, retry 3× → `failed` + DLQ), reusing Phase 3–5 repositories and domain services.
 4. **user-live-status** — SSE route + notifier; UI status stepper, balance refetch on success, error display.

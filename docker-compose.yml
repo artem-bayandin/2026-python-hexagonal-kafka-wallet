@@ -47,9 +47,9 @@ services:
     command:
       - |
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic wallet --partitions 3 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic wallet.dlq --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic wallet_dlq --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet.dlq
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic wallet_dlq
     restart: "no"
 
 volumes:

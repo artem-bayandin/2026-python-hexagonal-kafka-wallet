@@ -39,3 +39,13 @@ select = ["E", "F", "B", "UP", "SIM", "N", "ANN"]
 [tool.mypy]
 python_version = "3.14"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["aiokafka", "aiokafka.*"]
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+# aiokafka's producer methods are unannotated; the adapter package is the only
+# place that calls them, so relax untyped-call strictness just there.
+module = ["app.kafka", "app.kafka.*"]
+disallow_untyped_calls = false

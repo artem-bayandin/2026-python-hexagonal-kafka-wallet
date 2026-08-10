@@ -18,12 +18,12 @@ from app.api import (
     reference_router,
     wallet_router,
 )
-from app.config import Settings, get_settings
+from app.config import ApiSettings, get_api_settings
 from app.db import build_session_factory
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    resolved = settings or get_settings()
+def create_app(settings: ApiSettings | None = None) -> FastAPI:
+    resolved = settings or get_api_settings()
     engine: AsyncEngine = create_async_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
 

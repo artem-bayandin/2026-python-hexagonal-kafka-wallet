@@ -3,7 +3,7 @@ from app.auth import (
     PyJwtTokenService,
     SystemClock,
 )
-from app.config import Settings
+from app.config import KafkaSettings, ApiSettings
 from app.db import (
     AdminWalletCommandRepositoryImpl,
     AdminWalletQueryRepositoryImpl,
@@ -21,6 +21,7 @@ from app.db import (
 )
 from app.domain import (
     AdminDepositHandler,
+    CommandPublisher,
     CurrentUserProvider,
     ExchangeHandler,
     AdminBalancesHandler,
@@ -36,6 +37,16 @@ from app.domain import (
     VerifyOtpHandler,
     WithdrawHandler,
 )
+from app.kafka import build_kafka_command_publisher
+
+# # # # Region: kafka
+
+# CommandPublisher
+
+
+def build_command_publisher(settings: KafkaSettings) -> CommandPublisher:
+    return build_kafka_command_publisher(settings)
+
 
 # # # # Region: routes.admin
 
@@ -104,7 +115,7 @@ def build_list_currencies_handler(session: AsyncSession) -> CurrenciesHandler:
 
 def build_request_otp_handler(
     session: AsyncSession,
-    settings: Settings,
+    settings: ApiSettings,
 ) -> RequestOtpHandler:
     include_demo_otp = settings.app_env == "development" and settings.enable_demo_otp
     return RequestOtpHandler(
@@ -122,7 +133,7 @@ def build_request_otp_handler(
 
 def build_verify_otp_handler(
     session: AsyncSession,
-    settings: Settings,
+    settings: ApiSettings,
 ) -> VerifyOtpHandler:
     return VerifyOtpHandler(
         UserCommandRepositoryImpl(session),
@@ -143,7 +154,7 @@ def build_verify_otp_handler(
 
 def build_get_current_user_handler(
     session: AsyncSession,
-    settings: Settings,
+    settings: ApiSettings,
 ) -> CurrentUserHandler:
     return CurrentUserHandler(
         PyJwtTokenService(settings.jwt_secret),

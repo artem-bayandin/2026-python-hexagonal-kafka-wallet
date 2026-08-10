@@ -8,7 +8,7 @@ PostgreSQL is the source of truth for transaction state, financial terms, balanc
 
 Operational action must preserve the Version 2 lifecycle and idempotency boundary. The reaper republishes only stale `submitted` transactions. Operators must never blindly republish `pending` or `in_progress` transactions. Every controlled replay preserves the original Kafka key and `request_id` and passes through the same guarded transaction-state and wallet-row checks as ordinary delivery.
 
-For exhausted or poison worker failures, `wallet.dlq` acknowledgement must precede the database commit of terminal `failed` and lock release, and both must precede acknowledgement of the source record. Version 2 has no persisted DLQ-publication marker, so reversing the first two steps can silently lose the DLQ record after a crash. A crash after DLQ acknowledgement may create a duplicate DLQ record on redelivery; that is safe and preferable to loss.
+For exhausted or poison worker failures, `wallet_dlq` acknowledgement must precede the database commit of terminal `failed` and lock release, and both must precede acknowledgement of the source record. Version 2 has no persisted DLQ-publication marker, so reversing the first two steps can silently lose the DLQ record after a crash. A crash after DLQ acknowledgement may create a duplicate DLQ record on redelivery; that is safe and preferable to loss.
 
 ## 2. Current and target status
 
@@ -23,10 +23,10 @@ The target transaction lifecycle is `submitted → pending → in_progress → s
 | Component | Operational responsibility | Hard dependencies |
 | --- | --- | --- |
 | PostgreSQL | Authoritative transactions, balances, locks, users, and cursors | Durable storage |
-| Kafka | `wallet` command transport and `wallet.dlq` isolation | Broker storage, configured topics |
+| Kafka | `wallet` command transport and `wallet_dlq` isolation | Broker storage, configured topics |
 | Alembic migration step | Brings PostgreSQL to the schema required by the release | Healthy PostgreSQL, release artifacts |
 | API | HTTP submission and queries, Kafka publication, SSE endpoint | Migrated PostgreSQL; Kafka for mutation-submission readiness |
-| Command worker | Consumes `wallet`, executes guarded commands, publishes exhausted failures to `wallet.dlq` | Migrated PostgreSQL, Kafka, topics, `wallet-worker` group configuration |
+| Command worker | Consumes `wallet`, executes guarded commands, publishes exhausted failures to `wallet_dlq` | Migrated PostgreSQL, Kafka, topics, `wallet_worker` group configuration |
 | Reaper | Scans stale `submitted`, republishes the same command, then guards `submitted → pending` after acknowledgement | Migrated PostgreSQL, Kafka, command topic, scheduler or leadership mechanism |
 | Frontend | User and admin browser interface | Ready API; working SSE and admin polling for live updates |
 
@@ -71,7 +71,7 @@ These are current repository commands. They start Version 1 only.
 The required local startup order is:
 
 1. Start PostgreSQL and wait for its Compose health check to pass.
-2. Start Kafka and wait for broker connectivity and required topic metadata for `wallet` and `wallet.dlq`.
+2. Start Kafka and wait for broker connectivity and required topic metadata for `wallet` and `wallet_dlq`.
 3. Apply the reviewed Alembic migration from the Version 1 head and verify the database revision.
 4. Start the API and wait for liveness and readiness.
 5. Start the command worker and wait for database, broker, topic, and consumer-group readiness.
@@ -108,7 +108,7 @@ Liveness answers only whether a process is running. Readiness answers whether th
 | Component | Liveness | Readiness |
 | --- | --- | --- |
 | PostgreSQL | Container or process is running | `pg_isready` succeeds and required database is reachable |
-| Kafka | Broker process is running | Broker metadata is reachable; `wallet` and `wallet.dlq` exist with expected configuration |
+| Kafka | Broker process is running | Broker metadata is reachable; `wallet` and `wallet_dlq` exist with expected configuration |
 | Migration step | Process is active while running | Successful exit and database revision equals the release-required head |
 | API | `GET /health/live` returns `200` | `GET /health/ready` returns `200` only when PostgreSQL, required schema, and dependencies required for accepted mutation submissions are usable; otherwise `503` |
 | Command worker | Worker process and polling loop are alive | PostgreSQL and Kafka are reachable, topics resolve, group configuration is valid, and the worker can poll without a fatal error |
@@ -184,7 +184,7 @@ Every release must:
 4. Pass frontend lint, TypeScript typecheck, and production build.
 5. Verify a fresh backup and successful recent restore drill before a production schema change.
 6. Apply migrations before starting code that depends on the Version 2 schema.
-7. Provision and verify `wallet` and `wallet.dlq` configuration before enabling producers, worker, or reaper.
+7. Provision and verify `wallet` and `wallet_dlq` configuration before enabling producers, worker, or reaper.
 8. Start API, worker, and reaper in dependency order and verify every readiness condition.
 9. Run a smoke check covering authentication, one debit command, one admin deposit, lock visibility, terminal status, balance settlement or release, SSE reconciliation, administrator cursor polling, and DLQ health, confirming the returned data appears valid.
 10. Observe submission failures, stale-status age, consumer lag, worker outcomes, DLQ growth, database constraints, and readiness for the release soak period before declaring success.
@@ -254,7 +254,7 @@ The reaper must never select or republish `pending`, `in_progress`, `succeeded`,
 
 ## 17. Runbook: stale `pending` or consumer lag
 
-1. Confirm worker liveness/readiness, `wallet-worker` membership, partition assignment, lag by partition, broker health, database connectivity, poison-message behavior, processing latency, and rebalance rate.
+1. Confirm worker liveness/readiness, `wallet_worker` membership, partition assignment, lag by partition, broker health, database connectivity, poison-message behavior, processing latency, and rebalance rate.
 2. Identify whether lag is global, limited to one partition, or concentrated behind one record. Correlate the oldest affected record to PostgreSQL by `request_id`.
 3. Do not republish the transaction. `pending` means Kafka already acknowledged the command; an extra publication can violate expected ordering and add duplicate work.
 4. Restore or scale healthy workers within the topic partition limit, fix the blocking dependency or poison-message path, and allow the original record to be consumed.

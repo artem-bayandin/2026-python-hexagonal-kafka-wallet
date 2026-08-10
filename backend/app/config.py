@@ -9,13 +9,13 @@ AppEnv = Literal["development", "test", "production"]
 SecurityProtocol = Literal["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
-COMMAND_TOPIC = "wallet"
-DLQ_TOPIC = "wallet.dlq"
-WORKER_GROUP_ID = "wallet-worker"
-WORKER_MAX_ATTEMPTS_V2 = 3
-ADMIN_LONG_POLL_HARD_MAX_SECONDS = 30
-
 _ENV_FILE = ".env"
+_DEFAULT_LOG_LEVEL: LogLevel = "INFO"
+_DEFAULT_CORS_ALLOWED_ORIGINS = "http://127.0.0.1:5173,http://localhost:5173"
+_DEFAULT_KAFKA_COMMAND_TOPIC = "wallet"
+_DEFAULT_KAFKA_DLQ_TOPIC = "wallet_dlq"
+_DEFAULT_KAFKA_WORKER_GROUP_ID = "wallet_worker"
+_DEFAULT_KAFKA_SECURITY_PROTOCOL: SecurityProtocol = "PLAINTEXT"
 
 
 def _empty_to_none(value: object) -> object:
@@ -36,16 +36,16 @@ class SharedSettings(BaseSettings):
 
     app_env: AppEnv
     database_url: str
-    log_level: LogLevel = "INFO"
+    log_level: LogLevel = _DEFAULT_LOG_LEVEL
 
 
-class Settings(SharedSettings):
+class ApiSettings(SharedSettings):
     """API-owned settings; extends the shared group with HTTP/auth concerns."""
 
     jwt_secret: SecretStr
     otp_hmac_secret: SecretStr
     admin_api_key: OptionalStr = None
-    cors_allowed_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
+    cors_allowed_origins: str = _DEFAULT_CORS_ALLOWED_ORIGINS
     jwt_access_token_ttl_minutes: int = Field(default=60, gt=0)
     otp_ttl_seconds: int = Field(default=300, gt=0)
     otp_max_attempts: int = Field(default=5, gt=0)
@@ -64,10 +64,10 @@ class KafkaSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, env_prefix="KAFKA_", extra="ignore")
 
     bootstrap_servers: str
-    command_topic: str = COMMAND_TOPIC
-    dlq_topic: str = DLQ_TOPIC
-    worker_group_id: str = WORKER_GROUP_ID
-    security_protocol: SecurityProtocol = "PLAINTEXT"
+    command_topic: str = Field(default=_DEFAULT_KAFKA_COMMAND_TOPIC, min_length=1)
+    dlq_topic: str = Field(default=_DEFAULT_KAFKA_DLQ_TOPIC, min_length=1)
+    worker_group_id: str = Field(default=_DEFAULT_KAFKA_WORKER_GROUP_ID, min_length=1)
+    security_protocol: SecurityProtocol = _DEFAULT_KAFKA_SECURITY_PROTOCOL
     sasl_mechanism: OptionalStr = None
     sasl_username: OptionalSecret = None
     sasl_password: OptionalSecret = None
@@ -86,18 +86,12 @@ class KafkaSettings(BaseSettings):
         endpoints = [endpoint.strip() for endpoint in value.split(",")]
         if not all(endpoints):
             raise ValueError("KAFKA_BOOTSTRAP_SERVERS must be non-empty comma-separated endpoints")
-        return value
+        return ",".join(endpoints)
 
     @model_validator(mode="after")
-    def _validate_fixed_topics_and_timeouts(self) -> Self:
-        if self.command_topic != COMMAND_TOPIC:
-            raise ValueError(f"KAFKA_COMMAND_TOPIC must equal {COMMAND_TOPIC!r} in Version 2")
-        if self.dlq_topic != DLQ_TOPIC:
-            raise ValueError(f"KAFKA_DLQ_TOPIC must equal {DLQ_TOPIC!r} in Version 2")
+    def _validate_kafka_invariants(self) -> Self:
         if self.dlq_topic == self.command_topic:
             raise ValueError("Command and DLQ topics must be distinct")
-        if self.worker_group_id != WORKER_GROUP_ID:
-            raise ValueError(f"KAFKA_WORKER_GROUP_ID must equal {WORKER_GROUP_ID!r} in Version 2")
         if self.producer_delivery_timeout_ms < self.producer_request_timeout_ms:
             raise ValueError(
                 "KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS must be at least "
@@ -128,7 +122,7 @@ class KafkaSettings(BaseSettings):
 class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, env_prefix="WORKER_", extra="ignore")
 
-    max_attempts: int = WORKER_MAX_ATTEMPTS_V2
+    max_attempts: int = Field(default=3, ge=1)
     retry_backoff_ms: int = Field(default=500, gt=0)
     retry_backoff_max_ms: int = Field(default=5000, gt=0)
     poll_timeout_ms: int = Field(default=1000, gt=0)
@@ -138,8 +132,6 @@ class WorkerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_worker_invariants(self) -> Self:
-        if self.max_attempts != WORKER_MAX_ATTEMPTS_V2:
-            raise ValueError("WORKER_MAX_ATTEMPTS must equal 3 in Version 2")
         if self.retry_backoff_max_ms < self.retry_backoff_ms:
             raise ValueError(
                 "WORKER_RETRY_BACKOFF_MAX_MS must not be less than WORKER_RETRY_BACKOFF_MS"
@@ -181,8 +173,6 @@ class StreamingSettings(BaseSettings):
             raise ValueError(
                 "ADMIN_LONG_POLL_DEFAULT_SECONDS must not exceed ADMIN_LONG_POLL_MAX_SECONDS"
             )
-        if self.admin_long_poll_max_seconds > ADMIN_LONG_POLL_HARD_MAX_SECONDS:
-            raise ValueError("ADMIN_LONG_POLL_MAX_SECONDS must not exceed 30")
         return self
 
 
@@ -227,8 +217,8 @@ def validate_reaper_composition(kafka: KafkaSettings, reaper: ReaperSettings) ->
 
 
 @lru_cache
-def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+def get_api_settings() -> ApiSettings:
+    return ApiSettings()  # type: ignore[call-arg]
 
 
 @lru_cache
@@ -252,7 +242,7 @@ def get_streaming_settings() -> StreamingSettings:
 
 
 class ApiRuntime(NamedTuple):
-    settings: Settings
+    api: ApiSettings
     kafka: KafkaSettings
     streaming: StreamingSettings
 
@@ -271,8 +261,8 @@ class ReaperRuntime(NamedTuple):
 
 @lru_cache
 def load_api_runtime() -> ApiRuntime:
-    runtime = ApiRuntime(get_settings(), get_kafka_settings(), get_streaming_settings())
-    validate_kafka_connection(runtime.kafka, app_env=runtime.settings.app_env)
+    runtime = ApiRuntime(get_api_settings(), get_kafka_settings(), get_streaming_settings())
+    validate_kafka_connection(runtime.kafka, app_env=runtime.api.app_env)
     return runtime
 
 
@@ -298,3 +288,30 @@ def load_reaper_runtime() -> ReaperRuntime:
     validate_kafka_connection(runtime.kafka, app_env=runtime.settings.app_env)
     validate_reaper_composition(runtime.kafka, runtime.reaper)
     return runtime
+
+
+__all__ = [
+    "ApiRuntime",
+    "AppEnv",
+    "KafkaSettings",
+    "LogLevel",
+    "ReaperRuntime",
+    "ReaperSettings",
+    "SecurityProtocol",
+    "ApiSettings",
+    "SharedSettings",
+    "StreamingSettings",
+    "WorkerRuntime",
+    "WorkerSettings",
+    "get_kafka_settings",
+    "get_reaper_settings",
+    "get_api_settings",
+    "get_streaming_settings",
+    "get_worker_settings",
+    "load_api_runtime",
+    "load_reaper_runtime",
+    "load_worker_runtime",
+    "validate_kafka_connection",
+    "validate_reaper_composition",
+    "validate_worker_composition",
+]
