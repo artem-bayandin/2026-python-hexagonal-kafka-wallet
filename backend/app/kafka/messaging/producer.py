@@ -49,6 +49,10 @@ class KafkaCommandPublisher(CommandPublisher):
     async def stop(self) -> None:
         await self._producer.stop()
 
+    @property
+    def producer(self) -> AIOKafkaProducer:
+        return self._producer
+
     async def publish(self, *, key: str, envelope: CommandEnvelope) -> None:
         if not key:
             raise ValueError("Kafka record key is required")

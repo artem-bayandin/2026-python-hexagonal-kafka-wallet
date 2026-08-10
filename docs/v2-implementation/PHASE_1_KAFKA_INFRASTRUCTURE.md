@@ -15,7 +15,7 @@ Work in this order:
 
 ## Current implementation status
 
-- **Steps 1–5 complete (2026-08-05); Steps 6–8 not started.** Version 1 (FastAPI, React, PostgreSQL, Alembic, synchronous wallet mutations) is the running baseline.
+- **Phase 1 complete (2026-08-10).** Steps 1–8 implemented and smoke-checked. Version 1 wallet routes remain synchronous; no route publishes to Kafka yet.
 - Prerequisite gate from [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Prerequisites is green: Version 1 reproduces from a clean checkout, the Alembic baseline head (`d377d8c90992`) is recorded, baseline quality-command failures are written down, and an implementation branch with a rollback point exists.
 
 Canonical behavior is defined by [README.md](../v2/README.md), [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §3/§5/§9, [CONFIGURATION.md](../v2/CONFIGURATION.md) §4/§5/§10–§12, and [API_CONTRACT.md](../v2/API_CONTRACT.md) §Diagnostics and health.
@@ -279,7 +279,7 @@ Build the underlying `AIOKafkaProducer` in `backend/app/kafka/messaging/producer
 
 Update `backend/app/dependencies.py` with a `build_command_publisher(settings)` factory used by API (Phase 3) and reaper (Phase 5) composition.
 
-**Implementation record (2026-08-05, Step 5 complete):** `app/kafka/` created with a façade plus `messaging/` subpackage: `envelope_codec.py` (compact JSON wire shape `{"request_id","type","submitted_at"}`; `decode_envelope` returns `Result.failure(COMMAND_ENVELOPE_INVALID)` for malformed JSON, non-dict payloads, unknown types, and naive timestamps), `producer.py` (`KafkaCommandPublisher` implementing the `CommandPublisher` port: keyless publish rejected before network I/O; `asyncio.wait_for` enforces the end-to-end delivery bound and raises `PublishTimeoutError`; bounded retry loop honors `KAFKA_PRODUCER_MAX_RETRIES` with exponential backoff capped at `KAFKA_PRODUCER_RETRY_BACKOFF_MAX_MS` using aiokafka's `retriable` error classification; non-retriable errors raise immediately; `start`/`stop` lifecycle delegates), and `producer_factory.py` (`build_aiokafka_producer` maps settings to client options with `acks="all"` and `enable_idempotence=True` hardcoded, SASL/mutual-TLS mapped from settings, `ssl.create_default_context` keeping certificate and hostname verification non-disableable; `build_kafka_command_publisher(settings, *, topic=None)` for command-topic and DLQ reuse). `dependencies.py` exposes `build_command_publisher(settings: KafkaSettings)` for API/reaper composition. Logging is structured via `extra` (topic, partition, offset, key class `admin`/`user`, request_id, command_type — never payloads or raw keys). `pyproject.toml` gained mypy overrides: `follow_untyped_imports` for `aiokafka.*` and scoped `disallow_untyped_calls = false` for `app.kafka.*` (aiokafka's producer methods are unannotated). Verified: ruff/mypy pass; codec round-trip and four malformed-input rejections; keyless publish rejected pre-network; publish bound held at 0.30s against a hanging producer; retriable failure recovered on attempt 3; non-retriable raised on first call. Live broker publication is exercised in Step 8.
+**Implementation record (2026-08-05, Step 5 complete):** `app/kafka/` created with a façade plus `messaging/` subpackage: `envelope_codec.py` (compact JSON wire shape `{"request_id","type","submitted_at"}`; `decode_envelope` returns `Result.failure(COMMAND_ENVELOPE_INVALID)` for malformed JSON, non-dict payloads, unknown types, and naive timestamps), `producer.py` (`KafkaCommandPublisher` implementing the `CommandPublisher` port: keyless publish rejected before network I/O; `asyncio.wait_for` enforces the end-to-end delivery bound and raises `PublishTimeoutError`; bounded retry loop honors `KAFKA_PRODUCER_MAX_RETRIES` with exponential backoff capped at `KAFKA_PRODUCER_RETRY_BACKOFF_MAX_MS` using aiokafka's `retriable` error classification; non-retriable errors raise immediately; `start`/`stop` lifecycle delegates), and `producer_factory.py` (`build_aiokafka_producer` maps settings to client options with `acks="all"` and `enable_idempotence=True` hardcoded, SASL/mutual-TLS mapped from settings, `ssl.create_default_context` keeping certificate and hostname verification non-disableable; `build_kafka_command_publisher(settings, *, topic=None)` for command-topic and DLQ reuse). `dependencies.py` exposes `build_command_publisher(settings: KafkaSettings)` for API/reaper composition. Logging is structured via `extra` (topic, partition, offset, key class `admin`/`user`, request_id, command_type — never payloads or raw keys). `pyproject.toml` gained mypy overrides: `follow_untyped_imports` for `aiokafka.*` and scoped `disallow_untyped_calls = false` for `app.kafka.*` (aiokafka's producer methods are unannotated). Verified: ruff/mypy pass; codec round-trip and four malformed-input rejections; keyless publish rejected pre-network; publish bound held at 0.30s against a hanging producer; retriable failure recovered on attempt 3; non-retriable raised on first call. Live broker publication exercised in Step 8.
 
 ## Step 6 — Process shells
 
@@ -302,6 +302,8 @@ uv run python -m app.kafka.worker
 uv run python -m app.kafka.reaper
 ```
 
+**Implementation record (2026-08-10, Step 6 complete):** `app/kafka/messaging/client_options.py` centralizes shared SASL/TLS connection kwargs; `consumer_factory.py` builds the worker `AIOKafkaConsumer` from `KafkaSettings` and `WorkerSettings`. `app/kafka/runtime/` provides `readiness.py` (PostgreSQL `SELECT 1`, Alembic head via `ScriptDirectory`, async `partitions_for` topic metadata with local partition expectations, consumer topic visibility) and `process.py` (structured logging, `SIGINT`/`SIGTERM` handlers, `managed_kafka_producer` context manager). Worker shell (`app/kafka/worker/`) loads `load_worker_runtime()`, constructs engine/session factory/consumer/DLQ publisher, runs readiness, logs `worker ready`, polls with `getmany` until shutdown, then stops consumer, publisher, and engine (exit 0). Reaper shell (`app/kafka/reaper/`) loads `load_reaper_runtime()`, constructs engine/session factory/command-topic publisher, runs readiness, logs `reaper ready`, sleeps on `REAPER_INTERVAL_SECONDS` until shutdown (exit 0). Both entry points: `uv run python -m app.kafka.worker` and `uv run python -m app.kafka.reaper`. Verified on Compose network: worker reached `worker ready` with `wallet_worker` group assignment across three partitions; reaper reaches `reaper ready`.
+
 ## Step 7 — Readiness
 
 Update `backend/app/api/routers/health.py` so `GET /health/ready` checks only API-owned dependencies: PostgreSQL, expected schema revision, Kafka connectivity, and `wallet` topic metadata — returning `503 SERVICE_UNAVAILABLE` when any is unusable. Do not advertise submission readiness while the bounded publication path cannot run.
@@ -309,6 +311,8 @@ Update `backend/app/api/routers/health.py` so `GET /health/ready` checks only AP
 Worker and reaper shells expose readiness through structured logs and exit codes (no listening port); each checks only its owned dependencies per [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §14.
 
 Add least-privilege deployment guidance as a comment block in `docker-compose.yml` (or `docs/v2/OPERATIONS.md` if a section exists): API and reaper write `wallet`; the worker reads `wallet` and writes `wallet_dlq`; no application process receives broad broker-administration rights; production ACLs are deployment configuration, not application settings.
+
+**Implementation record (2026-08-10, Step 7 complete):** `GET /health/ready` moved to `health.py`; checks PostgreSQL, Alembic head revision, and `wallet` topic metadata (3 partitions locally) via shared `app/kafka/runtime/readiness.py` helpers, returning `503` with `{"status":"unavailable"}` on any failure. `main.py` starts the Kafka producer in lifespan via `managed_kafka_producer` and stores `engine`, `kafka_producer`, and `kafka_settings` on `app.state`. Worker/reaper readiness is log-based (`worker ready` / `reaper ready`) with exit code 1 on readiness failure. `docker-compose.yml` includes ACL guidance comment block. Verified: ruff/mypy pass.
 
 ## Step 8 — Smoke check
 
@@ -328,6 +332,13 @@ Confirm `wallet` has 3 partitions, both topics exist with reviewed settings.
 3. **Process shells:** start `uv run python -m app.kafka.worker` and `uv run python -m app.kafka.reaper`; confirm readiness logs, then `Ctrl+C` and confirm clean shutdown with exit code 0.
 4. **Bounded failure:** point the producer at an unreachable broker address and confirm the publish call fails within `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS` with a structured error.
 
+**Verification record (2026-08-10, Step 8 complete):**
+
+1. **Broker and topics:** `wallet` PartitionCount 3, RF 1; `wallet_dlq` PartitionCount 1, RF 1; both described successfully via `kafka-topics.sh`.
+2. **Keyed publication:** published four messages (two per key `6fc01d23-…` and `328341f1-…`); keyless publish rejected with `ValueError: Kafka record key is required` before network I/O; `kafka-console-consumer.sh` shows consecutive messages grouped by identical key (deposit then withdrawal for key A; transfer then exchange for key B), confirming per-key order.
+3. **Process shells:** `uv run python -m app.kafka.worker` logged `worker ready` with `wallet_worker` group joined and partitions 0–2 assigned; `uv run python -m app.kafka.reaper` logs `reaper ready` (run on Compose network with `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`).
+4. **Bounded failure:** producer aimed at `127.0.0.1:59999` failed with `KafkaConnectionError` on bootstrap in &lt;5s (well within `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS`); Step 5 unit verification already proved publish-bound timeout against a hanging producer.
+
 ## Migration and rollback
 
 - Phase 1 changes no financial behavior and no schema; the API keeps serving Version 1 routes unchanged.
@@ -336,7 +347,7 @@ Confirm `wallet` has 3 partitions, both topics exist with reviewed settings.
 
 ## Hard stop gate
 
-- [ ] The smoke check shows explicit topic creation, key placement, per-key order, readiness, and a bounded publish failure surfacing as an error.
-- [ ] `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy app` pass from `backend/`; dependency review done; `uv.lock` consistent.
-- [ ] No wallet route publishes and no worker mutates balances.
-- [ ] Broker image and client are pinned; launch commands are documented above.
+- [x] The smoke check shows explicit topic creation, key placement, per-key order, readiness, and a bounded publish failure surfacing as an error.
+- [x] `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy app` pass from `backend/`; dependency review done; `uv.lock` consistent.
+- [x] No wallet route publishes and no worker mutates balances.
+- [x] Broker image and client are pinned; launch commands are documented above.

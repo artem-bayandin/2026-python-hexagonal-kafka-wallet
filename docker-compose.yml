@@ -1,4 +1,7 @@
 services:
+  # Kafka ACL guidance (production): API and reaper write `wallet`; the worker reads
+  # `wallet` and writes `wallet_dlq`. No application process receives broad broker-
+  # administration rights; production ACLs are deployment configuration, not app settings.
   postgres:
     image: postgres:18.4-alpine
     environment:
