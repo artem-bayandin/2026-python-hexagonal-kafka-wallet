@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from ...read_models import TransactionItem
+from ...value_objects import TransactionStatus, Money
 from ...error_codes import (
     INVALID_AMOUNT,
     INVALID_PRECISION,
@@ -16,7 +17,6 @@ from ...ports import (
     UserWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,16 +71,20 @@ class AdminDepositHandler:
         )
         await self._user_wallets_repo.credit(wallet.id, money.amount, now)
         transaction_id = uuid4()
+        request_id = uuid4()
         await self._transactions_repo.add(
             TransactionItem(
                 id=transaction_id,
+                request_id=request_id,
                 type="deposit",
                 source_wallet_id=None,
                 source_amount=money.amount,
                 dest_wallet_id=wallet.id,
                 dest_amount=money.amount,
-                status="completed",
+                status=TransactionStatus.SUCCEEDED,
+                error=None,
                 created_at=now,
+                updated_at=now,
             )
         )
         return Result.success(AdminDepositResult(transaction_id=transaction_id))

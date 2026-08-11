@@ -7,7 +7,8 @@ from uuid import UUID
 @dataclass(frozen=True, slots=True)
 class BalanceItem:
     asset: str
-    available: Decimal
+    amount: Decimal
+    locked: Decimal
     precision: int
 
 
@@ -17,4 +18,5 @@ class UserWalletItem:
     user_id: UUID
     currency_id: UUID
     amount: Decimal
+    locked: Decimal
     updated_at: datetime

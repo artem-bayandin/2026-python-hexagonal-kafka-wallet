@@ -105,8 +105,14 @@ from .use_cases import (
     VerifyOtpResult,
     VerifyOtpHandler,
 )
-from .value_objects.asset import Asset
-from .value_objects.money import Money
+from .value_objects import (
+    Asset,
+    Money,
+    ALLOWED_TRANSITIONS,
+    TERMINAL_STATUSES,
+    TransactionStatus,
+    is_allowed_transition,
+)
 
 __all__ = [
     # Error codes
@@ -132,6 +138,10 @@ __all__ = [
     # Value objects
     "Asset",
     "Money",
+    "TransactionStatus",
+    "TERMINAL_STATUSES",
+    "ALLOWED_TRANSITIONS",
+    "is_allowed_transition",
     # Current user
     "CurrentUser",
     # Entities

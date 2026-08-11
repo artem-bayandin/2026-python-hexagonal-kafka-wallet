@@ -646,7 +646,7 @@ from ...ports import (
     UserWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
+from ...value_objects import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -896,7 +896,7 @@ from ...ports.repositories.admin_wallet_command_repository import (
     AdminWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
+from ...value_objects import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -1098,7 +1098,7 @@ from ...ports import (
     UserWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
+from ...value_objects import Money
 
 
 @dataclass(frozen=True, slots=True)

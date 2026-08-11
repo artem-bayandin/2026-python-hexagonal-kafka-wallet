@@ -16,6 +16,7 @@ import type {
   UserReferenceItem,
 } from '../types/wallet'
 import { normalizeEmail } from '../utils/email'
+import { spendableOf } from '../utils/transaction_status'
 import { formatTransactionAsset, formatTransactionType } from '../utils/transaction'
 
 type WalletPageProps = {
@@ -370,7 +371,7 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
               {balances.map((balance) => (
                 <tr key={balance.asset}>
                   <td>{balance.asset}</td>
-                  <td>{balance.available}</td>
+                  <td>{spendableOf(balance)}</td>
                 </tr>
               ))}
             </tbody>

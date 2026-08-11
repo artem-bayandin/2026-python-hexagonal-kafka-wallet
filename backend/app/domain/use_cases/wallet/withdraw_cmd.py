@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from ...read_models import TransactionItem
+from ...value_objects import TransactionStatus, Money
 from ...error_codes import (
     INSUFFICIENT_FUNDS,
     INVALID_AMOUNT,
@@ -20,7 +21,6 @@ from ...ports.repositories.admin_wallet_command_repository import (
     AdminWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,16 +82,20 @@ class WithdrawHandler:
             return Result.failure(CREDIT_FAILED)
 
         transaction_id = uuid4()
+        request_id = uuid4()
         await self._transactions_repo.add(
             TransactionItem(
                 id=transaction_id,
+                request_id=request_id,
                 type="withdrawal",
                 source_wallet_id=wallet.id,
                 source_amount=money.amount,
                 dest_wallet_id=None,
                 dest_amount=money.amount,
-                status="completed",
+                status=TransactionStatus.SUCCEEDED,
+                error=None,
                 created_at=now,
+                updated_at=now,
             )
         )
         return Result.success(WithdrawResult(transaction_id=transaction_id))

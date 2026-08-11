@@ -9,5 +9,6 @@ def to_domain(model: UserWalletModel) -> UserWalletItem:
         user_id=model.user_id,
         currency_id=model.currency_id,
         amount=model.amount,
+        locked=model.locked_amount,
         updated_at=model.updated_at,
     )

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy import select
 
 from app.domain import AdminWalletQueryRepository, BalanceItem
@@ -19,5 +21,6 @@ class AdminWalletQueryRepositoryImpl(AdminWalletQueryRepository):
         )
         result = await self.session.execute(stmt)
         return [
-            wallet_row_to_balance_item(row.label, row.amount, row.precision) for row in result.all()
+            wallet_row_to_balance_item(row.label, row.amount, Decimal("0"), row.precision)
+            for row in result.all()
         ]

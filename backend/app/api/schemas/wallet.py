@@ -6,7 +6,8 @@ from pydantic import BaseModel, EmailStr, Field
 
 class BalanceItemResponse(BaseModel):
     asset: str
-    available: str
+    amount: str
+    locked: str
 
 
 class BalanceListResponse(BaseModel):
@@ -15,12 +16,15 @@ class BalanceListResponse(BaseModel):
 
 class TransactionItemResponse(BaseModel):
     id: UUID
+    request_id: UUID
     type: str
     status: str
     source_asset: str | None = None
     dest_asset: str | None = None
     amount: str
+    error: str | None = None
     created_at: datetime
+    updated_at: datetime
     direction: str | None = None
 
 

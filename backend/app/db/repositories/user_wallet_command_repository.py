@@ -37,6 +37,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
                 user_id=user_id,
                 currency_id=currency_id,
                 amount=Decimal("0"),
+                locked_amount=Decimal("0"),
                 updated_at=now,
             )
             self.session.add(model)

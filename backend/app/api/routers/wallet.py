@@ -52,7 +52,8 @@ async def get_user_balances(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_amount_with_precision(item.available, item.precision),
+                amount=format_amount_with_precision(item.amount, item.precision),
+                locked=format_amount_with_precision(item.locked, item.precision),
             )
             for item in items
         ]
@@ -81,8 +82,9 @@ async def list_user_transactions(
         items=[
             TransactionItemResponse(
                 id=item.id,
-                type=item.type.upper(),
-                status=item.status.upper(),
+                request_id=item.request_id,
+                type=item.type,
+                status=item.status.value,
                 source_asset=item.source_asset,
                 dest_asset=item.dest_asset,
                 amount=format_amount_with_precision(
@@ -94,7 +96,9 @@ async def list_user_transactions(
                         item.dest_precision,
                     ),
                 ),
+                error=item.error,
                 created_at=item.created_at,
+                updated_at=item.updated_at,
                 direction=item.direction,
             )
             for item in page.items
@@ -111,6 +115,7 @@ async def create_exchange(
     body: ExchangeRequest,
     executor: Annotated[ExchangeExecutor, Depends(get_exchange_executor)],
 ) -> WalletMutationResponse:
+    # Version 1 compatibility — replaced in Phase 3
     data = unwrap_domain_result(
         await executor(
             ExchangeCommand(
@@ -132,6 +137,7 @@ async def create_withdrawal(
     body: WithdrawRequest,
     executor: Annotated[WithdrawExecutor, Depends(get_withdraw_executor)],
 ) -> WalletMutationResponse:
+    # Version 1 compatibility — replaced in Phase 3
     data = unwrap_domain_result(
         await executor(WithdrawCommand(asset_label=body.asset, amount_str=body.amount))
     )
@@ -147,6 +153,7 @@ async def create_transfer(
     body: TransferRequest,
     executor: Annotated[TransferExecutor, Depends(get_transfer_executor)],
 ) -> WalletMutationResponse:
+    # Version 1 compatibility — replaced in Phase 3
     data = unwrap_domain_result(
         await executor(
             TransferCommand(

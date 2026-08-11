@@ -16,6 +16,7 @@ import type {
   UserReferenceItem,
 } from '../types/admin'
 import { formatTransactionAsset } from '../utils/transaction'
+import { spendableOf } from '../utils/transaction_status'
 
 type AdminPageProps = {
   onBack: () => void
@@ -231,7 +232,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
                   {balances.map((balance) => (
                     <tr key={balance.asset}>
                       <td>{balance.asset}</td>
-                      <td>{balance.available}</td>
+                      <td>{spendableOf(balance)}</td>
                     </tr>
                   ))}
                 </tbody>

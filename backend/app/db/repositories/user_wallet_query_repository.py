@@ -16,7 +16,12 @@ class UserWalletQueryRepositoryImpl(UserWalletQueryRepository):
 
     async def get_user_balances(self, user_id: UUID) -> list[BalanceItem]:
         stmt = (
-            select(CurrencyModel.label, CurrencyModel.precision, UserWalletModel.amount)
+            select(
+                CurrencyModel.label,
+                CurrencyModel.precision,
+                UserWalletModel.amount,
+                UserWalletModel.locked_amount,
+            )
             .select_from(CurrencyModel)
             .outerjoin(
                 UserWalletModel,
@@ -30,6 +35,7 @@ class UserWalletQueryRepositoryImpl(UserWalletQueryRepository):
             wallet_row_to_balance_item(
                 row.label,
                 row.amount if row.amount is not None else Decimal("0"),
+                row.locked_amount if row.locked_amount is not None else Decimal("0"),
                 row.precision,
             )
             for row in result.all()

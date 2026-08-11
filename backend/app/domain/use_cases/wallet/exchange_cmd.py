@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from ...read_models import TransactionItem
+from ...value_objects import TransactionStatus, Money
 from ...error_codes import (
     SAME_ASSET,
     CREDIT_FAILED,
@@ -18,7 +19,6 @@ from ...ports import (
     UserWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,16 +90,20 @@ class ExchangeHandler:
             return Result.failure(CREDIT_FAILED)
 
         transaction_id = uuid4()
+        request_id = uuid4()
         await self._transactions_repo.add(
             TransactionItem(
                 id=transaction_id,
+                request_id=request_id,
                 type="exchange",
                 source_wallet_id=source_wallet.id,
                 source_amount=money.amount,
                 dest_wallet_id=dest_wallet.id,
                 dest_amount=money.amount,
-                status="completed",
+                status=TransactionStatus.SUCCEEDED,
+                error=None,
                 created_at=now,
+                updated_at=now,
             )
         )
         return Result.success(ExchangeResult(transaction_id=transaction_id))

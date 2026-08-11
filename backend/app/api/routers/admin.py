@@ -41,6 +41,7 @@ async def create_deposit(
     body: AdminDepositRequest,
     executor: Annotated[AdminDepositExecutor, Depends(get_admin_deposit_executor)],
 ) -> AdminDepositResponse:
+    # Version 1 compatibility — replaced in Phase 3
     result = await executor(
         AdminDepositCommand(
             email=str(body.email),
@@ -66,7 +67,8 @@ async def get_admin_balances(
         items=[
             BalanceItemResponse(
                 asset=item.asset,
-                available=format_amount_with_precision(item.available, item.precision),
+                amount=format_amount_with_precision(item.amount, item.precision),
+                locked=format_amount_with_precision(item.locked, item.precision),
             )
             for item in items
         ]
@@ -95,8 +97,9 @@ async def list_admin_transactions(
         items=[
             TransactionItemResponse(
                 id=item.id,
-                type=item.type.upper(),
-                status=item.status.upper(),
+                request_id=item.request_id,
+                type=item.type,
+                status=item.status.value,
                 source_asset=item.source_asset,
                 dest_asset=item.dest_asset,
                 amount=format_amount_with_precision(
@@ -108,7 +111,9 @@ async def list_admin_transactions(
                         item.dest_precision,
                     ),
                 ),
+                error=item.error,
                 created_at=item.created_at,
+                updated_at=item.updated_at,
             )
             for item in page.items
         ],

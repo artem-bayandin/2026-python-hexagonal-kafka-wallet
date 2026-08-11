@@ -1,3 +1,10 @@
+export type TransactionStatus =
+  | 'submitted'
+  | 'pending'
+  | 'in_progress'
+  | 'succeeded'
+  | 'failed'
+
 export type DataList<T> = {
   items: T[]
 }
@@ -26,23 +33,27 @@ export type AdminDepositResponse = {
   status: string
 }
 
-export type BalanceItem = {
+export interface BalanceItem {
   asset: string
-  available: string
+  amount: string
+  locked: string
 }
 
 export type BalanceList = {
   items: BalanceItem[]
 }
 
-export type TransactionItem = {
+export interface TransactionItem {
   id: string
-  type: string
-  status: string
+  request_id: string
+  type: 'deposit' | 'withdrawal' | 'exchange' | 'transfer'
+  status: TransactionStatus
   source_asset: string | null
   dest_asset: string | null
   amount: string
+  error: string | null
   created_at: string
+  updated_at: string
 }
 
 export type TransactionList = {

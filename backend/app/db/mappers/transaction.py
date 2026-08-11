@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from app.domain import TransactionListRow, TransactionItem
+from app.domain import TransactionListRow, TransactionItem, TransactionStatus
 
 from ..models import TransactionModel
 
@@ -22,9 +22,12 @@ def to_list_row(
 
     return TransactionListRow(
         id=model.id,
+        request_id=model.request_id,
         type=model.type,
-        status=model.status,
+        status=TransactionStatus(model.status),
+        error=model.error,
         created_at=model.created_at,
+        updated_at=model.updated_at,
         amount=amount,
         source_asset=source_asset,
         dest_asset=dest_asset,
@@ -38,11 +41,14 @@ def to_list_row(
 def to_model(entity: TransactionItem) -> TransactionModel:
     return TransactionModel(
         id=entity.id,
+        request_id=entity.request_id,
         type=entity.type,
         source_wallet_id=entity.source_wallet_id,
         source_amount=entity.source_amount,
         dest_wallet_id=entity.dest_wallet_id,
         dest_amount=entity.dest_amount,
-        status=entity.status,
+        status=entity.status.value,
+        error=entity.error,
         created_at=entity.created_at,
+        updated_at=entity.updated_at,
     )

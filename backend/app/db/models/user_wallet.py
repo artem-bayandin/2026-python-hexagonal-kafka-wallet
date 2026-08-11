@@ -25,6 +25,11 @@ class UserWalletModel(Base):
             name="uq_user_wallets_user_id_currency_id",
         ),
         CheckConstraint("amount >= 0", name="ck_user_wallets_amount_nonnegative"),
+        CheckConstraint("locked_amount >= 0", name="ck_user_wallets_locked_amount_nonnegative"),
+        CheckConstraint(
+            "amount - locked_amount >= 0",
+            name="ck_user_wallets_spendable_nonnegative",
+        ),
         Index("ix_user_wallets_user_id", "user_id"),
     )
 
@@ -40,4 +45,7 @@ class UserWalletModel(Base):
         nullable=False,
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(28, 8), nullable=False)
+    locked_amount: Mapped[Decimal] = mapped_column(
+        Numeric(28, 8), nullable=False, default=Decimal("0")
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
