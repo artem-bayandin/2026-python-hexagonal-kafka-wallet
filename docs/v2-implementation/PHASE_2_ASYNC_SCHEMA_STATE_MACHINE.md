@@ -1,15 +1,14 @@
 # Phase 2 — Asynchronous schema and state machine
 
-Migrate the Version 1 schema to the Version 2 transaction lifecycle and reservation model, and encode the status state machine in domain and repository code — while mutation routes keep synchronous Version 1 execution behind an explicit compatibility boundary.
+Migrate the Version 1 schema to the Version 2 transaction lifecycle and reservation model, and encode the status state machine in domain code — while mutation routes keep synchronous Version 1 execution behind an explicit compatibility boundary. Command repositories are not modified in this phase.
 
 Work in this order:
 
 1. `domain-state-machine`
 2. `migration`
-3. `repository-guards`
-4. `api-mapping`
-5. `ui-types`
-6. `smoke-check`
+3. `api-mapping`
+4. `ui-types`
+5. `smoke-check`
 
 ## Current implementation status
 
@@ -20,7 +19,7 @@ Canonical behavior is defined by [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQ
 
 ## Purpose
 
-Make the Version 2 schema and state machine compatible with migrated Version 1 data, enforce invariants in PostgreSQL, and prepare repositories and read models so Phase 3 slices can switch mutation routes to asynchronous execution safely.
+Make the Version 2 schema and state machine compatible with migrated Version 1 data, enforce invariants in PostgreSQL, and extend read models, mappers, and API/UI field mapping so Phase 3 can implement repository guards and switch mutation routes to asynchronous execution safely.
 
 ## Prerequisites
 
@@ -33,13 +32,16 @@ Make the Version 2 schema and state machine compatible with migrated Version 1 d
 ### In scope
 
 - Alembic migration: `request_id`, Version 2 status set, `error`, `updated_at`, `user_wallets.locked_amount`, constraints, indexes.
+- SQLAlchemy model columns and check constraints matching the migration.
 - Domain status enum, allowed transitions, terminal/stale/duplicate decisions, reservation invariants.
-- Repository methods for guarded transitions, row-locked inspection, conditional reservation, atomic release, deterministic wallet locking.
+- Mappers for new transaction and wallet columns.
 - Internal response mapping and shared TypeScript types updated for Version 2 fields (no async behavior yet).
 - Pure UI utilities for status ordering and balance display.
 
 ### Out of scope
 
+- Any changes to command repositories or repository ports (`transaction_command_repository`, `user_wallet_command_repository`, and their domain ports) — Phase 3.
+- Guarded transition, reservation, or deterministic-lock repository primitives — Phase 3.
 - Switching any mutation route to asynchronous execution or `202` (Phase 3).
 - Kafka publication from routes (Phase 3).
 - SSE and admin long polling (Phases 4–5).
@@ -47,7 +49,7 @@ Make the Version 2 schema and state machine compatible with migrated Version 1 d
 
 ## Done when
 
-The Version 2 schema and state machine are compatible with migrated Version 1 data, enforce invariants in PostgreSQL, and are safe for the first asynchronous slice — with rollback/forward-fix policy written and approved.
+The Version 2 schema is migrated, domain types and mappers expose the new fields, API/UI serialize them against legacy rows, and PostgreSQL enforces invariants — with rollback/forward-fix policy written and approved. Repository guards are explicitly deferred to Phase 3.
 
 ## Architecture rules
 
@@ -135,21 +137,7 @@ uv run alembic upgrade head
 uv run alembic current
 ```
 
-## Step 3 — Repository guards
-
-Extend command repositories (`backend/app/db/repositories/transaction_command_repository.py`, `user_wallet_command_repository.py`) and their ports (`backend/app/domain/ports/repositories/…`) with the guarded primitives Phase 3 will compose. Implement each as a conditional `UPDATE … WHERE status = :expected` (returning affected-row count) or `SELECT … FOR UPDATE` plus domain check:
-
-- `mark_pending_if_submitted(request_id)` — `submitted → pending`, sets `updated_at`; zero rows means another actor advanced it (reload and observe).
-- `fail_if_submitted(request_id, safe_error)` — `submitted → failed` with atomic reservation release in the same transaction.
-- `claim_for_execution(request_id)` — `pending → in_progress`, guarded; returns the claimed transaction or a domain failure.
-- `complete_if_in_progress(request_id, safe_error | None)` — `in_progress → succeeded|failed` composed with wallet mutation in one transaction (Phase 3 wires the wallet part).
-- `reserve_debit(wallet_id, amount)` — conditional `UPDATE user_wallets SET locked_amount = locked_amount + :amt WHERE id = :id AND amount - locked_amount >= :amt`; zero affected rows → `INSUFFICIENT_FUNDS`.
-- `release_reservation(wallet_id, amount)` — guarded decrement of `locked_amount` only, composed with the terminal failure update so duplicate failure handling cannot unlock twice.
-- `lock_wallets_deterministic(ids)` — `SELECT … FOR UPDATE ORDER BY id ASC` for multi-wallet operations; re-check state after locks are acquired.
-
-Keep financial terms immutable after submission: no repository method updates type, wallets, or amounts of an existing transaction.
-
-## Step 4 — API mapping
+## Step 3 — API mapping
 
 Update `backend/app/api/schemas/wallet.py` and `backend/app/api/schemas/admin.py`:
 
@@ -160,13 +148,15 @@ Update `backend/app/api/formatting.py` / `result_mapping.py` so existing synchro
 
 Keep the externally active Version 1 mutation behavior (`201` synchronous execution) behind an explicit compatibility boundary — e.g. a single `_execute_synchronously` path per route clearly marked `Version 1 compatibility — replaced in Phase 3` — so Phase 3 slices replace one route at a time without mixed deployments writing statuses another live process cannot read.
 
+**Repository boundary:** do not extend command repositories in this phase. If an existing synchronous mutation path would require guarded transitions, conditional reservation, or deterministic wallet locking, raise `NotImplementedError` (or an equivalent domain/API failure) rather than implementing partial repository work. Phase 3 owns all repository guard primitives.
+
 Verify with:
 
 ```bash
 cd backend && uv run ruff check . && uv run ruff format --check . && uv run mypy app
 ```
 
-## Step 5 — UI types
+## Step 4 — UI types
 
 Update `frontend/src/types/wallet.ts` and `frontend/src/types/admin.ts`:
 
@@ -209,7 +199,7 @@ Verify with:
 cd frontend && yarn lint && yarn typecheck && yarn build
 ```
 
-## Step 6 — Smoke check
+## Step 5 — Smoke check
 
 1. **Upgrade from the Version 1 head** against representative legacy data:
 
@@ -219,9 +209,9 @@ uv run alembic upgrade head
 ```
 
 2. **Inspect migrated rows** (via `docker compose exec postgres psql`): legacy `completed` → `succeeded`; legacy `failed` retained; every row has a unique non-null `request_id`; `updated_at` backfilled from `created_at`; all `locked_amount = 0`; `0 <= locked_amount <= amount` holds.
-3. **Guarded transition spot-check:** through a throwaway `uv run python` snippet using the new repositories, run `mark_pending_if_submitted` on a staged `submitted` row (succeeds once, second call affects zero rows), then `reserve_debit` within and beyond spendable funds (the latter affects zero rows and respects `0 <= locked_amount <= amount`).
+3. **Constraint spot-check** (raw SQL via `psql`): attempt `UPDATE user_wallets SET locked_amount = amount + 1` and confirm the check constraint rejects it; attempt `UPDATE user_wallets SET locked_amount = -1` and confirm rejection.
 4. **Index check:** `\d transactions` shows both new indexes; `EXPLAIN` a stale-scan query (`WHERE status = 'submitted' AND created_at < now() - interval '60 seconds'`) and a cursor query (`WHERE (updated_at, id) > (...) ORDER BY updated_at, id LIMIT 100`) and confirm index usage.
-5. **Version 1 behavior intact:** log in, run one admin deposit and one exchange through the UI, and confirm responses now carry Version 2 fields with plausible values.
+5. **Version 1 behavior intact:** log in, run one admin deposit and one exchange through the UI, and confirm read responses carry Version 2 fields with plausible values (mutation routes still use synchronous `201` where the Version 1 path remains active).
 
 ## Migration and rollback
 
@@ -233,6 +223,6 @@ uv run alembic upgrade head
 ## Schema compatibility hard stop gate
 
 - [ ] Upgrade from Version 1 completes with no lost transaction history, no duplicate `request_id`, no invalid lock, and no unsupported status.
-- [ ] The smoke check exercises status guards, reservation constraints, deterministic locks, and cursor reads against a real database without anomalies.
+- [ ] The smoke check exercises migrated data, reservation check constraints, indexes, and cursor-read plans against a real database without anomalies.
 - [ ] Rollback / forward-fix policy is written above and approved.
 - [ ] `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy app` pass from `backend/`; `yarn lint`, `yarn typecheck`, `yarn build` pass from `frontend/`.

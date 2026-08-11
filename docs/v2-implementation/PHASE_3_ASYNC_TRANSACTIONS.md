@@ -14,7 +14,7 @@ Phase 3 is an integration milestone, not a production-release point: until the P
 
 ## Current implementation status
 
-- **Not started.** Phase 1 (Kafka infrastructure) and Phase 2 (async schema and state machine) are complete: topics exist, settings validate, the producer adapter is proven, the schema carries `request_id`/`status`/`error`/`updated_at`/`locked_amount`, and guarded transition/reservation repository primitives exist.
+- **Not started.** Phase 1 (Kafka infrastructure) is complete. Phase 2 (async schema and state machine) delivers the migrated schema, SQLAlchemy models, mappers, domain types, and API/UI field mapping — repository guard primitives are implemented in this phase, not Phase 2.
 
 Canonical behavior is defined by [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §4/§7–§12, [API_CONTRACT.md](../v2/API_CONTRACT.md) §Asynchronous submission, [CONFIGURATION.md](../v2/CONFIGURATION.md) §5–§6, and [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Phase 3.
 
@@ -27,6 +27,7 @@ Prove one common asynchronous path — submit, publish, consume, execute, termin
 ### In scope
 
 - Shared submission orchestrator returning `202 Accepted` with `{request_id}`.
+- Repository guard primitives: guarded status transitions, conditional reservation, atomic release, deterministic wallet locking.
 - Worker consumer lifecycle, envelope validation, type dispatcher, three-attempt retry loop, DLQ publication, source-offset acknowledgement ordering.
 - Slice-by-slice conversion of `POST /admin/deposits`, `POST /me/withdrawals`, `POST /me/exchanges`, `POST /me/transfers`.
 - UI `202` handling, `request_id` reconciliation, total/locked/spendable balance display.
@@ -87,7 +88,21 @@ Define shared ports in `backend/app/domain/ports/`: reuse `CommandPublisher` (Ph
 
 ### DB
 
-Compose the Phase 2 primitives into the shared flows in `backend/app/db/repositories/transaction_command_repository.py`:
+**Repository guards** — extend command repositories (`backend/app/db/repositories/transaction_command_repository.py`, `user_wallet_command_repository.py`) and their ports (`backend/app/domain/ports/repositories/…`) with the guarded primitives the shared skeleton and slices compose. Implement each as a conditional `UPDATE … WHERE status = :expected` (returning affected-row count) or `SELECT … FOR UPDATE` plus domain check:
+
+- `mark_pending_if_submitted(request_id)` — `submitted → pending`, sets `updated_at`; zero rows means another actor advanced it (reload and observe).
+- `fail_if_submitted(request_id, safe_error)` — `submitted → failed` with atomic reservation release in the same transaction.
+- `claim_for_execution(request_id)` — `pending → in_progress`, guarded; returns the claimed transaction or a domain failure.
+- `complete_if_in_progress(request_id, safe_error | None)` — `in_progress → succeeded|failed` composed with wallet mutation in one transaction (slices wire the wallet part).
+- `reserve_debit(wallet_id, amount)` — conditional `UPDATE user_wallets SET locked_amount = locked_amount + :amt WHERE id = :id AND amount - locked_amount >= :amt`; zero affected rows → `INSUFFICIENT_FUNDS`.
+- `release_reservation(wallet_id, amount)` — guarded decrement of `locked_amount` only, composed with the terminal failure update so duplicate failure handling cannot unlock twice.
+- `lock_wallets_deterministic(ids)` — `SELECT … FOR UPDATE ORDER BY id ASC` for multi-wallet operations; re-check state after locks are acquired.
+
+Keep financial terms immutable after submission: no repository method updates type, wallets, or amounts of an existing transaction.
+
+**Guarded-transition spot-check** (before wiring the skeleton): through a throwaway `uv run python` snippet using the new repositories, run `mark_pending_if_submitted` on a staged `submitted` row (succeeds once, second call affects zero rows), then `reserve_debit` within and beyond spendable funds (the latter affects zero rows and respects `0 <= locked_amount <= amount`).
+
+**Shared flows** — compose the guard primitives in `backend/app/db/repositories/transaction_command_repository.py`:
 
 - `insert_submitted(...)` — insert one `submitted` transaction with unique `request_id`, immutable terms, resolved identities, and (for debit types) the conditional reservation in the same session transaction. Commit before any Kafka call.
 - Post-ack `mark_pending_if_submitted` in a new transaction.
@@ -156,7 +171,8 @@ Add a shared reconciliation helper in `frontend/src/utils/transaction_status.ts`
 
 ### Smoke check (skeleton)
 
-Carry one no-op command (a staged `submitted` row of a not-yet-enabled type, or a deposit behind a disabled route flag) through: submit → publish → guarded claim → terminal handling → forced redelivery → DLQ path, watching PostgreSQL rows and logs. Restart the worker once mid-processing and confirm redelivery produces no second mutation. Send one malformed envelope and one unknown type and confirm nothing mutates and both reach `wallet_dlq`.
+1. **Repository guard spot-check:** `mark_pending_if_submitted` once vs twice on a staged `submitted` row; `reserve_debit` within and beyond spendable funds (latter affects zero rows).
+2. Carry one no-op command (a staged `submitted` row of a not-yet-enabled type, or a deposit behind a disabled route flag) through: submit → publish → guarded claim → terminal handling → forced redelivery → DLQ path, watching PostgreSQL rows and logs. Restart the worker once mid-processing and confirm redelivery produces no second mutation. Send one malformed envelope and one unknown type and confirm nothing mutates and both reach `wallet_dlq`.
 
 ### Migration and rollback (skeleton)
 
@@ -167,6 +183,7 @@ Carry one no-op command (a staged `submitted` row of a not-yet-enabled type, or 
 
 ### Shared skeleton hard stop gate
 
+- [ ] Repository guard spot-check passes: guarded transitions, conditional reservation, and deterministic locks behave correctly against a real database.
 - [ ] The skeleton smoke check exercises status guards, source-offset ordering, bounded retries, DLQ publication, crash recovery decisions, and duplicate no-op behavior with a real broker and PostgreSQL without anomalies.
 - [ ] No transaction type is enabled until the common failure paths are exercised.
 
