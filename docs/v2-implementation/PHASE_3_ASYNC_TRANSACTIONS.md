@@ -88,29 +88,30 @@ Define shared ports in `backend/app/domain/ports/`: reuse `CommandPublisher` (Ph
 
 ### DB
 
-**Repository guards** — extend command repositories (`backend/app/db/repositories/transaction_command_repository.py`, `user_wallet_command_repository.py`) and their ports (`backend/app/domain/ports/repositories/…`) with the guarded primitives the shared skeleton and slices compose. Implement each as a conditional `UPDATE … WHERE status = :expected` (returning affected-row count) or `SELECT … FOR UPDATE` plus domain check:
+**Transaction command repository** — extend `backend/app/db/repositories/transaction_command_repository.py` and its port (`backend/app/domain/ports/repositories/transaction_command_repository.py`). Status-changing methods are conditional `UPDATE … WHERE status = :expected` (returning affected-row count); `insert_submitted` is the sole creation entry point:
 
-- `mark_pending_if_submitted(request_id)` — `submitted → pending`, sets `updated_at`; zero rows means another actor advanced it (reload and observe).
-- `fail_if_submitted(request_id, safe_error)` — `submitted → failed` with atomic reservation release in the same transaction.
-- `claim_for_execution(request_id)` — `pending → in_progress`, guarded; returns the claimed transaction or a domain failure.
+- `insert_submitted(...)` — insert one `submitted` transaction with unique `request_id`, immutable terms, resolved identities, and (for debit types) conditional `reserve_debit` in the same session transaction. Commit before any Kafka call.
+- `mark_pending_if_submitted(request_id)` — `submitted → pending`, sets `updated_at`; zero rows means another actor advanced it (reload and observe). Called in a new transaction after Kafka acknowledges publication.
+- `fail_if_submitted(request_id, safe_error)` — `submitted → failed` with atomic reservation release in the same transaction. Used when bounded publication fails definitively.
+- `claim_for_execution(request_id)` — `pending → in_progress`, guarded; returns the claimed transaction on success. Zero rows → reload and observe (another actor claimed or advanced it).
 - `complete_if_in_progress(request_id, safe_error | None)` — `in_progress → succeeded|failed` composed with wallet mutation in one transaction (slices wire the wallet part).
+
+**User wallet command repository** — extend `backend/app/db/repositories/user_wallet_command_repository.py` and its port with wallet guard primitives (conditional `UPDATE` or `SELECT … FOR UPDATE`):
+
 - `reserve_debit(wallet_id, amount)` — conditional `UPDATE user_wallets SET locked_amount = locked_amount + :amt WHERE id = :id AND amount - locked_amount >= :amt`; zero affected rows → `INSUFFICIENT_FUNDS`.
-- `release_reservation(wallet_id, amount)` — guarded decrement of `locked_amount` only, composed with the terminal failure update so duplicate failure handling cannot unlock twice.
+- `release_reservation(wallet_id, amount)` — guarded decrement of `locked_amount` only, composed with terminal failure updates so duplicate failure handling cannot unlock twice.
 - `lock_wallets_deterministic(ids)` — `SELECT … FOR UPDATE ORDER BY id ASC` for multi-wallet operations; re-check state after locks are acquired.
+
+**Transaction query repository** — extend `backend/app/db/repositories/transaction_query_repository.py` and its port with read helpers that are not status transitions:
+
+- `get_by_request_id(request_id)` — unlocked read for pre-claim status and type inspection in the worker dispatcher.
+- `lock_by_request_id(request_id)` — `SELECT … FOR UPDATE` without a status change; use when status is already `in_progress` and the worker must resume execution under row lock after crash or redelivery.
 
 Keep financial terms immutable after submission: no repository method updates type, wallets, or amounts of an existing transaction.
 
 **Guarded-transition spot-check** (before wiring the skeleton): through a throwaway `uv run python` snippet using the new repositories, run `mark_pending_if_submitted` on a staged `submitted` row (succeeds once, second call affects zero rows), then `reserve_debit` within and beyond spendable funds (the latter affects zero rows and respects `0 <= locked_amount <= amount`).
 
-**Shared flows** — compose the guard primitives in `backend/app/db/repositories/transaction_command_repository.py`:
-
-- `insert_submitted(...)` — insert one `submitted` transaction with unique `request_id`, immutable terms, resolved identities, and (for debit types) the conditional reservation in the same session transaction. Commit before any Kafka call.
-- Post-ack `mark_pending_if_submitted` in a new transaction.
-- `fail_after_publication(request_id, safe_error)` — `submitted → failed` with atomic reservation release.
-- `claim_for_execution(request_id)` — worker claim; also used for `in_progress` recovery inspection under row lock.
-- `load_for_execution(request_id)` — row-locked state inspection after claim.
-
-Add the bounded visibility delay helper for the worker's `submitted`-race decision: when the consumed transaction is still `submitted`, re-check after a short bounded delay (settings-driven constant, not a new env var) before classifying.
+Add the bounded visibility delay helper for the worker's `submitted`-race decision: when the consumed transaction is still `submitted`, re-check via `get_by_request_id` after a short bounded delay (settings-driven constant, not a new env var) before classifying.
 
 ### API and worker
 
@@ -125,7 +126,7 @@ Add the bounded visibility delay helper for the worker's `submitted`-race decisi
 #     await command_publisher.publish(key=outcome.key, envelope=outcome.envelope)
 # except PublicationError as exc:  # definitive bounded failure
 #     async with write_session.begin():
-#         await tx_repo.fail_after_publication(outcome.request_id, safe_error=exc.safe_message)
+#         await tx_repo.fail_if_submitted(outcome.request_id, safe_error=exc.safe_message)
 # else:
 #     async with write_session.begin():
 #         await tx_repo.mark_pending_if_submitted(outcome.request_id)
@@ -143,12 +144,13 @@ Create `backend/app/kafka/worker/dispatcher.py`:
 ```python
 # per consumed record:
 # 1. decode envelope (envelope_codec.decode); malformed → DLQ + ack
-# 2. load transaction by request_id; missing after bounded visibility delay → DLQ + ack
+# 2. tx_query_repo.get_by_request_id(request_id); missing after bounded visibility delay → DLQ + ack
 # 3. stored type != envelope type → DLQ + ack (no mutation)
 # 4. status terminal → ack (duplicate)
-# 5. status submitted → bounded re-check; still submitted → safe retry/defer, never ack
-# 6. claim pending → in_progress (zero rows → reload and observe)
-# 7. dispatch to the slice execution handler
+# 5. status submitted → bounded re-check via get_by_request_id; still submitted → safe retry/defer, never ack
+# 6. status pending → claim_for_execution (zero rows → reload and observe); returns claimed row
+# 7. status in_progress → lock_by_request_id for recovery under row lock (not a status transition)
+# 8. dispatch to the slice execution handler with the claimed or locked row
 ```
 
 Create `backend/app/kafka/worker/retry_loop.py` — exactly `WORKER_MAX_ATTEMPTS` (= 3) attempts for retryable failures with `WORKER_RETRY_BACKOFF_MS`→`WORKER_RETRY_BACKOFF_MAX_MS` backoff; no PostgreSQL transaction held during backoff; poison classification short-circuits the loop.
