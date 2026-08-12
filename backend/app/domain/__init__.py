@@ -17,6 +17,14 @@ from .error_codes import (
     CREDIT_FAILED,
     COMMAND_ENVELOPE_INVALID,
 )
+from .safe_errors import (
+    SAFE_ENVELOPE_INVALID,
+    SAFE_EXECUTION_FAILED,
+    SAFE_HANDLER_NOT_ENABLED,
+    SAFE_PUBLICATION_FAILED,
+    SAFE_TRANSACTION_NOT_FOUND,
+    SAFE_TYPE_MISMATCH,
+)
 from .messaging import (
     CommandEnvelope,
     CommandType,
@@ -57,6 +65,7 @@ from .read_models import (
     TransactionListItem,
     UserReferenceItem,
     TransactionListRow,
+    SubmittedTransactionSpec,
 )
 from .result import Result
 from .token_claims import TokenClaims
@@ -104,6 +113,16 @@ from .use_cases import (
     VerifyOtpCommand,
     VerifyOtpResult,
     VerifyOtpHandler,
+    PublicationError,
+    SubmissionPersistOutcome,
+    SubmissionResult,
+    SubmitTransactionHandler,
+    publication_error_from_exception,
+    ExecuteCommand,
+    ExecutionHandler,
+    ExecutionHandlerRegistry,
+    PoisonExecutionError,
+    RetryableExecutionError,
 )
 from .value_objects import (
     Asset,
@@ -132,6 +151,12 @@ __all__ = [
     "INSUFFICIENT_FUNDS",
     "CREDIT_FAILED",
     "COMMAND_ENVELOPE_INVALID",
+    "SAFE_ENVELOPE_INVALID",
+    "SAFE_EXECUTION_FAILED",
+    "SAFE_HANDLER_NOT_ENABLED",
+    "SAFE_PUBLICATION_FAILED",
+    "SAFE_TRANSACTION_NOT_FOUND",
+    "SAFE_TYPE_MISMATCH",
     # Messaging
     "CommandEnvelope",
     "CommandType",
@@ -159,6 +184,7 @@ __all__ = [
     "TransactionListItem",
     "UserReferenceItem",
     "TransactionListRow",
+    "SubmittedTransactionSpec",
     # Ports
     "CurrentUserProvider",
     "AdminWalletCommandRepository",
@@ -216,4 +242,14 @@ __all__ = [
     "VerifyOtpCommand",
     "VerifyOtpResult",
     "VerifyOtpHandler",
+    "PublicationError",
+    "SubmissionPersistOutcome",
+    "SubmissionResult",
+    "SubmitTransactionHandler",
+    "publication_error_from_exception",
+    "ExecuteCommand",
+    "ExecutionHandler",
+    "ExecutionHandlerRegistry",
+    "PoisonExecutionError",
+    "RetryableExecutionError",
 ]

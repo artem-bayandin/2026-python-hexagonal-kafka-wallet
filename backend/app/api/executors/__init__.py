@@ -7,6 +7,7 @@ from .list_currencies import ListCurrenciesExecutor, get_list_currencies_executo
 from .list_users import ListUsersExecutor, get_list_users_executor
 from .logout import LogoutExecutor, get_logout_executor
 from .request_otp import RequestOtpExecutor, get_request_otp_executor
+from .submission import SubmissionExecutor, SubmissionPersistFn, get_submission_executor
 from .transfer import TransferExecutor, get_transfer_executor
 from .user_balances import GetUserBalancesExecutor, get_get_user_balances_executor
 from .user_transactions import ListUserTransactionsExecutor, get_list_user_transactions_executor
@@ -25,6 +26,8 @@ __all__ = [
     "ListUsersExecutor",
     "LogoutExecutor",
     "RequestOtpExecutor",
+    "SubmissionExecutor",
+    "SubmissionPersistFn",
     "TransferExecutor",
     "VerifyOtpExecutor",
     "WithdrawExecutor",
@@ -39,6 +42,7 @@ __all__ = [
     "get_list_users_executor",
     "get_logout_executor",
     "get_request_otp_executor",
+    "get_submission_executor",
     "get_transfer_executor",
     "get_verify_otp_executor",
     "get_withdraw_executor",

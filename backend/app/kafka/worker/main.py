@@ -4,8 +4,6 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.config import load_worker_runtime
-from app.db import build_session_factory
-from app.kafka.messaging import build_kafka_command_publisher, build_worker_consumer
 from app.kafka.runtime import (
     ReadinessError,
     check_kafka_topics,
@@ -15,6 +13,7 @@ from app.kafka.runtime import (
     configure_process_logging,
     register_shutdown_handlers,
 )
+from app.kafka.worker import build_wallet_worker_consumer
 
 logger = logging.getLogger(__name__)
 
@@ -24,27 +23,26 @@ async def run_worker() -> int:
     configure_process_logging(runtime.settings.log_level)
 
     engine: AsyncEngine = create_async_engine(runtime.settings.database_url)
-    _session_factory = build_session_factory(engine)
-    consumer = build_worker_consumer(runtime.kafka, runtime.worker)
-    dlq_publisher = build_kafka_command_publisher(runtime.kafka, topic=runtime.kafka.dlq_topic)
     shutdown_event = asyncio.Event()
     register_shutdown_handlers(shutdown_event)
-    consumer_started = False
-    publisher_started = False
+    worker = build_wallet_worker_consumer(
+        runtime=runtime,
+        engine=engine,
+        shutdown_event=shutdown_event,
+    )
+    started = False
 
     try:
         await check_postgres(engine)
         await check_schema_revision(engine)
-        await consumer.start()
-        consumer_started = True
-        await dlq_publisher.start()
-        publisher_started = True
+        await worker.start()
+        started = True
         await check_kafka_topics(
-            dlq_publisher.producer,
+            worker.kafka_publisher.producer,
             runtime.kafka,
             include_dlq=True,
         )
-        await check_worker_consumer_group(consumer, runtime.kafka)
+        await check_worker_consumer_group(worker.consumer, runtime.kafka)
         logger.info(
             "worker ready",
             extra={
@@ -53,9 +51,7 @@ async def run_worker() -> int:
                 "group_id": runtime.kafka.worker_group_id,
             },
         )
-
-        while not shutdown_event.is_set():
-            await consumer.getmany(timeout_ms=runtime.worker.poll_timeout_ms)
+        await worker.run()
     except ReadinessError:
         logger.exception("worker readiness failed")
         return 1
@@ -63,10 +59,8 @@ async def run_worker() -> int:
         logger.exception("worker failed")
         return 1
     finally:
-        if consumer_started:
-            await consumer.stop()
-        if publisher_started:
-            await dlq_publisher.stop()
+        if started:
+            await worker.stop()
         await engine.dispose()
 
     logger.info("worker stopped")

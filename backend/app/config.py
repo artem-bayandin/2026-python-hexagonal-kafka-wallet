@@ -148,6 +148,11 @@ class WorkerSettings(BaseSettings):
             )
         return self
 
+    @property
+    def submitted_visibility_delay_ms(self) -> int:
+        """Short bounded delay before classifying a still-``submitted`` row (not an env var)."""
+        return self.retry_backoff_ms
+
 
 class ReaperSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, env_prefix="REAPER_", extra="ignore")

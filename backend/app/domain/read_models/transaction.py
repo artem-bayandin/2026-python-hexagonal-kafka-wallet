@@ -23,6 +23,22 @@ class TransactionItem:
 
 
 @dataclass(frozen=True, slots=True)
+class SubmittedTransactionSpec:
+    """Immutable terms for a new ``submitted`` transaction row."""
+
+    id: UUID
+    request_id: UUID
+    type: str
+    source_wallet_id: UUID | None
+    source_amount: Decimal
+    dest_wallet_id: UUID | None
+    dest_amount: Decimal
+    created_at: datetime
+    updated_at: datetime
+    reserve_source_debit: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class TransactionListItem:
     id: UUID
     request_id: UUID

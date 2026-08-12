@@ -38,6 +38,22 @@ def to_list_row(
     )
 
 
+def to_domain(model: TransactionModel) -> TransactionItem:
+    return TransactionItem(
+        id=model.id,
+        request_id=model.request_id,
+        type=model.type,
+        source_wallet_id=model.source_wallet_id,
+        source_amount=model.source_amount,
+        dest_wallet_id=model.dest_wallet_id,
+        dest_amount=model.dest_amount,
+        status=TransactionStatus(model.status),
+        error=model.error,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
 def to_model(entity: TransactionItem) -> TransactionModel:
     return TransactionModel(
         id=entity.id,

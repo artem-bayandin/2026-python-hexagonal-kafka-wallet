@@ -4,6 +4,7 @@ from .otp_challenge import OtpChallengeItem
 from .pagination import PaginatedResult, PaginationParams
 from .transaction import (
     TransactionItem,
+    SubmittedTransactionSpec,
     TransactionListRow,
     TransactionListItem,
     transaction_list_row_to_item,
@@ -18,6 +19,7 @@ __all__ = [
     "OtpChallengeItem",
     "PaginatedResult",
     "PaginationParams",
+    "SubmittedTransactionSpec",
     "TransactionItem",
     "TransactionListRow",
     "TransactionListItem",

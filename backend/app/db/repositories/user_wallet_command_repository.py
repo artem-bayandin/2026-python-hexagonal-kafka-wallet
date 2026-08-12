@@ -91,3 +91,39 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             await self.session.execute(stmt),
         )
         return result.rowcount > 0
+
+    async def reserve_debit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
+        stmt = (
+            update(UserWalletModel)
+            .where(
+                UserWalletModel.id == wallet_id,
+                UserWalletModel.amount - UserWalletModel.locked_amount >= amount,
+            )
+            .values(
+                locked_amount=UserWalletModel.locked_amount + amount,
+                updated_at=now,
+            )
+        )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0
+
+    async def release_reservation(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
+        stmt = (
+            update(UserWalletModel)
+            .where(
+                UserWalletModel.id == wallet_id,
+                UserWalletModel.locked_amount >= amount,
+            )
+            .values(
+                locked_amount=UserWalletModel.locked_amount - amount,
+                updated_at=now,
+            )
+        )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0

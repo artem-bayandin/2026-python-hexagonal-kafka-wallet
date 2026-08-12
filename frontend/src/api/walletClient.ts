@@ -1,4 +1,5 @@
 import { ApiError, authenticatedFetch } from './client'
+import { parseSubmissionAccepted, type SubmissionAccepted } from './submission'
 import type {
   BalanceList,
   CurrencyItem,
@@ -10,6 +11,8 @@ import type {
   WalletMutationResponse,
   WithdrawRequest,
 } from '../types/wallet'
+
+export type { SubmissionAccepted }
 
 async function parseErrorResponse(response: Response): Promise<ApiError> {
   try {
@@ -65,6 +68,24 @@ export async function listReferenceUsers(): Promise<DataList<UserReferenceItem>>
     throw await parseErrorResponse(response)
   }
   return response.json() as Promise<DataList<UserReferenceItem>>
+}
+
+export async function submitAuthenticatedMutation(
+  path: string,
+  body: unknown,
+): Promise<SubmissionAccepted> {
+  const response = await authenticatedFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (response.status === 202) {
+    return parseSubmissionAccepted(response)
+  }
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+  throw await parseErrorResponse(response)
 }
 
 export async function createExchange(

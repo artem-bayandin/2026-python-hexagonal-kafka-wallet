@@ -95,17 +95,17 @@ Define shared ports in `backend/app/domain/ports/`: reuse `CommandPublisher` (Ph
 - `fail_if_submitted(request_id, safe_error)` — `submitted → failed` with atomic reservation release in the same transaction. Used when bounded publication fails definitively.
 - `claim_for_execution(request_id)` — `pending → in_progress`, guarded; returns the claimed transaction on success. Zero rows → reload and observe (another actor claimed or advanced it).
 - `complete_if_in_progress(request_id, safe_error | None)` — `in_progress → succeeded|failed` composed with wallet mutation in one transaction (slices wire the wallet part).
+- `lock_by_request_id(request_id)` — `SELECT … FOR UPDATE` without a status change; use when status is already `in_progress` and the worker must resume execution under row lock after crash or redelivery.
 
 **User wallet command repository** — extend `backend/app/db/repositories/user_wallet_command_repository.py` and its port with wallet guard primitives (conditional `UPDATE` or `SELECT … FOR UPDATE`):
 
 - `reserve_debit(wallet_id, amount)` — conditional `UPDATE user_wallets SET locked_amount = locked_amount + :amt WHERE id = :id AND amount - locked_amount >= :amt`; zero affected rows → `INSUFFICIENT_FUNDS`.
 - `release_reservation(wallet_id, amount)` — guarded decrement of `locked_amount` only, composed with terminal failure updates so duplicate failure handling cannot unlock twice.
-- `lock_wallets_deterministic(ids)` — `SELECT … FOR UPDATE ORDER BY id ASC` for multi-wallet operations; re-check state after locks are acquired.
+- `lock_wallets_deterministic(ids)` — use `lock_for_update_ordered` for multi-wallet operations; re-check state after locks are acquired.
 
 **Transaction query repository** — extend `backend/app/db/repositories/transaction_query_repository.py` and its port with read helpers that are not status transitions:
 
 - `get_by_request_id(request_id)` — unlocked read for pre-claim status and type inspection in the worker dispatcher.
-- `lock_by_request_id(request_id)` — `SELECT … FOR UPDATE` without a status change; use when status is already `in_progress` and the worker must resume execution under row lock after crash or redelivery.
 
 Keep financial terms immutable after submission: no repository method updates type, wallets, or amounts of an existing transaction.
 

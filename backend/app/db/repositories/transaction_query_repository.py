@@ -8,11 +8,12 @@ from sqlalchemy.orm import aliased
 from app.domain import (
     PaginatedResult,
     PaginationParams,
+    TransactionItem,
     TransactionQueryRepository,
     TransactionListRow,
 )
 
-from ..mappers import transaction_to_list_row
+from ..mappers import transaction_to_domain, transaction_to_list_row
 from ..models import CurrencyModel, TransactionModel, UserWalletModel
 from ..session import AsyncSession
 
@@ -68,6 +69,13 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
             )
             for row in rows
         ]
+
+    async def get_by_request_id(self, request_id: UUID) -> TransactionItem | None:
+        stmt = select(TransactionModel).where(TransactionModel.request_id == request_id)
+        model = (await self.session.execute(stmt)).scalar_one_or_none()
+        if model is None:
+            return None
+        return transaction_to_domain(model)
 
     async def get_all_transactions_page(
         self, params: PaginationParams

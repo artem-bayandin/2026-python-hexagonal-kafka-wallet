@@ -106,3 +106,31 @@ export function spendableOf(balance: Pick<BalanceItem, 'amount' | 'locked'>): st
   const spendable = scaleDecimal(amount, scale) - scaleDecimal(locked, scale)
   return formatDecimal(spendable, scale)
 }
+
+export function reconcileTransactionsByRequestId(
+  existing: TransactionItem[],
+  refreshed: TransactionItem[],
+): TransactionItem[] {
+  const byRequestId = new Map(existing.map((item) => [item.request_id, item]))
+  for (const incoming of refreshed) {
+    const current = byRequestId.get(incoming.request_id)
+    byRequestId.set(incoming.request_id, mergeStatus(current, incoming))
+  }
+
+  const seen = new Set<string>()
+  const merged: TransactionItem[] = []
+  for (const item of existing) {
+    const next = byRequestId.get(item.request_id) ?? item
+    if (!seen.has(next.request_id)) {
+      merged.push(next)
+      seen.add(next.request_id)
+    }
+  }
+  for (const incoming of refreshed) {
+    if (!seen.has(incoming.request_id)) {
+      merged.push(byRequestId.get(incoming.request_id) ?? incoming)
+      seen.add(incoming.request_id)
+    }
+  }
+  return merged
+}

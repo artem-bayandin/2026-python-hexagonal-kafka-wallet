@@ -21,6 +21,20 @@ from .user.users_query import UsersHandler, UsersQuery
 from .wallet.exchange_cmd import ExchangeCommand, ExchangeHandler, ExchangeResult
 from .wallet.transfer_cmd import TransferCommand, TransferHandler, TransferResult
 from .wallet.withdraw_cmd import WithdrawCommand, WithdrawHandler, WithdrawResult
+from .submission.submit_transaction import (
+    PublicationError,
+    SubmissionPersistOutcome,
+    SubmissionResult,
+    SubmitTransactionHandler,
+    publication_error_from_exception,
+)
+from .execution.execute_cmd import (
+    ExecuteCommand,
+    ExecutionHandler,
+    ExecutionHandlerRegistry,
+    PoisonExecutionError,
+    RetryableExecutionError,
+)
 
 __all__ = [
     "AdminDepositCommand",
@@ -57,4 +71,14 @@ __all__ = [
     "WithdrawCommand",
     "WithdrawHandler",
     "WithdrawResult",
+    "PublicationError",
+    "SubmissionPersistOutcome",
+    "SubmissionResult",
+    "SubmitTransactionHandler",
+    "publication_error_from_exception",
+    "ExecuteCommand",
+    "ExecutionHandler",
+    "ExecutionHandlerRegistry",
+    "PoisonExecutionError",
+    "RetryableExecutionError",
 ]

@@ -1,4 +1,5 @@
 import { ApiError } from './client'
+import { parseSubmissionAccepted, type SubmissionAccepted } from './submission'
 import type {
   AdminDepositRequest,
   AdminDepositResponse,
@@ -8,6 +9,8 @@ import type {
   TransactionList,
   UserReferenceItem,
 } from '../types/admin'
+
+export type { SubmissionAccepted }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
@@ -50,6 +53,23 @@ export async function adminFetch(
     headers.set('Content-Type', 'application/json')
   }
   return fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+}
+
+export async function submitAdminMutation(
+  path: string,
+  body: unknown,
+): Promise<SubmissionAccepted> {
+  const response = await adminFetch(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  if (response.status === 202) {
+    return parseSubmissionAccepted(response)
+  }
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+  throw await parseErrorResponse(response)
 }
 
 export async function listReferenceCurrencies(): Promise<DataList<CurrencyItem>> {
