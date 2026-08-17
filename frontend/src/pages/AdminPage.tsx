@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { ApiError } from '../api/client'
 import {
-  AdminDeposit,
+  adminDeposit,
   getAdminBalances,
   getAdminKey,
   listAdminTransactions,
@@ -16,7 +16,7 @@ import type {
   UserReferenceItem,
 } from '../types/admin'
 import { formatTransactionAsset } from '../utils/transaction'
-import { spendableOf } from '../utils/transaction_status'
+import { reconcileTransactionsByRequestId, spendableOf } from '../utils/transaction_status'
 
 type AdminPageProps = {
   onBack: () => void
@@ -47,7 +47,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
   const [selectedUserEmail, setSelectedUserEmail] = useState('')
   const [amount, setAmount] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmittingDeposit, setIsSubmittingDeposit] = useState(false)
   const [isLoadingMoreTransactions, setIsLoadingMoreTransactions] =
@@ -75,7 +75,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
   async function loadReferenceData() {
     setIsLoading(true)
     setErrorMessage(null)
-    setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
       const [currencyResult, userResult] = await Promise.all([
@@ -120,19 +120,28 @@ export function AdminPage({ onBack }: AdminPageProps) {
 
     setIsSubmittingDeposit(true)
     setErrorMessage(null)
-    setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
-      const result = await AdminDeposit({
+      const result = await adminDeposit({
         email: selectedUserEmail,
         asset: selectedCurrencyLabel,
         amount,
       })
-      setSuccessMessage(
-        `Deposit completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      setAcceptanceMessage(
+        `Deposit accepted for processing (request ${result.request_id}).`,
       )
       setAmount('')
-      await loadWalletData()
+      const [balanceResult, transactionResult] = await Promise.all([
+        getAdminBalances(),
+        listAdminTransactions(0, TRANSACTIONS_PAGE_SIZE),
+      ])
+      setBalances(balanceResult.items)
+      setTransactions((current) =>
+        reconcileTransactionsByRequestId(current, transactionResult.items),
+      )
+      setTransactionsTotalItems(transactionResult.total_items)
+      setTransactionsPageNumber(0)
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -206,9 +215,9 @@ export function AdminPage({ onBack }: AdminPageProps) {
         </p>
       )}
 
-      {successMessage !== null && (
+      {acceptanceMessage !== null && (
         <p className="auth-detail" role="status">
-          {successMessage}
+          {acceptanceMessage}
         </p>
       )}
 

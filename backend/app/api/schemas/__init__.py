@@ -1,4 +1,4 @@
-from .admin import AdminDepositRequest, AdminDepositResponse
+from .admin import AdminDepositRequest, SubmissionAcceptedResponse
 from .auth import (
     RequestOtpRequest,
     RequestOtpResponse,
@@ -20,7 +20,7 @@ from .wallet import (
 
 __all__ = [
     "AdminDepositRequest",
-    "AdminDepositResponse",
+    "SubmissionAcceptedResponse",
     "RequestOtpRequest",
     "RequestOtpResponse",
     "VerifyOtpRequest",

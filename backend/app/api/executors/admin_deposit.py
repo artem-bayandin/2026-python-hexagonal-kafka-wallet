@@ -2,20 +2,28 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Request
 
-from app.dependencies import build_admin_deposit_handler
-from app.domain import AdminDepositCommand, AdminDepositResult, Result
+from app.db import AsyncSession
+from app.dependencies import build_submit_deposit_handler
+from app.domain import AdminDepositCommand, Result, SubmissionInterimHandlerResult, SubmissionResult
 
-from ..db_session import write_session
+from .submission import get_submission_executor_fn
 
-AdminDepositExecutor = Callable[[AdminDepositCommand], Awaitable[Result[AdminDepositResult]]]
+AdminDepositExecutor = Callable[[AdminDepositCommand], Awaitable[Result[SubmissionResult]]]
 
 
-def get_admin_deposit_executor(request: Request) -> AdminDepositExecutor:
-    async def execute(
-        command: AdminDepositCommand,
-    ) -> Result[AdminDepositResult]:
-        async with write_session(request) as session:
-            handler = build_admin_deposit_handler(session)
-            return await handler.handle(command)
+def get_admin_deposit_executor_fn(request: Request) -> AdminDepositExecutor:
+    submission_executor_fn = get_submission_executor_fn(request)
 
-    return execute
+    async def execute_fn(command: AdminDepositCommand) -> Result[SubmissionResult]:
+        async def handle_submit_deposit_fn(
+            session: AsyncSession,
+        ) -> Result[SubmissionInterimHandlerResult]:
+            handler = build_submit_deposit_handler(session)
+            return await handler.validate_and_store_initial_tx(command)
+
+        return await submission_executor_fn(handle_submit_deposit_fn)
+
+    return execute_fn
+
+
+__all__ = ["AdminDepositExecutor", "get_admin_deposit_executor_fn"]

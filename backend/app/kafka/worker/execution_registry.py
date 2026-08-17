@@ -1,0 +1,29 @@
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+
+from app.auth import SystemClock
+from app.db import (
+    AsyncSession,
+    TransactionCommandRepositoryImpl,
+    UserWalletCommandRepositoryImpl,
+    build_session_factory,
+)
+from app.domain import CommandType, ExecutionHandlerRegistry
+from app.domain.use_cases.execution.execute_deposit import ExecuteDepositHandler
+
+
+def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegistry:
+    session_factory: async_sessionmaker[AsyncSession] = build_session_factory(engine)
+    registry = ExecutionHandlerRegistry()
+    registry.register(
+        CommandType.DEPOSIT,
+        ExecuteDepositHandler(
+            session_factory,
+            TransactionCommandRepositoryImpl,
+            UserWalletCommandRepositoryImpl,
+            SystemClock(),
+        ),
+    )
+    return registry
+
+
+__all__ = ["build_worker_execution_registry"]

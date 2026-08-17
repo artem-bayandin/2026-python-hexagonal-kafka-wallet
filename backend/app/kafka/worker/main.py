@@ -14,6 +14,7 @@ from app.kafka.runtime import (
     register_shutdown_handlers,
 )
 from app.kafka.worker import build_wallet_worker_consumer
+from app.kafka.worker.execution_registry import build_worker_execution_registry
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ async def run_worker() -> int:
         runtime=runtime,
         engine=engine,
         shutdown_event=shutdown_event,
+        execution_registry=build_worker_execution_registry(engine),
     )
     started = False
 

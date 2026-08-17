@@ -6,29 +6,33 @@ from app.db import AsyncSession, TransactionCommandRepositoryImpl
 from app.dependencies import build_command_publisher
 from app.domain import (
     Result,
-    SubmissionPersistOutcome,
+    SubmissionInterimHandlerResult,
     SubmissionResult,
     publication_error_from_exception,
 )
 
 from ..db_session import write_session
 
-SubmissionPersistFn = Callable[[AsyncSession], Awaitable[Result[SubmissionPersistOutcome]]]
-SubmissionExecutor = Callable[[SubmissionPersistFn], Awaitable[Result[SubmissionResult]]]
+SubmissionInterimHandlerFn = Callable[
+    [AsyncSession], Awaitable[Result[SubmissionInterimHandlerResult]]
+]
+SubmissionExecutorFn = Callable[[SubmissionInterimHandlerFn], Awaitable[Result[SubmissionResult]]]
 
 
-def get_submission_executor(request: Request) -> SubmissionExecutor:
-    command_publisher = build_command_publisher(request.app.state.kafka_settings)
+def get_submission_executor_fn(request: Request) -> SubmissionExecutorFn:
+    command_publisher = build_command_publisher(request.app.state.kafka_settings)  # object
 
-    async def execute(persist: SubmissionPersistFn) -> Result[SubmissionResult]:
+    async def execute_fn(
+        handle_initial_tx_creation_fn: SubmissionInterimHandlerFn,
+    ) -> Result[SubmissionResult]:
         async with write_session(request) as session:
-            persist_result = await persist(session)
-            if not persist_result.is_success:
+            handler_result = await handle_initial_tx_creation_fn(session)
+            if not handler_result.is_success:
                 return Result.failure(
-                    persist_result.error_code or "INTERNAL_ERROR",
-                    persist_result.reason,
+                    handler_result.error_code or "INTERNAL_ERROR",
+                    handler_result.reason,
                 )
-            outcome = persist_result.data
+            outcome = handler_result.data
             if outcome is None:
                 return Result.failure("INTERNAL_ERROR")
 
@@ -49,7 +53,7 @@ def get_submission_executor(request: Request) -> SubmissionExecutor:
 
         return Result.success(SubmissionResult(request_id=outcome.request_id))
 
-    return execute
+    return execute_fn
 
 
-__all__ = ["SubmissionExecutor", "SubmissionPersistFn", "get_submission_executor"]
+__all__ = ["SubmissionExecutorFn", "SubmissionInterimHandlerFn", "get_submission_executor_fn"]

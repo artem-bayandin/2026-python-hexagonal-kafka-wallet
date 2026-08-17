@@ -36,6 +36,7 @@ from app.domain import (
     TransferHandler,
     VerifyOtpHandler,
     WithdrawHandler,
+    SubmitDepositHandler,
 )
 from app.kafka import build_kafka_command_publisher
 
@@ -50,13 +51,25 @@ def build_command_publisher(settings: KafkaSettings) -> CommandPublisher:
 
 # # # # Region: routes.admin
 
-# AdminDeposit
+# AdminDeposit (synchronous — retained for rollback reference only)
 
 
 def build_admin_deposit_handler(
     session: AsyncSession,
 ) -> AdminDepositHandler:
     return AdminDepositHandler(
+        UserQueryRepositoryImpl(session),
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
+    )
+
+
+def build_submit_deposit_handler(
+    session: AsyncSession,
+) -> SubmitDepositHandler:
+    return SubmitDepositHandler(
         UserQueryRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),

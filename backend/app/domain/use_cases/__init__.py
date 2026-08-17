@@ -23,11 +23,12 @@ from .wallet.transfer_cmd import TransferCommand, TransferHandler, TransferResul
 from .wallet.withdraw_cmd import WithdrawCommand, WithdrawHandler, WithdrawResult
 from .submission.submit_transaction import (
     PublicationError,
-    SubmissionPersistOutcome,
+    SubmissionInterimHandlerResult,
     SubmissionResult,
     SubmitTransactionHandler,
     publication_error_from_exception,
 )
+from .submission.submit_deposit import SubmitDepositHandler
 from .execution.execute_cmd import (
     ExecuteCommand,
     ExecutionHandler,
@@ -35,6 +36,7 @@ from .execution.execute_cmd import (
     PoisonExecutionError,
     RetryableExecutionError,
 )
+from .execution.execute_deposit import ExecuteDepositHandler
 
 __all__ = [
     "AdminDepositCommand",
@@ -72,13 +74,15 @@ __all__ = [
     "WithdrawHandler",
     "WithdrawResult",
     "PublicationError",
-    "SubmissionPersistOutcome",
+    "SubmissionInterimHandlerResult",
     "SubmissionResult",
     "SubmitTransactionHandler",
+    "SubmitDepositHandler",
     "publication_error_from_exception",
     "ExecuteCommand",
     "ExecutionHandler",
     "ExecutionHandlerRegistry",
+    "ExecuteDepositHandler",
     "PoisonExecutionError",
     "RetryableExecutionError",
 ]

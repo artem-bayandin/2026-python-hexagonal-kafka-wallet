@@ -9,7 +9,5 @@ class AdminDepositRequest(BaseModel):
     amount: str
 
 
-class AdminDepositResponse(BaseModel):
-    id: UUID
-    type: str = "DEPOSIT"
-    status: str = "COMPLETED"
+class SubmissionAcceptedResponse(BaseModel):
+    request_id: UUID

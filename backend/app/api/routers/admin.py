@@ -13,7 +13,7 @@ from ..dependencies import (
     AdminDepositExecutor,
     GetAdminBalancesExecutor,
     ListAdminTransactionsExecutor,
-    get_admin_deposit_executor,
+    get_admin_deposit_executor_fn,
     get_get_admin_balances_executor,
     get_list_admin_transactions_executor,
     require_admin_key,
@@ -22,9 +22,9 @@ from ..formatting import format_amount_with_precision, map_not_null_asset_precis
 from ..result_mapping import unwrap_domain_result
 from ..schemas import (
     AdminDepositRequest,
-    AdminDepositResponse,
     BalanceItemResponse,
     BalanceListResponse,
+    SubmissionAcceptedResponse,
     TransactionItemResponse,
     TransactionListResponse,
 )
@@ -34,15 +34,14 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.post(
     "/deposits",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_admin_key)],
 )
 async def create_deposit(
     body: AdminDepositRequest,
-    executor: Annotated[AdminDepositExecutor, Depends(get_admin_deposit_executor)],
-) -> AdminDepositResponse:
-    # Version 1 compatibility — replaced in Phase 3
-    result = await executor(
+    executor_fn: Annotated[AdminDepositExecutor, Depends(get_admin_deposit_executor_fn)],
+) -> SubmissionAcceptedResponse:
+    result = await executor_fn(
         AdminDepositCommand(
             email=str(body.email),
             asset_label=body.asset,
@@ -50,7 +49,7 @@ async def create_deposit(
         )
     )
     data = unwrap_domain_result(result)
-    return AdminDepositResponse(id=data.transaction_id)
+    return SubmissionAcceptedResponse(request_id=data.request_id)
 
 
 @router.get(

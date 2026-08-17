@@ -2,7 +2,6 @@ import { ApiError } from './client'
 import { parseSubmissionAccepted, type SubmissionAccepted } from './submission'
 import type {
   AdminDepositRequest,
-  AdminDepositResponse,
   BalanceList,
   CurrencyItem,
   DataList,
@@ -88,17 +87,10 @@ export async function listReferenceUsers(): Promise<DataList<UserReferenceItem>>
   return response.json() as Promise<DataList<UserReferenceItem>>
 }
 
-export async function AdminDeposit(
+export async function adminDeposit(
   body: AdminDepositRequest,
-): Promise<AdminDepositResponse> {
-  const response = await adminFetch('/admin/deposits', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw await parseErrorResponse(response)
-  }
-  return response.json() as Promise<AdminDepositResponse>
+): Promise<SubmissionAccepted> {
+  return submitAdminMutation('/admin/deposits', body)
 }
 
 export async function getAdminBalances(): Promise<BalanceList> {

@@ -13,7 +13,7 @@ class SubmissionResult:
 
 
 @dataclass(frozen=True, slots=True)
-class SubmissionPersistOutcome:
+class SubmissionInterimHandlerResult:
     request_id: UUID
     key: str
     envelope: CommandEnvelope
@@ -41,7 +41,7 @@ class SubmitTransactionHandler:
         self._tx_command_repo = tx_command_repo
 
     async def finalize_after_persist(
-        self, outcome: SubmissionPersistOutcome
+        self, outcome: SubmissionInterimHandlerResult
     ) -> Result[SubmissionResult]:
         try:
             await self._command_publisher.publish(key=outcome.key, envelope=outcome.envelope)
