@@ -104,16 +104,8 @@ export async function createExchange(
 
 export async function createWithdrawal(
   body: WithdrawRequest,
-): Promise<WalletMutationResponse> {
-  const response = await authenticatedFetch('/me/withdrawals', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw await parseErrorResponse(response)
-  }
-  return response.json() as Promise<WalletMutationResponse>
+): Promise<SubmissionAccepted> {
+  return submitAuthenticatedMutation('/me/withdrawals', body)
 }
 
 export async function createTransfer(

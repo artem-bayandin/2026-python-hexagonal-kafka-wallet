@@ -22,7 +22,7 @@ from ..dependencies import (
     get_get_user_balances_executor,
     get_list_user_transactions_executor,
     get_transfer_executor,
-    get_withdraw_executor,
+    get_withdraw_executor_fn,
 )
 from ..formatting import format_amount_with_precision, map_not_null_asset_precision
 from ..result_mapping import unwrap_domain_result
@@ -30,6 +30,7 @@ from ..schemas import (
     BalanceItemResponse,
     BalanceListResponse,
     ExchangeRequest,
+    SubmissionAcceptedResponse,
     TransactionItemResponse,
     TransactionListResponse,
     TransferRequest,
@@ -130,18 +131,16 @@ async def create_exchange(
 
 @router.post(
     "/withdrawals",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(bind_current_user)],
 )
 async def create_withdrawal(
     body: WithdrawRequest,
-    executor: Annotated[WithdrawExecutor, Depends(get_withdraw_executor)],
-) -> WalletMutationResponse:
-    # Version 1 compatibility — replaced in Phase 3
-    data = unwrap_domain_result(
-        await executor(WithdrawCommand(asset_label=body.asset, amount_str=body.amount))
-    )
-    return WalletMutationResponse(id=data.transaction_id, type="WITHDRAWAL")
+    executor_fn: Annotated[WithdrawExecutor, Depends(get_withdraw_executor_fn)],
+) -> SubmissionAcceptedResponse:
+    result = await executor_fn(WithdrawCommand(asset_label=body.asset, amount_str=body.amount))
+    data = unwrap_domain_result(result)
+    return SubmissionAcceptedResponse(request_id=data.request_id)
 
 
 @router.post(

@@ -42,7 +42,7 @@ from .executors import (
     get_request_otp_executor,
     get_transfer_executor,
     get_verify_otp_executor,
-    get_withdraw_executor,
+    get_withdraw_executor_fn,
 )
 from .result_mapping import unwrap_domain_result
 
@@ -172,5 +172,5 @@ __all__ = [
     "get_request_otp_executor",
     "get_transfer_executor",
     "get_verify_otp_executor",
-    "get_withdraw_executor",
+    "get_withdraw_executor_fn",
 ]

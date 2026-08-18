@@ -127,3 +127,23 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             await self.session.execute(stmt),
         )
         return result.rowcount > 0
+
+    async def settle_debit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
+        stmt = (
+            update(UserWalletModel)
+            .where(
+                UserWalletModel.id == wallet_id,
+                UserWalletModel.amount >= amount,
+                UserWalletModel.locked_amount >= amount,
+            )
+            .values(
+                amount=UserWalletModel.amount - amount,
+                locked_amount=UserWalletModel.locked_amount - amount,
+                updated_at=now,
+            )
+        )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0

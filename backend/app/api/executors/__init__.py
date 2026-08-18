@@ -12,7 +12,7 @@ from .transfer import TransferExecutor, get_transfer_executor
 from .user_balances import GetUserBalancesExecutor, get_get_user_balances_executor
 from .user_transactions import ListUserTransactionsExecutor, get_list_user_transactions_executor
 from .verify_otp import VerifyOtpExecutor, get_verify_otp_executor
-from .withdraw import WithdrawExecutor, get_withdraw_executor
+from .withdraw import WithdrawExecutor, get_withdraw_executor_fn
 
 __all__ = [
     "AdminDepositExecutor",
@@ -45,5 +45,5 @@ __all__ = [
     "get_submission_executor_fn",
     "get_transfer_executor",
     "get_verify_otp_executor",
-    "get_withdraw_executor",
+    "get_withdraw_executor_fn",
 ]

@@ -23,7 +23,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
     async def add(self, transaction: TransactionItem) -> None:
         self.session.add(transaction_to_model(transaction))
 
-    async def insert_submitted(self, spec: SubmittedTransactionSpec) -> None:
+    async def insert_submitted(self, spec: SubmittedTransactionSpec) -> bool:
         if spec.reserve_source_debit:
             if spec.source_wallet_id is None:
                 raise ValueError("reserve_source_debit requires source_wallet_id")
@@ -34,7 +34,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
                 spec.updated_at,
             )
             if not reserved:
-                raise ValueError("INSUFFICIENT_FUNDS")
+                return False
 
         self.session.add(
             TransactionModel(
@@ -51,6 +51,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
                 updated_at=spec.updated_at,
             )
         )
+        return True
 
     async def mark_pending_if_submitted(self, request_id: UUID) -> int:
         return await self._guarded_status_update(

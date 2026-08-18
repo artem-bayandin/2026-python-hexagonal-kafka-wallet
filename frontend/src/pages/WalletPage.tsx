@@ -16,7 +16,7 @@ import type {
   UserReferenceItem,
 } from '../types/wallet'
 import { normalizeEmail } from '../utils/email'
-import { spendableOf } from '../utils/transaction_status'
+import { reconcileTransactionsByRequestId, spendableOf } from '../utils/transaction_status'
 import { formatTransactionAsset, formatTransactionType } from '../utils/transaction'
 
 type WalletPageProps = {
@@ -54,6 +54,7 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
   const [transferAmount, setTransferAmount] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null)
   const [isLoadingWallet, setIsLoadingWallet] = useState(true)
   const [isLoadingReference, setIsLoadingReference] = useState(true)
   const [isSubmittingExchange, setIsSubmittingExchange] = useState(false)
@@ -223,6 +224,7 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
     setIsSubmittingExchange(true)
     setErrorMessage(null)
     setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
       const result = await createExchange({
@@ -253,17 +255,27 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
     setIsSubmittingWithdrawal(true)
     setErrorMessage(null)
     setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
       const result = await createWithdrawal({
         asset: withdrawAsset,
         amount: withdrawAmount,
       })
-      setSuccessMessage(
-        `Withdrawal completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      setAcceptanceMessage(
+        `Withdrawal accepted for processing (request ${result.request_id}).`,
       )
       setWithdrawAmount('')
-      await loadWalletData()
+      const [balanceResult, transactionResult] = await Promise.all([
+        getUserBalances(),
+        listUserTransactions(0, TRANSACTIONS_PAGE_SIZE),
+      ])
+      setBalances(balanceResult.items)
+      setTransactions((current) =>
+        reconcileTransactionsByRequestId(current, transactionResult.items),
+      )
+      setTransactionsTotalItems(transactionResult.total_items)
+      setTransactionsPageNumber(0)
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -282,6 +294,7 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
     setIsSubmittingTransfer(true)
     setErrorMessage(null)
     setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
       const result = await createTransfer({
@@ -353,6 +366,12 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
         </p>
       )}
 
+      {acceptanceMessage !== null && (
+        <p className="auth-detail" role="status">
+          {acceptanceMessage}
+        </p>
+      )}
+
       <section className="wallet-section">
         <h2 className="auth-label">Balances</h2>
         {isLoadingWallet ? (
@@ -364,13 +383,17 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
             <thead>
               <tr>
                 <th>Asset</th>
-                <th>Available</th>
+                <th>Total</th>
+                <th>Locked</th>
+                <th>Spendable</th>
               </tr>
             </thead>
             <tbody>
               {balances.map((balance) => (
                 <tr key={balance.asset}>
                   <td>{balance.asset}</td>
+                  <td>{balance.amount}</td>
+                  <td>{balance.locked}</td>
                   <td>{spendableOf(balance)}</td>
                 </tr>
               ))}
