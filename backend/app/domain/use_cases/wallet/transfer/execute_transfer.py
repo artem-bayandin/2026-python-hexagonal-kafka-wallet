@@ -3,18 +3,18 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...ports import (
+from ....ports import (
     ClockService,
     TransactionCommandRepository,
     UserWalletCommandRepository,
 )
-from ...read_models import TransactionItem
-from ...safe_errors import SAFE_EXECUTION_FAILED
-from ...value_objects import TransactionStatus
-from .execute_cmd import PoisonExecutionError
+from ....read_models import TransactionItem
+from ....safe_errors import SAFE_EXECUTION_FAILED
+from ....value_objects import TransactionStatus
+from ...sub_exec_base.execute_cmd import PoisonExecutionError
 
 
-class ExecuteExchangeHandler:
+class ExecuteTransferHandler:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -31,7 +31,7 @@ class ExecuteExchangeHandler:
         async with self._session_factory() as session, session.begin():
             tx_command_repo = self._tx_command_repo_factory(session)
             wallet_command_repo = self._wallet_command_repo_factory(session)
-            completed = await self._execute_exchange(
+            completed = await self._execute_transfer(
                 tx_command_repo,
                 wallet_command_repo,
                 transaction.request_id,
@@ -43,7 +43,7 @@ class ExecuteExchangeHandler:
                 return
             raise PoisonExecutionError(SAFE_EXECUTION_FAILED)
 
-    async def _execute_exchange(
+    async def _execute_transfer(
         self,
         tx_command_repo: TransactionCommandRepository,
         wallet_command_repo: UserWalletCommandRepository,
@@ -55,7 +55,7 @@ class ExecuteExchangeHandler:
         if locked.status != TransactionStatus.IN_PROGRESS:
             return 0
         if (
-            locked.type != "exchange"
+            locked.type != "transfer"
             or locked.source_wallet_id is None
             or locked.dest_wallet_id is None
             or locked.source_amount != locked.dest_amount
@@ -74,7 +74,9 @@ class ExecuteExchangeHandler:
         dest_wallet = wallet_by_id.get(locked.dest_wallet_id)
         if source_wallet is None or dest_wallet is None:
             return 0
-        if source_wallet.currency_id == dest_wallet.currency_id:
+        if source_wallet.currency_id != dest_wallet.currency_id:
+            return 0
+        if source_wallet.user_id == dest_wallet.user_id:
             return 0
 
         if not await wallet_command_repo.settle_debit(
@@ -94,4 +96,4 @@ class ExecuteExchangeHandler:
         return await tx_command_repo.complete_if_in_progress(request_id, None)
 
 
-__all__ = ["ExecuteExchangeHandler"]
+__all__ = ["ExecuteTransferHandler"]

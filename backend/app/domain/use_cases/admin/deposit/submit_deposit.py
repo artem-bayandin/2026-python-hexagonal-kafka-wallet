@@ -1,52 +1,47 @@
-from dataclasses import dataclass
-from uuid import UUID, uuid4
+from uuid import uuid4
 
-from ...read_models import TransactionItem
-from ...value_objects import TransactionStatus, Money
-from ...error_codes import (
+from ....error_codes import (
+    INSUFFICIENT_FUNDS,
     INVALID_AMOUNT,
     INVALID_PRECISION,
     UNSUPPORTED_ASSET,
     USER_NOT_FOUND,
 )
-from ...ports import (
+from ....messaging import CommandEnvelope, CommandType
+from ....ports import (
     ClockService,
     CurrencyQueryRepository,
     TransactionCommandRepository,
     UserQueryRepository,
     UserWalletCommandRepository,
 )
-from ...result import Result
+from ....read_models import SubmittedTransactionSpec
+from ....result import Result
+from ....value_objects import Money
+from ...sub_exec_base.submit_transaction import SubmissionInterimHandlerResult
+from .admin_deposit_cmd import AdminDepositCommand
+
+ADMIN_PARTITION_KEY = "admin"
 
 
-@dataclass(frozen=True, slots=True)
-class AdminDepositCommand:
-    email: str
-    asset_label: str
-    amount_str: str
-
-
-@dataclass(frozen=True, slots=True)
-class AdminDepositResult:
-    transaction_id: UUID
-
-
-class AdminDepositHandler:
+class SubmitDepositHandler:
     def __init__(
         self,
         user_query_repo: UserQueryRepository,
         currency_query_repo: CurrencyQueryRepository,
         user_wallets_repo: UserWalletCommandRepository,
-        transactions_repo: TransactionCommandRepository,
+        tx_command_repo: TransactionCommandRepository,
         clock_service: ClockService,
     ) -> None:
         self._user_query_repo = user_query_repo
         self._currency_query_repo = currency_query_repo
         self._user_wallets_repo = user_wallets_repo
-        self._transactions_repo = transactions_repo
+        self._tx_command_repo = tx_command_repo
         self._clock_service = clock_service
 
-    async def handle(self, command: AdminDepositCommand) -> Result[AdminDepositResult]:
+    async def validate_and_store_initial_tx(
+        self, command: AdminDepositCommand
+    ) -> Result[SubmissionInterimHandlerResult]:
         email = command.email.strip().casefold()
         currency = await self._currency_query_repo.get_by_label(command.asset_label.strip())
         if currency is None:
@@ -69,22 +64,31 @@ class AdminDepositHandler:
         wallet = await self._user_wallets_repo.get_or_create_for_update(
             user.id, currency.id, uuid4(), now
         )
-        await self._user_wallets_repo.credit(wallet.id, money.amount, now)
-        transaction_id = uuid4()
         request_id = uuid4()
-        await self._transactions_repo.add(
-            TransactionItem(
-                id=transaction_id,
+        inserted = await self._tx_command_repo.insert_submitted(
+            SubmittedTransactionSpec(
+                id=uuid4(),
                 request_id=request_id,
-                type="deposit",
+                type=CommandType.DEPOSIT,
                 source_wallet_id=None,
                 source_amount=money.amount,
                 dest_wallet_id=wallet.id,
                 dest_amount=money.amount,
-                status=TransactionStatus.SUCCEEDED,
-                error=None,
                 created_at=now,
                 updated_at=now,
+                reserve_source_debit=False,
             )
         )
-        return Result.success(AdminDepositResult(transaction_id=transaction_id))
+        if not inserted:
+            return Result.failure(INSUFFICIENT_FUNDS)
+        return Result.success(
+            SubmissionInterimHandlerResult(
+                request_id=request_id,
+                key=ADMIN_PARTITION_KEY,
+                envelope=CommandEnvelope(
+                    request_id=request_id,
+                    type=CommandType.DEPOSIT,
+                    submitted_at=now,
+                ),
+            )
+        )

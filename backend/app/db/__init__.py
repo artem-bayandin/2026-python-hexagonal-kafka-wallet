@@ -1,4 +1,3 @@
-from .models import Base
 from .repositories import (
     AdminWalletCommandRepositoryImpl,
     AdminWalletQueryRepositoryImpl,
@@ -16,7 +15,6 @@ from .repositories import (
 from .session import AsyncSession, build_session_factory
 
 __all__ = [
-    "Base",
     # Repositories
     "AdminWalletCommandRepositoryImpl",
     "AdminWalletQueryRepositoryImpl",

@@ -1,14 +1,14 @@
+from aiokafka import AIOKafkaProducer
+
 from app.auth import (
     HmacOtpService,
     PyJwtTokenService,
     SystemClock,
 )
-from aiokafka import AIOKafkaProducer
-
 from app.config import KafkaSettings, ApiSettings
 from app.db import (
-    AdminWalletQueryRepositoryImpl,
     AsyncSession,
+    AdminWalletQueryRepositoryImpl,
     AuthSessionCommandRepositoryImpl,
     AuthSessionQueryRepositoryImpl,
     CurrencyQueryRepositoryImpl,

@@ -73,30 +73,32 @@ class TransactionListRow:
     dest_user_id: UUID | None
 
 
-def transaction_list_row_to_item(
-    row: TransactionListRow,
-    *,
-    viewer_user_id: UUID | None,
-) -> TransactionListItem:
-    direction: Literal["in", "out"] | None = None
-    if viewer_user_id is not None and row.type == "transfer":
-        if row.source_user_id == viewer_user_id:
-            direction = "out"
-        elif row.dest_user_id == viewer_user_id:
-            direction = "in"
+class TransactionMapper:
+    @staticmethod
+    def transaction_list_row_to_item(
+        row: TransactionListRow,
+        *,
+        viewer_user_id: UUID | None,
+    ) -> TransactionListItem:
+        direction: Literal["in", "out"] | None = None
+        if viewer_user_id is not None and row.type == "transfer":
+            if row.source_user_id == viewer_user_id:
+                direction = "out"
+            elif row.dest_user_id == viewer_user_id:
+                direction = "in"
 
-    return TransactionListItem(
-        id=row.id,
-        request_id=row.request_id,
-        type=row.type,
-        status=row.status,
-        error=row.error,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        amount=row.amount,
-        source_asset=row.source_asset,
-        dest_asset=row.dest_asset,
-        source_precision=row.source_precision,
-        dest_precision=row.dest_precision,
-        direction=direction,
-    )
+        return TransactionListItem(
+            id=row.id,
+            request_id=row.request_id,
+            type=row.type,
+            status=row.status,
+            error=row.error,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            amount=row.amount,
+            source_asset=row.source_asset,
+            dest_asset=row.dest_asset,
+            source_precision=row.source_precision,
+            dest_precision=row.dest_precision,
+            direction=direction,
+        )

@@ -13,7 +13,7 @@ from app.domain import (
     TransactionListRow,
 )
 
-from ..mappers import transaction_to_domain, transaction_to_list_row
+from ..mappers import TransactionDbMapper
 from ..models import CurrencyModel, TransactionModel, UserWalletModel
 from ..session import AsyncSession
 
@@ -58,7 +58,7 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
 
     def _rows_to_list_rows(self, rows: Sequence[Any]) -> list[TransactionListRow]:
         return [
-            transaction_to_list_row(
+            TransactionDbMapper.to_list_row(
                 row[0],
                 source_asset=row[1],
                 dest_asset=row[2],
@@ -75,7 +75,7 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         if model is None:
             return None
-        return transaction_to_domain(model)
+        return TransactionDbMapper.to_domain(model)
 
     async def get_all_transactions_page(
         self, params: PaginationParams

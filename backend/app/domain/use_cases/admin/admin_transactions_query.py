@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
-from ...ports.repositories.transaction_query_repository import TransactionQueryRepository
+from ...ports import TransactionQueryRepository
 from ...read_models import (
     PaginatedResult,
     PaginationParams,
     TransactionListItem,
-    transaction_list_row_to_item,
+    TransactionMapper,
 )
 from ...result import Result
 
@@ -23,5 +23,8 @@ class AdminTransactionsHandler:
         self, query: AdminTransactionsQuery
     ) -> Result[PaginatedResult[TransactionListItem]]:
         page = await self._transaction_query_repo.get_all_transactions_page(query.params)
-        items = [transaction_list_row_to_item(row, viewer_user_id=None) for row in page.items]
+        items = [
+            TransactionMapper.transaction_list_row_to_item(row, viewer_user_id=None)
+            for row in page.items
+        ]
         return Result.success(PaginatedResult(total_items=page.total_items, items=items))

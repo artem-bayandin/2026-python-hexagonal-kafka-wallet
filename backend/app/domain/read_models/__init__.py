@@ -7,7 +7,7 @@ from .transaction import (
     SubmittedTransactionSpec,
     TransactionListRow,
     TransactionListItem,
-    transaction_list_row_to_item,
+    TransactionMapper,
 )
 from .user import UserItem, UserReferenceItem
 from .wallet import BalanceItem, UserWalletItem
@@ -23,7 +23,7 @@ __all__ = [
     "TransactionItem",
     "TransactionListRow",
     "TransactionListItem",
-    "transaction_list_row_to_item",
+    "TransactionMapper",
     "UserItem",
     "UserReferenceItem",
     "BalanceItem",

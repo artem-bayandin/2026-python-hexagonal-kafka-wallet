@@ -9,7 +9,7 @@ from sqlalchemy.engine import CursorResult
 
 from app.domain import UserWalletItem, UserWalletCommandRepository
 
-from ..mappers import user_wallet_to_domain
+from ..mappers import UserWalletDbMapper
 from ..models import UserWalletModel
 from ..session import AsyncSession
 
@@ -46,7 +46,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
                 select(UserWalletModel).where(UserWalletModel.id == model.id).with_for_update()
             )
             model = locked.scalar_one()
-        return user_wallet_to_domain(model)
+        return UserWalletDbMapper.to_domain(model)
 
     async def lock_for_update_ordered(self, wallet_ids: Sequence[UUID]) -> list[UserWalletItem]:
         ordered_ids = sorted(set(wallet_ids))
@@ -57,7 +57,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             .with_for_update()
         )
         result = await self.session.execute(stmt)
-        return [user_wallet_to_domain(row) for row in result.scalars().all()]
+        return [UserWalletDbMapper.to_domain(row) for row in result.scalars().all()]
 
     async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
         stmt = (

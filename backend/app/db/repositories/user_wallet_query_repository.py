@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.domain import BalanceItem, UserWalletQueryRepository
 
-from ..mappers import wallet_row_to_balance_item
+from ..mappers import WalletDbMapper
 from ..models import CurrencyModel, UserWalletModel
 from ..session import AsyncSession
 
@@ -32,7 +32,7 @@ class UserWalletQueryRepositoryImpl(UserWalletQueryRepository):
         )
         result = await self.session.execute(stmt)
         return [
-            wallet_row_to_balance_item(
+            WalletDbMapper.wallet_row_to_balance_item(
                 row.label,
                 row.amount if row.amount is not None else Decimal("0"),
                 row.locked_amount if row.locked_amount is not None else Decimal("0"),

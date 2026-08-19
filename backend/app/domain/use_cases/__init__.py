@@ -1,5 +1,5 @@
 from .admin.admin_balances_query import AdminBalancesHandler, AdminBalancesQuery
-from .admin.admin_deposit_cmd import AdminDepositCommand
+from .admin.deposit import AdminDepositCommand, SubmitDepositHandler, ExecuteDepositHandler
 from .admin.admin_transactions_query import AdminTransactionsHandler, AdminTransactionsQuery
 
 from .auth_session.logout_cmd import LogoutCommand, LogoutHandler
@@ -14,75 +14,84 @@ from .user.user_balances_query import UserBalancesQuery, UserBalancesHandler
 from .user.user_transactions_query import UserTransactionsQuery, UserTransactionsHandler
 from .user.users_query import UsersHandler, UsersQuery
 
-from .wallet.exchange_cmd import ExchangeCommand
-from .wallet.transfer_cmd import TransferCommand
-from .wallet.withdraw_cmd import WithdrawCommand
-from .submission.submit_transaction import (
+from .wallet.exchange import ExchangeCommand, SubmitExchangeHandler, ExecuteExchangeHandler
+from .wallet.transfer import TransferCommand, SubmitTransferHandler, ExecuteTransferHandler
+from .wallet.withdraw import WithdrawCommand, SubmitWithdrawalHandler, ExecuteWithdrawalHandler
+
+from .sub_exec_base.submit_transaction import (
     PublicationError,
     SubmissionInterimHandlerResult,
     SubmissionResult,
     SubmitTransactionHandler,
     publication_error_from_exception,
 )
-from .submission.submit_deposit import SubmitDepositHandler
-from .submission.submit_exchange import SubmitExchangeHandler
-from .submission.submit_transfer import SubmitTransferHandler
-from .submission.submit_withdrawal import SubmitWithdrawalHandler
-from .execution.execute_cmd import (
+from .sub_exec_base.execute_cmd import (
     ExecuteCommand,
     ExecutionHandler,
     ExecutionHandlerRegistry,
     PoisonExecutionError,
     RetryableExecutionError,
 )
-from .execution.execute_deposit import ExecuteDepositHandler
-from .execution.execute_exchange import ExecuteExchangeHandler
-from .execution.execute_transfer import ExecuteTransferHandler
-from .execution.execute_withdrawal import ExecuteWithdrawalHandler
 
 __all__ = [
-    "AdminDepositCommand",
-    "AdminBalancesHandler",
+    # Admin balances
     "AdminBalancesQuery",
+    "AdminBalancesHandler",
+    # Admin deposit
+    "AdminDepositCommand",
+    "SubmitDepositHandler",
+    "ExecuteDepositHandler",
+    # Admin transactions
+    "AdminTransactionsQuery",
+    "AdminTransactionsHandler",
+    # Auth / Logout
     "LogoutCommand",
     "LogoutHandler",
-    "CurrenciesHandler",
+    # Currencies
     "CurrenciesQuery",
+    "CurrenciesHandler",
+    # RequestOTP
     "RequestOtpCommand",
     "RequestOtpResult",
     "RequestOtpHandler",
+    # VerifyOTP
     "VerifyOtpCommand",
     "VerifyOtpResult",
     "VerifyOtpHandler",
-    "CurrentUserHandler",
+    # User / CurrentUser
     "CurrentUserQuery",
-    "AdminTransactionsHandler",
-    "AdminTransactionsQuery",
-    "UsersHandler",
-    "UsersQuery",
-    "ExchangeCommand",
-    "UserBalancesHandler",
+    "CurrentUserHandler",
+    # User balances
     "UserBalancesQuery",
-    "UserTransactionsHandler",
+    "UserBalancesHandler",
+    # User transactions
     "UserTransactionsQuery",
+    "UserTransactionsHandler",
+    # Users
+    "UsersQuery",
+    "UsersHandler",
+    # Wallet / Exchange
+    "ExchangeCommand",
+    "SubmitExchangeHandler",
+    "ExecuteExchangeHandler",
+    # Wallet / Transfer
     "TransferCommand",
+    "SubmitTransferHandler",
+    "ExecuteTransferHandler",
+    # Wallet / Withdraw
     "WithdrawCommand",
+    "SubmitWithdrawalHandler",
+    "ExecuteWithdrawalHandler",
+    # Submission
     "PublicationError",
     "SubmissionInterimHandlerResult",
     "SubmissionResult",
     "SubmitTransactionHandler",
-    "SubmitDepositHandler",
-    "SubmitExchangeHandler",
-    "SubmitTransferHandler",
-    "SubmitWithdrawalHandler",
     "publication_error_from_exception",
+    # Execution
     "ExecuteCommand",
     "ExecutionHandler",
     "ExecutionHandlerRegistry",
-    "ExecuteDepositHandler",
-    "ExecuteExchangeHandler",
-    "ExecuteTransferHandler",
-    "ExecuteWithdrawalHandler",
     "PoisonExecutionError",
     "RetryableExecutionError",
 ]

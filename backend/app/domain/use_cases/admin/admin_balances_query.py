@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ...ports.repositories.admin_wallet_query_repository import AdminWalletQueryRepository
+from ...ports import AdminWalletQueryRepository
 from ...read_models import BalanceItem
 from ...result import Result
 

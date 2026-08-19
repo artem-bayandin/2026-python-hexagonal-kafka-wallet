@@ -17,6 +17,7 @@ from .error_codes import (
     CREDIT_FAILED,
     COMMAND_ENVELOPE_INVALID,
 )
+from .result import Result
 from .safe_errors import (
     SAFE_ENVELOPE_INVALID,
     SAFE_EXECUTION_FAILED,
@@ -25,6 +26,7 @@ from .safe_errors import (
     SAFE_TRANSACTION_NOT_FOUND,
     SAFE_TYPE_MISMATCH,
 )
+from .token_claims import TokenClaims
 from .messaging import (
     CommandEnvelope,
     CommandType,
@@ -67,60 +69,65 @@ from .read_models import (
     TransactionListRow,
     SubmittedTransactionSpec,
 )
-from .result import Result
-from .token_claims import TokenClaims
 from .use_cases import (
+    # Admin balances
+    AdminBalancesQuery,
+    AdminBalancesHandler,
     # Admin deposit
     AdminDepositCommand,
-    # Admin balances
-    AdminBalancesHandler,
-    AdminBalancesQuery,
-    # Currencies
-    CurrenciesHandler,
-    CurrenciesQuery,
-    # CurrentUser
-    CurrentUserHandler,
-    CurrentUserQuery,
-    # Logout
+    SubmitDepositHandler,
+    ExecuteDepositHandler,
+    # Admin transactions
+    AdminTransactionsQuery,
+    AdminTransactionsHandler,
+    # Auth / Logout
     LogoutCommand,
     LogoutHandler,
-    # Admin transactions
-    AdminTransactionsHandler,
-    AdminTransactionsQuery,
+    # Currencies
+    CurrenciesQuery,
+    CurrenciesHandler,
     # RequestOTP
     RequestOtpCommand,
     RequestOtpResult,
     RequestOtpHandler,
-    # Users
-    UsersHandler,
-    UsersQuery,
-    ExchangeCommand,
-    UserBalancesHandler,
-    UserBalancesQuery,
-    UserTransactionsHandler,
-    UserTransactionsQuery,
-    TransferCommand,
-    WithdrawCommand,
     # VerifyOTP
     VerifyOtpCommand,
     VerifyOtpResult,
     VerifyOtpHandler,
+    # User / CurrentUser
+    CurrentUserQuery,
+    CurrentUserHandler,
+    # User balances
+    UserBalancesQuery,
+    UserBalancesHandler,
+    # User transactions
+    UserTransactionsQuery,
+    UserTransactionsHandler,
+    # Users
+    UsersQuery,
+    UsersHandler,
+    # Wallet / Exchange
+    ExchangeCommand,
+    SubmitExchangeHandler,
+    ExecuteExchangeHandler,
+    # Wallet / Transfer
+    TransferCommand,
+    SubmitTransferHandler,
+    ExecuteTransferHandler,
+    # Wallet / Withdraw
+    WithdrawCommand,
+    SubmitWithdrawalHandler,
+    ExecuteWithdrawalHandler,
+    # Submission
     PublicationError,
     SubmissionInterimHandlerResult,
     SubmissionResult,
     SubmitTransactionHandler,
-    SubmitDepositHandler,
-    SubmitExchangeHandler,
-    SubmitTransferHandler,
-    SubmitWithdrawalHandler,
     publication_error_from_exception,
+    # Execution
     ExecuteCommand,
     ExecutionHandler,
     ExecutionHandlerRegistry,
-    ExecuteDepositHandler,
-    ExecuteExchangeHandler,
-    ExecuteTransferHandler,
-    ExecuteWithdrawalHandler,
     PoisonExecutionError,
     RetryableExecutionError,
 )
@@ -134,7 +141,9 @@ from .value_objects import (
 )
 
 __all__ = [
-    # Error codes
+    # .current_user
+    "CurrentUser",
+    # .error_codes
     "OTP_INVALID",
     "OTP_EXPIRED",
     "OTP_LOCKED",
@@ -151,42 +160,24 @@ __all__ = [
     "INSUFFICIENT_FUNDS",
     "CREDIT_FAILED",
     "COMMAND_ENVELOPE_INVALID",
+    # .result
+    "Result",
+    # .safe_errors
     "SAFE_ENVELOPE_INVALID",
     "SAFE_EXECUTION_FAILED",
     "SAFE_HANDLER_NOT_ENABLED",
     "SAFE_PUBLICATION_FAILED",
     "SAFE_TRANSACTION_NOT_FOUND",
     "SAFE_TYPE_MISMATCH",
-    # Messaging
+    # .token_claims
+    "TokenClaims",
+    # .messaging
     "CommandEnvelope",
     "CommandType",
-    # Value objects
-    "Asset",
-    "Money",
-    "TransactionStatus",
-    "TERMINAL_STATUSES",
-    "ALLOWED_TRANSITIONS",
-    "is_allowed_transition",
-    # Current user
-    "CurrentUser",
-    # Entities
-    "AuthSessionItem",
-    "CurrencyItem",
-    "OtpChallengeItem",
-    "TransactionItem",
-    "UserItem",
-    "UserWalletItem",
-    # Read models
-    "BalanceItem",
-    "CurrencyCatalogItem",
-    "PaginatedResult",
-    "PaginationParams",
-    "TransactionListItem",
-    "UserReferenceItem",
-    "TransactionListRow",
-    "SubmittedTransactionSpec",
-    # Ports
+    # .ports
+    # Providers
     "CurrentUserProvider",
+    # Repositories
     "AdminWalletCommandRepository",
     "AdminWalletQueryRepository",
     "AuthSessionCommandRepository",
@@ -199,65 +190,92 @@ __all__ = [
     "UserQueryRepository",
     "UserWalletCommandRepository",
     "UserWalletQueryRepository",
+    # Services
     "ClockService",
     "CommandPublisher",
     "OtpService",
     "TokenService",
-    # Result
-    "Result",
-    # Token claims
-    "TokenClaims",
-    # Use cases
-    "AdminDepositCommand",
-    "AdminDepositHandler",
-    "AdminDepositResult",
-    "AdminBalancesHandler",
+    # .read_models
+    "AuthSessionItem",
+    "CurrencyItem",
+    "OtpChallengeItem",
+    "TransactionItem",
+    "UserItem",
+    "UserWalletItem",
+    "BalanceItem",
+    "CurrencyCatalogItem",
+    "PaginatedResult",
+    "PaginationParams",
+    "TransactionListItem",
+    "UserReferenceItem",
+    "TransactionListRow",
+    "SubmittedTransactionSpec",
+    # .use_cases
+    # Admin balances
     "AdminBalancesQuery",
-    "CurrenciesHandler",
-    "CurrenciesQuery",
-    "CurrentUserHandler",
-    "CurrentUserQuery",
-    "AdminTransactionsHandler",
+    "AdminBalancesHandler",
+    # Admin deposit
+    "AdminDepositCommand",
+    "SubmitDepositHandler",
+    "ExecuteDepositHandler",
+    # Admin transactions
     "AdminTransactionsQuery",
-    "UsersHandler",
-    "UsersQuery",
-    "ExchangeCommand",
-    "ExchangeHandler",
-    "ExchangeResult",
-    "UserBalancesHandler",
-    "UserBalancesQuery",
-    "UserTransactionsHandler",
-    "UserTransactionsQuery",
-    "TransferCommand",
-    "TransferHandler",
-    "TransferResult",
-    "WithdrawCommand",
-    "WithdrawHandler",
-    "WithdrawResult",
+    "AdminTransactionsHandler",
+    # Auth / Logout
     "LogoutCommand",
     "LogoutHandler",
+    # Currencies
+    "CurrenciesQuery",
+    "CurrenciesHandler",
+    # RequestOTP
     "RequestOtpCommand",
     "RequestOtpResult",
     "RequestOtpHandler",
+    # VerifyOTP
     "VerifyOtpCommand",
     "VerifyOtpResult",
     "VerifyOtpHandler",
+    # User / CurrentUser
+    "CurrentUserQuery",
+    "CurrentUserHandler",
+    # User balances
+    "UserBalancesQuery",
+    "UserBalancesHandler",
+    # User transactions
+    "UserTransactionsQuery",
+    "UserTransactionsHandler",
+    # Users
+    "UsersQuery",
+    "UsersHandler",
+    # Wallet / Exchange
+    "ExchangeCommand",
+    "SubmitExchangeHandler",
+    "ExecuteExchangeHandler",
+    # Wallet / Transfer
+    "TransferCommand",
+    "SubmitTransferHandler",
+    "ExecuteTransferHandler",
+    # Wallet / Withdraw
+    "WithdrawCommand",
+    "SubmitWithdrawalHandler",
+    "ExecuteWithdrawalHandler",
+    # Submission
     "PublicationError",
     "SubmissionInterimHandlerResult",
     "SubmissionResult",
     "SubmitTransactionHandler",
-    "SubmitDepositHandler",
-    "SubmitExchangeHandler",
-    "SubmitTransferHandler",
-    "SubmitWithdrawalHandler",
     "publication_error_from_exception",
+    # Execution
     "ExecuteCommand",
     "ExecutionHandler",
     "ExecutionHandlerRegistry",
-    "ExecuteDepositHandler",
-    "ExecuteExchangeHandler",
-    "ExecuteTransferHandler",
-    "ExecuteWithdrawalHandler",
     "PoisonExecutionError",
     "RetryableExecutionError",
+    # .value_objects
+    "Asset",
+    "Money",
+    "ALLOWED_TRANSITIONS",
+    "TERMINAL_STATUSES",
+    "TransactionStatus",
+    "is_allowed_transition",
 ]

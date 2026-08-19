@@ -10,7 +10,7 @@ from app.domain import (
     TransactionStatus,
 )
 
-from ..mappers import transaction_to_domain, transaction_to_model
+from ..mappers import TransactionDbMapper
 from ..models import TransactionModel
 from ..session import AsyncSession
 from .user_wallet_command_repository import UserWalletCommandRepositoryImpl
@@ -21,7 +21,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
         self.session = session
 
     async def add(self, transaction: TransactionItem) -> None:
-        self.session.add(transaction_to_model(transaction))
+        self.session.add(TransactionDbMapper.to_model(transaction))
 
     async def insert_submitted(self, spec: SubmittedTransactionSpec) -> bool:
         if spec.reserve_source_debit:
@@ -98,7 +98,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
         model = result.scalar_one_or_none()
         if model is None:
             return None
-        return transaction_to_domain(model)
+        return TransactionDbMapper.to_domain(model)
 
     async def complete_if_in_progress(self, request_id: UUID, safe_error: str | None) -> int:
         target = TransactionStatus.SUCCEEDED if safe_error is None else TransactionStatus.FAILED
@@ -152,4 +152,4 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
         model = (await self.session.execute(stmt)).scalar_one_or_none()
         if model is None:
             return None
-        return transaction_to_domain(model)
+        return TransactionDbMapper.to_domain(model)

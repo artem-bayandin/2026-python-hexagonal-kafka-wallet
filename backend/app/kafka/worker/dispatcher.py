@@ -21,7 +21,7 @@ from app.domain import (
     TransactionQueryRepository,
     TransactionStatus,
 )
-from app.domain.safe_errors import (
+from app.domain import (
     SAFE_ENVELOPE_INVALID,
     SAFE_EXECUTION_FAILED,
     SAFE_HANDLER_NOT_ENABLED,

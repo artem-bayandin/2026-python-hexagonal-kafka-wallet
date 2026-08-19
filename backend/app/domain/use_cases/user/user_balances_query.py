@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
-from ...ports import CurrentUserProvider
-from ...ports.repositories.user_wallet_query_repository import UserWalletQueryRepository
+from ...ports import CurrentUserProvider, UserWalletQueryRepository
 from ...read_models import BalanceItem
 from ...result import Result
 

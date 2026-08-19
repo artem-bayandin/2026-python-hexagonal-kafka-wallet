@@ -3,14 +3,18 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...ports import ClockService, TransactionCommandRepository, UserWalletCommandRepository
-from ...read_models import TransactionItem
-from ...safe_errors import SAFE_EXECUTION_FAILED
-from ...value_objects import TransactionStatus
-from .execute_cmd import PoisonExecutionError
+from ....ports import (
+    ClockService,
+    TransactionCommandRepository,
+    UserWalletCommandRepository,
+)
+from ....read_models import TransactionItem
+from ....safe_errors import SAFE_EXECUTION_FAILED
+from ....value_objects import TransactionStatus
+from ...sub_exec_base.execute_cmd import PoisonExecutionError
 
 
-class ExecuteDepositHandler:
+class ExecuteExchangeHandler:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -27,7 +31,7 @@ class ExecuteDepositHandler:
         async with self._session_factory() as session, session.begin():
             tx_command_repo = self._tx_command_repo_factory(session)
             wallet_command_repo = self._wallet_command_repo_factory(session)
-            completed = await self._execute_deposit(
+            completed = await self._execute_exchange(
                 tx_command_repo,
                 wallet_command_repo,
                 transaction.request_id,
@@ -39,7 +43,7 @@ class ExecuteDepositHandler:
                 return
             raise PoisonExecutionError(SAFE_EXECUTION_FAILED)
 
-    async def _execute_deposit(
+    async def _execute_exchange(
         self,
         tx_command_repo: TransactionCommandRepository,
         wallet_command_repo: UserWalletCommandRepository,
@@ -50,12 +54,34 @@ class ExecuteDepositHandler:
             return 0
         if locked.status != TransactionStatus.IN_PROGRESS:
             return 0
-        if locked.type != "deposit" or locked.dest_wallet_id is None:
+        if (
+            locked.type != "exchange"
+            or locked.source_wallet_id is None
+            or locked.dest_wallet_id is None
+            or locked.source_amount != locked.dest_amount
+        ):
             return 0
 
         now = self._clock_service.now()
-        wallets = await wallet_command_repo.lock_for_update_ordered([locked.dest_wallet_id])
-        if len(wallets) != 1:
+        wallets = await wallet_command_repo.lock_for_update_ordered(
+            [locked.source_wallet_id, locked.dest_wallet_id]
+        )
+        if len(wallets) != 2:
+            return 0
+
+        wallet_by_id = {wallet.id: wallet for wallet in wallets}
+        source_wallet = wallet_by_id.get(locked.source_wallet_id)
+        dest_wallet = wallet_by_id.get(locked.dest_wallet_id)
+        if source_wallet is None or dest_wallet is None:
+            return 0
+        if source_wallet.currency_id == dest_wallet.currency_id:
+            return 0
+
+        if not await wallet_command_repo.settle_debit(
+            locked.source_wallet_id,
+            locked.source_amount,
+            now,
+        ):
             return 0
 
         if not await wallet_command_repo.credit(
@@ -68,4 +94,4 @@ class ExecuteDepositHandler:
         return await tx_command_repo.complete_if_in_progress(request_id, None)
 
 
-__all__ = ["ExecuteDepositHandler"]
+__all__ = ["ExecuteExchangeHandler"]
