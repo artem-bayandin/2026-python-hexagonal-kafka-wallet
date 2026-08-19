@@ -11,6 +11,8 @@ from app.db import (
 from app.domain import (
     CommandType,
     ExecuteDepositHandler,
+    ExecuteExchangeHandler,
+    ExecuteTransferHandler,
     ExecuteWithdrawalHandler,
     ExecutionHandlerRegistry,
 )
@@ -35,6 +37,24 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
             TransactionCommandRepositoryImpl,
             UserWalletCommandRepositoryImpl,
             AdminWalletCommandRepositoryImpl,
+            SystemClock(),
+        ),
+    )
+    registry.register(
+        CommandType.EXCHANGE,
+        ExecuteExchangeHandler(
+            session_factory,
+            TransactionCommandRepositoryImpl,
+            UserWalletCommandRepositoryImpl,
+            SystemClock(),
+        ),
+    )
+    registry.register(
+        CommandType.TRANSFER,
+        ExecuteTransferHandler(
+            session_factory,
+            TransactionCommandRepositoryImpl,
+            UserWalletCommandRepositoryImpl,
             SystemClock(),
         ),
     )

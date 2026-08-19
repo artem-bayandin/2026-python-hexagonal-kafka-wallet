@@ -18,10 +18,10 @@ from ..dependencies import (
     TransferExecutor,
     WithdrawExecutor,
     bind_current_user,
-    get_exchange_executor,
+    get_exchange_executor_fn,
     get_get_user_balances_executor,
     get_list_user_transactions_executor,
-    get_transfer_executor,
+    get_transfer_executor_fn,
     get_withdraw_executor_fn,
 )
 from ..formatting import format_amount_with_precision, map_not_null_asset_precision
@@ -34,7 +34,6 @@ from ..schemas import (
     TransactionItemResponse,
     TransactionListResponse,
     TransferRequest,
-    WalletMutationResponse,
     WithdrawRequest,
 )
 
@@ -109,24 +108,22 @@ async def list_user_transactions(
 
 @router.post(
     "/exchanges",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(bind_current_user)],
 )
 async def create_exchange(
     body: ExchangeRequest,
-    executor: Annotated[ExchangeExecutor, Depends(get_exchange_executor)],
-) -> WalletMutationResponse:
-    # Version 1 compatibility — replaced in Phase 3
-    data = unwrap_domain_result(
-        await executor(
-            ExchangeCommand(
-                source_asset_label=body.source_asset,
-                destination_asset_label=body.destination_asset,
-                amount_str=body.amount,
-            )
+    executor_fn: Annotated[ExchangeExecutor, Depends(get_exchange_executor_fn)],
+) -> SubmissionAcceptedResponse:
+    result = await executor_fn(
+        ExchangeCommand(
+            source_asset_label=body.source_asset,
+            destination_asset_label=body.destination_asset,
+            amount_str=body.amount,
         )
     )
-    return WalletMutationResponse(id=data.transaction_id, type="EXCHANGE")
+    data = unwrap_domain_result(result)
+    return SubmissionAcceptedResponse(request_id=data.request_id)
 
 
 @router.post(
@@ -145,21 +142,19 @@ async def create_withdrawal(
 
 @router.post(
     "/transfers",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(bind_current_user)],
 )
 async def create_transfer(
     body: TransferRequest,
-    executor: Annotated[TransferExecutor, Depends(get_transfer_executor)],
-) -> WalletMutationResponse:
-    # Version 1 compatibility — replaced in Phase 3
-    data = unwrap_domain_result(
-        await executor(
-            TransferCommand(
-                recipient_email=str(body.email),
-                asset_label=body.asset,
-                amount_str=body.amount,
-            )
+    executor_fn: Annotated[TransferExecutor, Depends(get_transfer_executor_fn)],
+) -> SubmissionAcceptedResponse:
+    result = await executor_fn(
+        TransferCommand(
+            recipient_email=str(body.email),
+            asset_label=body.asset,
+            amount_str=body.amount,
         )
     )
-    return WalletMutationResponse(id=data.transaction_id, type="TRANSFER")
+    data = unwrap_domain_result(result)
+    return SubmissionAcceptedResponse(request_id=data.request_id)

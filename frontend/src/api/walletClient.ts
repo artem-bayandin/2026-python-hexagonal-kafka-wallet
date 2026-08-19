@@ -8,7 +8,6 @@ import type {
   TransactionList,
   TransferRequest,
   UserReferenceItem,
-  WalletMutationResponse,
   WithdrawRequest,
 } from '../types/wallet'
 
@@ -90,16 +89,8 @@ export async function submitAuthenticatedMutation(
 
 export async function createExchange(
   body: ExchangeRequest,
-): Promise<WalletMutationResponse> {
-  const response = await authenticatedFetch('/me/exchanges', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw await parseErrorResponse(response)
-  }
-  return response.json() as Promise<WalletMutationResponse>
+): Promise<SubmissionAccepted> {
+  return submitAuthenticatedMutation('/me/exchanges', body)
 }
 
 export async function createWithdrawal(
@@ -110,14 +101,6 @@ export async function createWithdrawal(
 
 export async function createTransfer(
   body: TransferRequest,
-): Promise<WalletMutationResponse> {
-  const response = await authenticatedFetch('/me/transfers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw await parseErrorResponse(response)
-  }
-  return response.json() as Promise<WalletMutationResponse>
+): Promise<SubmissionAccepted> {
+  return submitAuthenticatedMutation('/me/transfers', body)
 }

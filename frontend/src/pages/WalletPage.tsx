@@ -221,6 +221,10 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
 
   async function handleExchangeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (exchangeSourceAsset === exchangeDestAsset) {
+      setErrorMessage('Source and destination assets must differ.')
+      return
+    }
     setIsSubmittingExchange(true)
     setErrorMessage(null)
     setSuccessMessage(null)
@@ -232,11 +236,20 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
         destination_asset: exchangeDestAsset,
         amount: exchangeAmount,
       })
-      setSuccessMessage(
-        `Exchange completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      setAcceptanceMessage(
+        `Exchange accepted for processing (request ${result.request_id}).`,
       )
       setExchangeAmount('')
-      await loadWalletData()
+      const [balanceResult, transactionResult] = await Promise.all([
+        getUserBalances(),
+        listUserTransactions(0, TRANSACTIONS_PAGE_SIZE),
+      ])
+      setBalances(balanceResult.items)
+      setTransactions((current) =>
+        reconcileTransactionsByRequestId(current, transactionResult.items),
+      )
+      setTransactionsTotalItems(transactionResult.total_items)
+      setTransactionsPageNumber(0)
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -302,11 +315,20 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
         asset: transferAsset,
         amount: transferAmount,
       })
-      setSuccessMessage(
-        `Transfer completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      setAcceptanceMessage(
+        `Transfer accepted for processing (request ${result.request_id}).`,
       )
       setTransferAmount('')
-      await loadWalletData()
+      const [balanceResult, transactionResult] = await Promise.all([
+        getUserBalances(),
+        listUserTransactions(0, TRANSACTIONS_PAGE_SIZE),
+      ])
+      setBalances(balanceResult.items)
+      setTransactions((current) =>
+        reconcileTransactionsByRequestId(current, transactionResult.items),
+      )
+      setTransactionsTotalItems(transactionResult.total_items)
+      setTransactionsPageNumber(0)
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -482,7 +504,8 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
             disabled={
               isBusy ||
               currencies.length === 0 ||
-              exchangeAmount.trim() === ''
+              exchangeAmount.trim() === '' ||
+              exchangeSourceAsset === exchangeDestAsset
             }
           >
             {isSubmittingExchange ? 'Submitting…' : 'Submit exchange'}

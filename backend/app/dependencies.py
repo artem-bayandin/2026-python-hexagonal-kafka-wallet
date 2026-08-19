@@ -37,6 +37,8 @@ from app.domain import (
     VerifyOtpHandler,
     WithdrawHandler,
     SubmitDepositHandler,
+    SubmitExchangeHandler,
+    SubmitTransferHandler,
     SubmitWithdrawalHandler,
 )
 from app.kafka import build_kafka_command_publisher
@@ -85,6 +87,33 @@ def build_submit_withdrawal_handler(
 ) -> SubmitWithdrawalHandler:
     return SubmitWithdrawalHandler(
         current_user_provider,
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
+    )
+
+
+def build_submit_exchange_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> SubmitExchangeHandler:
+    return SubmitExchangeHandler(
+        current_user_provider,
+        CurrencyQueryRepositoryImpl(session),
+        UserWalletCommandRepositoryImpl(session),
+        TransactionCommandRepositoryImpl(session),
+        SystemClock(),
+    )
+
+
+def build_submit_transfer_handler(
+    session: AsyncSession,
+    current_user_provider: CurrentUserProvider,
+) -> SubmitTransferHandler:
+    return SubmitTransferHandler(
+        current_user_provider,
+        UserQueryRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),

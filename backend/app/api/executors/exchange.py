@@ -2,22 +2,32 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Request
 
-from app.dependencies import build_exchange_handler
-from app.domain import ExchangeCommand, ExchangeResult, Result
+from app.db import AsyncSession
+from app.dependencies import build_submit_exchange_handler
+from app.domain import ExchangeCommand, Result, SubmissionInterimHandlerResult, SubmissionResult
 
 from ..current_user_provider import get_current_user_provider
-from ..db_session import write_session
+from .submission import get_submission_executor_fn
 
-ExchangeExecutor = Callable[[ExchangeCommand], Awaitable[Result[ExchangeResult]]]
+ExchangeExecutor = Callable[[ExchangeCommand], Awaitable[Result[SubmissionResult]]]
 
 
-def get_exchange_executor(request: Request) -> ExchangeExecutor:
-    async def execute(command: ExchangeCommand) -> Result[ExchangeResult]:
-        async with write_session(request) as session:
-            handler = build_exchange_handler(
+def get_exchange_executor_fn(request: Request) -> ExchangeExecutor:
+    submission_executor_fn = get_submission_executor_fn(request)
+
+    async def execute_fn(command: ExchangeCommand) -> Result[SubmissionResult]:
+        async def handle_submit_exchange_fn(
+            session: AsyncSession,
+        ) -> Result[SubmissionInterimHandlerResult]:
+            handler = build_submit_exchange_handler(
                 session,
                 get_current_user_provider(),
             )
-            return await handler.handle(command)
+            return await handler.validate_and_store_initial_tx(command)
 
-    return execute
+        return await submission_executor_fn(handle_submit_exchange_fn)
+
+    return execute_fn
+
+
+__all__ = ["ExchangeExecutor", "get_exchange_executor_fn"]
