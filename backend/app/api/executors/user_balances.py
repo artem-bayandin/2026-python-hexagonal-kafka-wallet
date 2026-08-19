@@ -8,11 +8,11 @@ from app.domain import BalanceItem, Result, UserBalancesQuery
 from ..db_session import read_session
 from ..current_user_provider import get_current_user_provider
 
-GetUserBalancesExecutor = Callable[[UserBalancesQuery], Awaitable[Result[list[BalanceItem]]]]
+GetUserBalancesExecutorFn = Callable[[UserBalancesQuery], Awaitable[Result[list[BalanceItem]]]]
 
 
-def get_get_user_balances_executor(request: Request) -> GetUserBalancesExecutor:
-    async def execute(query: UserBalancesQuery) -> Result[list[BalanceItem]]:
+def get_user_balances_executor_fn(request: Request) -> GetUserBalancesExecutorFn:
+    async def execute_fn(query: UserBalancesQuery) -> Result[list[BalanceItem]]:
         async with read_session(request) as session:
             handler = build_get_user_balances_handler(
                 session,
@@ -20,4 +20,4 @@ def get_get_user_balances_executor(request: Request) -> GetUserBalancesExecutor:
             )
             return await handler.handle(query)
 
-    return execute
+    return execute_fn

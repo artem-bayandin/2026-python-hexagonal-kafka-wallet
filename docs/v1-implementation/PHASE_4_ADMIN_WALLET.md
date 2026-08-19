@@ -385,12 +385,12 @@ When both headers are present, admin key is checked first; a valid key short-cir
 Add read executor and route wiring:
 
 ```python
-ListCurrenciesExecutor = Callable[
+ListCurrenciesExecutorFn = Callable[
     [CurrenciesQuery], Awaitable[Result[list[CurrencyCatalogItem]]]
 ]
 
 
-def get_list_currencies_executor(request: Request) -> ListCurrenciesExecutor:
+def get_list_currencies_executor_fn(request: Request) -> ListCurrenciesExecutorFn:
     async def execute(query: CurrenciesQuery) -> Result[list[CurrencyCatalogItem]]:
         async with request.app.state.session_factory() as session:
             handler = build_list_currencies_handler(session)
@@ -408,7 +408,7 @@ from fastapi import APIRouter, Depends
 
 from app.domain import CurrenciesQuery
 
-from ..dependencies import ListCurrenciesExecutor, get_list_currencies_executor, require_admin_or_user_auth
+from ..dependencies import ListCurrenciesExecutorFn, get_list_currencies_executor_fn, require_admin_or_user_auth
 from ..result_mapping import unwrap_domain_result
 from ..schemas import CurrencyItemResponse, DataList
 
@@ -421,7 +421,7 @@ router = APIRouter(prefix="/reference", tags=["reference"])
 )
 async def list_currencies(
     executor: Annotated[
-        ListCurrenciesExecutor, Depends(get_list_currencies_executor)
+        ListCurrenciesExecutorFn, Depends(get_list_currencies_executor_fn)
     ],
 ) -> DataList[CurrencyItemResponse]:
     items = unwrap_domain_result(await executor(CurrenciesQuery()))
@@ -659,7 +659,7 @@ Add executor and route to `backend/app/api/routers/reference.py`:
     dependencies=[Depends(require_admin_or_user_auth)],
 )
 async def list_users(
-    executor: Annotated[ListUsersExecutor, Depends(get_list_users_executor)],
+    executor: Annotated[ListUsersExecutorFn, Depends(get_list_users_executor_fn)],
 ) -> DataList[UserReferenceItemResponse]:
     items = unwrap_domain_result(await executor(UsersQuery()))
     return DataList(
@@ -670,7 +670,7 @@ async def list_users(
     )
 ```
 
-Wire `get_list_users_executor` in `api/dependencies.py` mirroring the currencies executor.
+Wire `get_list_users_executor_fn` in `api/dependencies.py` mirroring the currencies executor.
 
 ### UI
 
@@ -1048,7 +1048,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 async def create_deposit(
     body: AdminDepositRequest,
     executor: Annotated[
-        AdminDepositExecutor, Depends(get_admin_deposit_executor)
+        AdminDepositExecutorFn, Depends(get_admin_deposit_executor)
     ],
 ) -> AdminDepositResponse:
     result = await executor(
@@ -1210,10 +1210,10 @@ Add to `backend/app/api/routers/admin.py`:
 )
 async def get_admin_balances(
     balances_executor: Annotated[
-        GetAdminBalancesExecutor, Depends(get_get_admin_balances_executor)
+        AdminBalancesExecutorFn, Depends(get_admin_balances_executor_fn)
     ],
     currencies_executor: Annotated[
-        ListCurrenciesExecutor, Depends(get_list_currencies_executor)
+        ListCurrenciesExecutorFn, Depends(get_list_currencies_executor_fn)
     ],
 ) -> BalanceListResponse:
     items = unwrap_domain_result(await balances_executor(AdminBalancesQuery()))
@@ -1368,8 +1368,8 @@ async def list_admin_transactions(
     page_number: Annotated[int, Query(ge=0)] = 0,
     page_size: Annotated[int, Query(gt=0, le=100)] = 20,
     executor: Annotated[
-        ListAdminTransactionsExecutor,
-        Depends(get_list_admin_transactions_executor),
+        ListAdminTransactionsExecutorFn,
+        Depends(get_list_admin_transactions_executor_fn),
     ] = ...,
 ) -> TransactionListResponse:
     page = unwrap_domain_result(

@@ -11,16 +11,16 @@ from app.domain import (
     WithdrawCommand,
 )
 
-from ..dependencies import (
-    ExchangeExecutor,
-    GetUserBalancesExecutor,
-    ListUserTransactionsExecutor,
-    TransferExecutor,
-    WithdrawExecutor,
-    bind_current_user,
+from ..dependencies import bind_current_user
+from ..executors import (
+    ExchangeExecutorFn,
+    GetUserBalancesExecutorFn,
+    ListUserTransactionsExecutorFn,
+    TransferExecutorFn,
+    WithdrawExecutorFn,
     get_exchange_executor_fn,
-    get_get_user_balances_executor,
-    get_list_user_transactions_executor,
+    get_user_balances_executor_fn,
+    get_list_user_transactions_executor_fn,
     get_transfer_executor_fn,
     get_withdraw_executor_fn,
 )
@@ -45,9 +45,10 @@ router = APIRouter(prefix="/me", tags=["wallet"])
     dependencies=[Depends(bind_current_user)],
 )
 async def get_user_balances(
-    balances_executor: Annotated[GetUserBalancesExecutor, Depends(get_get_user_balances_executor)],
+    executor_fn: Annotated[GetUserBalancesExecutorFn, Depends(get_user_balances_executor_fn)],
 ) -> BalanceListResponse:
-    items = unwrap_domain_result(await balances_executor(UserBalancesQuery()))
+    result = await executor_fn(UserBalancesQuery())
+    data = unwrap_domain_result(result)
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
@@ -55,7 +56,7 @@ async def get_user_balances(
                 amount=format_amount_with_precision(item.amount, item.precision),
                 locked=format_amount_with_precision(item.locked, item.precision),
             )
-            for item in items
+            for item in data
         ]
     )
 
@@ -65,20 +66,18 @@ async def get_user_balances(
     dependencies=[Depends(bind_current_user)],
 )
 async def list_user_transactions(
-    executor: Annotated[
-        ListUserTransactionsExecutor,
-        Depends(get_list_user_transactions_executor),
+    executor_fn: Annotated[
+        ListUserTransactionsExecutorFn, Depends(get_list_user_transactions_executor_fn)
     ],
     page_number: Annotated[int, Query(ge=0)] = 0,
     page_size: Annotated[int, Query(gt=0, le=100)] = 20,
 ) -> TransactionListResponse:
-    page = unwrap_domain_result(
-        await executor(
-            UserTransactionsQuery(PaginationParams(page_number=page_number, page_size=page_size))
-        )
+    result = await executor_fn(
+        UserTransactionsQuery(PaginationParams(page_number=page_number, page_size=page_size))
     )
+    data = unwrap_domain_result(result)
     return TransactionListResponse(
-        total_items=page.total_items,
+        total_items=data.total_items,
         items=[
             TransactionItemResponse(
                 id=item.id,
@@ -101,7 +100,7 @@ async def list_user_transactions(
                 updated_at=item.updated_at,
                 direction=item.direction,
             )
-            for item in page.items
+            for item in data.items
         ],
     )
 
@@ -113,7 +112,7 @@ async def list_user_transactions(
 )
 async def create_exchange(
     body: ExchangeRequest,
-    executor_fn: Annotated[ExchangeExecutor, Depends(get_exchange_executor_fn)],
+    executor_fn: Annotated[ExchangeExecutorFn, Depends(get_exchange_executor_fn)],
 ) -> SubmissionAcceptedResponse:
     result = await executor_fn(
         ExchangeCommand(
@@ -133,7 +132,7 @@ async def create_exchange(
 )
 async def create_withdrawal(
     body: WithdrawRequest,
-    executor_fn: Annotated[WithdrawExecutor, Depends(get_withdraw_executor_fn)],
+    executor_fn: Annotated[WithdrawExecutorFn, Depends(get_withdraw_executor_fn)],
 ) -> SubmissionAcceptedResponse:
     result = await executor_fn(WithdrawCommand(asset_label=body.asset, amount_str=body.amount))
     data = unwrap_domain_result(result)
@@ -147,7 +146,7 @@ async def create_withdrawal(
 )
 async def create_transfer(
     body: TransferRequest,
-    executor_fn: Annotated[TransferExecutor, Depends(get_transfer_executor_fn)],
+    executor_fn: Annotated[TransferExecutorFn, Depends(get_transfer_executor_fn)],
 ) -> SubmissionAcceptedResponse:
     result = await executor_fn(
         TransferCommand(

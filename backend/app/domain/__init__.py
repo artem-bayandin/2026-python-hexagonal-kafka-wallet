@@ -72,8 +72,6 @@ from .token_claims import TokenClaims
 from .use_cases import (
     # Admin deposit
     AdminDepositCommand,
-    AdminDepositHandler,
-    AdminDepositResult,
     # Admin balances
     AdminBalancesHandler,
     AdminBalancesQuery,
@@ -97,18 +95,12 @@ from .use_cases import (
     UsersHandler,
     UsersQuery,
     ExchangeCommand,
-    ExchangeHandler,
-    ExchangeResult,
     UserBalancesHandler,
     UserBalancesQuery,
     UserTransactionsHandler,
     UserTransactionsQuery,
     TransferCommand,
-    TransferHandler,
-    TransferResult,
     WithdrawCommand,
-    WithdrawHandler,
-    WithdrawResult,
     # VerifyOTP
     VerifyOtpCommand,
     VerifyOtpResult,

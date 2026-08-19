@@ -20,7 +20,10 @@ SubmissionExecutorFn = Callable[[SubmissionInterimHandlerFn], Awaitable[Result[S
 
 
 def get_submission_executor_fn(request: Request) -> SubmissionExecutorFn:
-    command_publisher = build_command_publisher(request.app.state.kafka_settings)  # object
+    command_publisher = build_command_publisher(
+        request.app.state.kafka_settings,
+        request.app.state.kafka_producer,
+    )
 
     async def execute_fn(
         handle_initial_tx_creation_fn: SubmissionInterimHandlerFn,
@@ -54,6 +57,3 @@ def get_submission_executor_fn(request: Request) -> SubmissionExecutorFn:
         return Result.success(SubmissionResult(request_id=outcome.request_id))
 
     return execute_fn
-
-
-__all__ = ["SubmissionExecutorFn", "SubmissionInterimHandlerFn", "get_submission_executor_fn"]

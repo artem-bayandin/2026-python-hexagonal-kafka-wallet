@@ -1,9 +1,5 @@
 from .admin.admin_balances_query import AdminBalancesHandler, AdminBalancesQuery
-from .admin.admin_deposit_cmd import (
-    AdminDepositCommand,
-    AdminDepositHandler,
-    AdminDepositResult,
-)
+from .admin.admin_deposit_cmd import AdminDepositCommand
 from .admin.admin_transactions_query import AdminTransactionsHandler, AdminTransactionsQuery
 
 from .auth_session.logout_cmd import LogoutCommand, LogoutHandler
@@ -18,9 +14,9 @@ from .user.user_balances_query import UserBalancesQuery, UserBalancesHandler
 from .user.user_transactions_query import UserTransactionsQuery, UserTransactionsHandler
 from .user.users_query import UsersHandler, UsersQuery
 
-from .wallet.exchange_cmd import ExchangeCommand, ExchangeHandler, ExchangeResult
-from .wallet.transfer_cmd import TransferCommand, TransferHandler, TransferResult
-from .wallet.withdraw_cmd import WithdrawCommand, WithdrawHandler, WithdrawResult
+from .wallet.exchange_cmd import ExchangeCommand
+from .wallet.transfer_cmd import TransferCommand
+from .wallet.withdraw_cmd import WithdrawCommand
 from .submission.submit_transaction import (
     PublicationError,
     SubmissionInterimHandlerResult,
@@ -46,8 +42,6 @@ from .execution.execute_withdrawal import ExecuteWithdrawalHandler
 
 __all__ = [
     "AdminDepositCommand",
-    "AdminDepositHandler",
-    "AdminDepositResult",
     "AdminBalancesHandler",
     "AdminBalancesQuery",
     "LogoutCommand",
@@ -67,18 +61,12 @@ __all__ = [
     "UsersHandler",
     "UsersQuery",
     "ExchangeCommand",
-    "ExchangeHandler",
-    "ExchangeResult",
     "UserBalancesHandler",
     "UserBalancesQuery",
     "UserTransactionsHandler",
     "UserTransactionsQuery",
     "TransferCommand",
-    "TransferHandler",
-    "TransferResult",
     "WithdrawCommand",
-    "WithdrawHandler",
-    "WithdrawResult",
     "PublicationError",
     "SubmissionInterimHandlerResult",
     "SubmissionResult",

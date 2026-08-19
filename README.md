@@ -53,21 +53,29 @@ Bite-sized notes on the “why” behind the code: patterns, trade-offs, and thi
 
 Version 1 [Readme.md](docs/v1/README.md) and all the other v1 docs are in `/docs/v1/` folder.
 
-Version 2 [Readme.md](docs/v2-draft/README.md) (empty for now) with v2 requirements cut from v1 but not reviewed are in `/docs/v2-draft/` folder.
+Version 2 [Readme.md](docs/v2/README.md) with v2 requirements cut from v1 but not reviewed are in `/docs/v2-draft/` folder.
 
 ## Bootstrap and verification
 
-Run database and api (teminal 1):
+Host processes (`uvicorn`, the Kafka worker, the reaper) read `backend/.env`. Local Kafka is reachable from the host at `127.0.0.1:29092` (`KAFKA_BOOTSTRAP_SERVERS` in `backend/.env.example`). Run the full demo only with `APP_ENV=development`; development-only OTP display, the demo admin credential, and Kafka diagnostics must be disabled in production.
+
+### Terminal 1
+
+Start PostgreSQL, Kafka, topics, migrations, and the API (terminal 1). `kafka-init` is a one-shot job that creates `wallet` (3 partitions) and `wallet_dlq`; it is not started by `up -d kafka` alone:
 
 ```sh
 cd backend
 uv sync --all-groups
 cd ..
 docker compose --env-file backend/.env up -d postgres
+docker compose --env-file backend/.env up -d kafka
+docker compose --env-file backend/.env run --rm kafka-init
 cd backend
 uv run alembic upgrade head
 uv run uvicorn app.main:create_app --factory --reload
 ```
+
+### Terminal 2
 
 Run frontend (terminal 2):
 
@@ -89,7 +97,33 @@ uv run pytest
 cd ../frontend && yarn lint && yarn typecheck && yarn test && yarn build
 ```
 
-Version 2 additionally requires the `kafka` and `worker` Compose services. Run the full demo only with `APP_ENV=development`; development-only OTP display, the demo admin credential, and Kafka diagnostics must be disabled in production.
+### Terminal 3
+
+Run the command worker that consumes `wallet` (terminal 3). It is a host process (`uv run python -m app.kafka.worker`), not a Compose service. The worker is the only application consumer; it publishes exhausted or poison failures to `wallet_dlq`. There is no long-running application consumer for `wallet_dlq` — that topic is for operations inspection and controlled replay:
+
+```sh
+cd backend
+uv run python -m app.kafka.worker
+```
+
+Optional: inspect `wallet` or `wallet_dlq` with the broker console consumer (does not join `wallet_worker`):
+
+```sh
+docker compose --env-file backend/.env exec kafka \
+  /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:9092 \
+  --topic wallet_dlq \
+  --from-beginning
+```
+
+The stale-`submitted` reaper (`uv run python -m app.kafka.reaper` from `backend/`) is a later Version 2 process. It republishes to `wallet`; it does not consume either topic.
+
+### Terminal 4 [optional]
+
+```sh
+cd backend
+uv run python -m app.kafka.reaper
+```
 
 ## Contribution and release policy
 

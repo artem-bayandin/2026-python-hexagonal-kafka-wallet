@@ -9,15 +9,15 @@ from app.domain import (
     PaginationParams,
 )
 
-from ..dependencies import (
-    AdminDepositExecutor,
-    GetAdminBalancesExecutor,
-    ListAdminTransactionsExecutor,
+from ..executors import (
+    AdminDepositExecutorFn,
+    AdminBalancesExecutorFn,
+    ListAdminTransactionsExecutorFn,
     get_admin_deposit_executor_fn,
-    get_get_admin_balances_executor,
-    get_list_admin_transactions_executor,
-    require_admin_key,
+    get_admin_balances_executor_fn,
+    get_list_admin_transactions_executor_fn,
 )
+from ..dependencies import require_admin_key
 from ..formatting import format_amount_with_precision, map_not_null_asset_precision
 from ..result_mapping import unwrap_domain_result
 from ..schemas import (
@@ -39,7 +39,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 )
 async def create_deposit(
     body: AdminDepositRequest,
-    executor_fn: Annotated[AdminDepositExecutor, Depends(get_admin_deposit_executor_fn)],
+    executor_fn: Annotated[AdminDepositExecutorFn, Depends(get_admin_deposit_executor_fn)],
 ) -> SubmissionAcceptedResponse:
     result = await executor_fn(
         AdminDepositCommand(
@@ -57,11 +57,10 @@ async def create_deposit(
     dependencies=[Depends(require_admin_key)],
 )
 async def get_admin_balances(
-    balances_executor: Annotated[
-        GetAdminBalancesExecutor, Depends(get_get_admin_balances_executor)
-    ],
+    executor_fn: Annotated[AdminBalancesExecutorFn, Depends(get_admin_balances_executor_fn)],
 ) -> BalanceListResponse:
-    items = unwrap_domain_result(await balances_executor(AdminBalancesQuery()))
+    result = await executor_fn(AdminBalancesQuery())
+    data = unwrap_domain_result(result)
     return BalanceListResponse(
         items=[
             BalanceItemResponse(
@@ -69,7 +68,7 @@ async def get_admin_balances(
                 amount=format_amount_with_precision(item.amount, item.precision),
                 locked=format_amount_with_precision(item.locked, item.precision),
             )
-            for item in items
+            for item in data
         ]
     )
 
@@ -79,20 +78,18 @@ async def get_admin_balances(
     dependencies=[Depends(require_admin_key)],
 )
 async def list_admin_transactions(
-    executor: Annotated[
-        ListAdminTransactionsExecutor,
-        Depends(get_list_admin_transactions_executor),
+    executor_fn: Annotated[
+        ListAdminTransactionsExecutorFn, Depends(get_list_admin_transactions_executor_fn)
     ],
     page_number: Annotated[int, Query(ge=0)] = 0,
     page_size: Annotated[int, Query(gt=0, le=100)] = 20,
 ) -> TransactionListResponse:
-    page = unwrap_domain_result(
-        await executor(
-            AdminTransactionsQuery(PaginationParams(page_number=page_number, page_size=page_size))
-        )
+    result = await executor_fn(
+        AdminTransactionsQuery(PaginationParams(page_number=page_number, page_size=page_size))
     )
+    data = unwrap_domain_result(result)
     return TransactionListResponse(
-        total_items=page.total_items,
+        total_items=data.total_items,
         items=[
             TransactionItemResponse(
                 id=item.id,
@@ -114,6 +111,6 @@ async def list_admin_transactions(
                 created_at=item.created_at,
                 updated_at=item.updated_at,
             )
-            for item in page.items
+            for item in data.items
         ],
     )

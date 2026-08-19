@@ -7,11 +7,11 @@ from app.domain import CurrentUser, CurrentUserQuery, Result
 
 from ..db_session import read_session
 
-GetCurrentUserExecutor = Callable[[CurrentUserQuery], Awaitable[Result[CurrentUser]]]
+GetCurrentUserExecutorFn = Callable[[CurrentUserQuery], Awaitable[Result[CurrentUser]]]
 
 
-def get_current_user_executor(request: Request) -> GetCurrentUserExecutor:
-    async def execute(query: CurrentUserQuery) -> Result[CurrentUser]:
+def get_current_user_executor_fn(request: Request) -> GetCurrentUserExecutorFn:
+    async def execute_fn(query: CurrentUserQuery) -> Result[CurrentUser]:
         async with read_session(request) as session:
             handler = build_get_current_user_handler(
                 session,
@@ -19,4 +19,4 @@ def get_current_user_executor(request: Request) -> GetCurrentUserExecutor:
             )
             return await handler.handle(query)
 
-    return execute
+    return execute_fn

@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends
 
 from app.domain import CurrenciesQuery, UsersQuery
 
-from ..dependencies import (
-    ListCurrenciesExecutor,
-    ListUsersExecutor,
-    get_list_currencies_executor,
-    get_list_users_executor,
-    require_admin_or_user_auth,
+from ..dependencies import require_admin_or_user_auth
+from ..executors import (
+    ListCurrenciesExecutorFn,
+    ListUsersExecutorFn,
+    get_list_currencies_executor_fn,
+    get_list_users_executor_fn,
 )
 from ..result_mapping import unwrap_domain_result
 from ..schemas import (
@@ -26,9 +26,10 @@ router = APIRouter(prefix="/reference", tags=["reference"])
     dependencies=[Depends(require_admin_or_user_auth)],
 )
 async def list_currencies(
-    executor: Annotated[ListCurrenciesExecutor, Depends(get_list_currencies_executor)],
+    executor_fn: Annotated[ListCurrenciesExecutorFn, Depends(get_list_currencies_executor_fn)],
 ) -> DataList[CurrencyItemResponse]:
-    items = unwrap_domain_result(await executor(CurrenciesQuery()))
+    result = await executor_fn(CurrenciesQuery())
+    data = unwrap_domain_result(result)
     return DataList(
         items=[
             CurrencyItemResponse(
@@ -37,7 +38,7 @@ async def list_currencies(
                 type=item.type,
                 precision=item.precision,
             )
-            for item in items
+            for item in data
         ]
     )
 
@@ -47,9 +48,10 @@ async def list_currencies(
     dependencies=[Depends(require_admin_or_user_auth)],
 )
 async def list_users(
-    executor: Annotated[ListUsersExecutor, Depends(get_list_users_executor)],
+    executor_fn: Annotated[ListUsersExecutorFn, Depends(get_list_users_executor_fn)],
 ) -> DataList[UserReferenceItemResponse]:
-    items = unwrap_domain_result(await executor(UsersQuery()))
+    result = await executor_fn(UsersQuery())
+    data = unwrap_domain_result(result)
     return DataList(
-        items=[UserReferenceItemResponse(user_id=item.user_id, email=item.email) for item in items]
+        items=[UserReferenceItemResponse(user_id=item.user_id, email=item.email) for item in data]
     )

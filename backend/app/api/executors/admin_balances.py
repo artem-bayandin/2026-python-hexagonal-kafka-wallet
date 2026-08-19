@@ -7,13 +7,13 @@ from app.domain import AdminBalancesQuery, BalanceItem, Result
 
 from ..db_session import read_session
 
-GetAdminBalancesExecutor = Callable[[AdminBalancesQuery], Awaitable[Result[list[BalanceItem]]]]
+AdminBalancesExecutorFn = Callable[[AdminBalancesQuery], Awaitable[Result[list[BalanceItem]]]]
 
 
-def get_get_admin_balances_executor(request: Request) -> GetAdminBalancesExecutor:
-    async def execute(query: AdminBalancesQuery) -> Result[list[BalanceItem]]:
+def get_admin_balances_executor_fn(request: Request) -> AdminBalancesExecutorFn:
+    async def execute_fn(query: AdminBalancesQuery) -> Result[list[BalanceItem]]:
         async with read_session(request) as session:
             handler = build_get_admin_balances_handler(session)
             return await handler.handle(query)
 
-    return execute
+    return execute_fn

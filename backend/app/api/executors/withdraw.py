@@ -9,10 +9,10 @@ from app.domain import Result, SubmissionInterimHandlerResult, SubmissionResult,
 from ..current_user_provider import get_current_user_provider
 from .submission import get_submission_executor_fn
 
-WithdrawExecutor = Callable[[WithdrawCommand], Awaitable[Result[SubmissionResult]]]
+WithdrawExecutorFn = Callable[[WithdrawCommand], Awaitable[Result[SubmissionResult]]]
 
 
-def get_withdraw_executor_fn(request: Request) -> WithdrawExecutor:
+def get_withdraw_executor_fn(request: Request) -> WithdrawExecutorFn:
     submission_executor_fn = get_submission_executor_fn(request)
 
     async def execute_fn(command: WithdrawCommand) -> Result[SubmissionResult]:
@@ -28,6 +28,3 @@ def get_withdraw_executor_fn(request: Request) -> WithdrawExecutor:
         return await submission_executor_fn(handle_submit_withdrawal_fn)
 
     return execute_fn
-
-
-__all__ = ["WithdrawExecutor", "get_withdraw_executor_fn"]

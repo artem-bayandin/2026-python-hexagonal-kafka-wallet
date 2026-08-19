@@ -3,9 +3,10 @@ from app.auth import (
     PyJwtTokenService,
     SystemClock,
 )
+from aiokafka import AIOKafkaProducer
+
 from app.config import KafkaSettings, ApiSettings
 from app.db import (
-    AdminWalletCommandRepositoryImpl,
     AdminWalletQueryRepositoryImpl,
     AsyncSession,
     AuthSessionCommandRepositoryImpl,
@@ -20,10 +21,8 @@ from app.db import (
     UserWalletQueryRepositoryImpl,
 )
 from app.domain import (
-    AdminDepositHandler,
     CommandPublisher,
     CurrentUserProvider,
-    ExchangeHandler,
     AdminBalancesHandler,
     CurrentUserHandler,
     UserBalancesHandler,
@@ -33,9 +32,7 @@ from app.domain import (
     UsersHandler,
     LogoutHandler,
     RequestOtpHandler,
-    TransferHandler,
     VerifyOtpHandler,
-    WithdrawHandler,
     SubmitDepositHandler,
     SubmitExchangeHandler,
     SubmitTransferHandler,
@@ -48,71 +45,22 @@ from app.kafka import build_kafka_command_publisher
 # CommandPublisher
 
 
-def build_command_publisher(settings: KafkaSettings) -> CommandPublisher:
-    return build_kafka_command_publisher(settings)
+def build_command_publisher(
+    settings: KafkaSettings,
+    producer: AIOKafkaProducer | None = None,
+) -> CommandPublisher:
+    return build_kafka_command_publisher(settings, producer=producer)
 
 
 # # # # Region: routes.admin
 
-# AdminDeposit (synchronous — retained for rollback reference only)
-
-
-def build_admin_deposit_handler(
-    session: AsyncSession,
-) -> AdminDepositHandler:
-    return AdminDepositHandler(
-        UserQueryRepositoryImpl(session),
-        CurrencyQueryRepositoryImpl(session),
-        UserWalletCommandRepositoryImpl(session),
-        TransactionCommandRepositoryImpl(session),
-        SystemClock(),
-    )
+# AdminDeposit
 
 
 def build_submit_deposit_handler(
     session: AsyncSession,
 ) -> SubmitDepositHandler:
     return SubmitDepositHandler(
-        UserQueryRepositoryImpl(session),
-        CurrencyQueryRepositoryImpl(session),
-        UserWalletCommandRepositoryImpl(session),
-        TransactionCommandRepositoryImpl(session),
-        SystemClock(),
-    )
-
-
-def build_submit_withdrawal_handler(
-    session: AsyncSession,
-    current_user_provider: CurrentUserProvider,
-) -> SubmitWithdrawalHandler:
-    return SubmitWithdrawalHandler(
-        current_user_provider,
-        CurrencyQueryRepositoryImpl(session),
-        UserWalletCommandRepositoryImpl(session),
-        TransactionCommandRepositoryImpl(session),
-        SystemClock(),
-    )
-
-
-def build_submit_exchange_handler(
-    session: AsyncSession,
-    current_user_provider: CurrentUserProvider,
-) -> SubmitExchangeHandler:
-    return SubmitExchangeHandler(
-        current_user_provider,
-        CurrencyQueryRepositoryImpl(session),
-        UserWalletCommandRepositoryImpl(session),
-        TransactionCommandRepositoryImpl(session),
-        SystemClock(),
-    )
-
-
-def build_submit_transfer_handler(
-    session: AsyncSession,
-    current_user_provider: CurrentUserProvider,
-) -> SubmitTransferHandler:
-    return SubmitTransferHandler(
-        current_user_provider,
         UserQueryRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
@@ -258,11 +206,11 @@ def build_list_user_transactions_handler(
 # Exchange
 
 
-def build_exchange_handler(
+def build_submit_exchange_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> ExchangeHandler:
-    return ExchangeHandler(
+) -> SubmitExchangeHandler:
+    return SubmitExchangeHandler(
         current_user_provider,
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
@@ -274,15 +222,14 @@ def build_exchange_handler(
 # Withdraw
 
 
-def build_withdraw_handler(
+def build_submit_withdrawal_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> WithdrawHandler:
-    return WithdrawHandler(
+) -> SubmitWithdrawalHandler:
+    return SubmitWithdrawalHandler(
         current_user_provider,
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
-        AdminWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
     )
@@ -291,11 +238,11 @@ def build_withdraw_handler(
 # Transfer
 
 
-def build_transfer_handler(
+def build_submit_transfer_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> TransferHandler:
-    return TransferHandler(
+) -> SubmitTransferHandler:
+    return SubmitTransferHandler(
         current_user_provider,
         UserQueryRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),

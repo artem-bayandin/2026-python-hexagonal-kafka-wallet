@@ -14,36 +14,7 @@ from app.domain import (
 )
 
 from .current_user_provider import ContextVarCurrentUserProvider, get_current_user_provider
-from .executors import (
-    AdminDepositExecutor,
-    ExchangeExecutor,
-    GetAdminBalancesExecutor,
-    GetCurrentUserExecutor,
-    GetUserBalancesExecutor,
-    ListAdminTransactionsExecutor,
-    ListCurrenciesExecutor,
-    ListUserTransactionsExecutor,
-    ListUsersExecutor,
-    LogoutExecutor,
-    RequestOtpExecutor,
-    TransferExecutor,
-    VerifyOtpExecutor,
-    WithdrawExecutor,
-    get_admin_deposit_executor_fn,
-    get_current_user_executor,
-    get_exchange_executor_fn,
-    get_get_admin_balances_executor,
-    get_get_user_balances_executor,
-    get_list_admin_transactions_executor,
-    get_list_currencies_executor,
-    get_list_user_transactions_executor,
-    get_list_users_executor,
-    get_logout_executor,
-    get_request_otp_executor,
-    get_transfer_executor_fn,
-    get_verify_otp_executor,
-    get_withdraw_executor_fn,
-)
+from .executors import GetCurrentUserExecutorFn, get_current_user_executor_fn
 from .result_mapping import unwrap_domain_result
 
 # Bearer scheme
@@ -56,11 +27,11 @@ ADMIN_KEY_HEADER = "X-Admin-Key"
 
 
 async def _extract_current_user(
-    executor: GetCurrentUserExecutor,
+    executor_fn: GetCurrentUserExecutorFn,
     http_credentials: HTTPAuthorizationCredentials | None,
 ) -> CurrentUser | None:
     if http_credentials is not None and http_credentials.scheme.casefold() == "bearer":
-        result = await executor(CurrentUserQuery(token=http_credentials.credentials))
+        result = await executor_fn(CurrentUserQuery(token=http_credentials.credentials))
         current_user = unwrap_domain_result(result)
         return current_user
     return None
@@ -70,12 +41,12 @@ async def _extract_current_user(
 # wallet: balances, txs, exch, withd, trnsfr
 async def bind_current_user(
     http_credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    executor: Annotated[GetCurrentUserExecutor, Depends(get_current_user_executor)],
+    executor_fn: Annotated[GetCurrentUserExecutorFn, Depends(get_current_user_executor_fn)],
     current_user_provider: Annotated[
         ContextVarCurrentUserProvider, Depends(get_current_user_provider)
     ],
 ) -> AsyncIterator[None]:
-    current_user = await _extract_current_user(executor, http_credentials)
+    current_user = await _extract_current_user(executor_fn, http_credentials)
     if current_user is None:
         unwrap_domain_result(Result.failure(AUTHENTICATION_FAILED))
     assert current_user is not None
@@ -120,7 +91,9 @@ async def require_admin_key(
 async def require_admin_or_user_auth(
     request: Request,
     http_credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    current_user_executor: Annotated[GetCurrentUserExecutor, Depends(get_current_user_executor)],
+    current_user_executor: Annotated[
+        GetCurrentUserExecutorFn, Depends(get_current_user_executor_fn)
+    ],
     x_admin_key: Annotated[str | None, Header(alias=ADMIN_KEY_HEADER)] = None,
 ) -> None:
     settings = request.app.state.settings
@@ -134,43 +107,3 @@ async def require_admin_or_user_auth(
     # validate user auth
     if await _extract_current_user(current_user_executor, http_credentials) is None:
         unwrap_domain_result(Result.failure(AUTHENTICATION_FAILED))
-
-
-__all__ = [
-    # Current file references
-    "ADMIN_KEY_HEADER",
-    "bearer_scheme",
-    "bind_current_user",
-    "require_admin_or_user_auth",
-    "require_admin_key",
-    # Executors
-    "AdminDepositExecutor",
-    "ExchangeExecutor",
-    "GetAdminBalancesExecutor",
-    "GetCurrentUserExecutor",
-    "GetUserBalancesExecutor",
-    "ListAdminTransactionsExecutor",
-    "ListCurrenciesExecutor",
-    "ListUserTransactionsExecutor",
-    "ListUsersExecutor",
-    "LogoutExecutor",
-    "RequestOtpExecutor",
-    "TransferExecutor",
-    "VerifyOtpExecutor",
-    "WithdrawExecutor",
-    "get_admin_deposit_executor_fn",
-    "get_current_user_executor",
-    "get_current_user_provider",
-    "get_exchange_executor_fn",
-    "get_get_admin_balances_executor",
-    "get_get_user_balances_executor",
-    "get_list_admin_transactions_executor",
-    "get_list_currencies_executor",
-    "get_list_user_transactions_executor",
-    "get_list_users_executor",
-    "get_logout_executor",
-    "get_request_otp_executor",
-    "get_transfer_executor_fn",
-    "get_verify_otp_executor",
-    "get_withdraw_executor_fn",
-]

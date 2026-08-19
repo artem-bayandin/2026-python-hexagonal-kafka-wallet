@@ -9,10 +9,10 @@ from app.domain import Result, SubmissionInterimHandlerResult, SubmissionResult,
 from ..current_user_provider import get_current_user_provider
 from .submission import get_submission_executor_fn
 
-TransferExecutor = Callable[[TransferCommand], Awaitable[Result[SubmissionResult]]]
+TransferExecutorFn = Callable[[TransferCommand], Awaitable[Result[SubmissionResult]]]
 
 
-def get_transfer_executor_fn(request: Request) -> TransferExecutor:
+def get_transfer_executor_fn(request: Request) -> TransferExecutorFn:
     submission_executor_fn = get_submission_executor_fn(request)
 
     async def execute_fn(command: TransferCommand) -> Result[SubmissionResult]:
@@ -28,6 +28,3 @@ def get_transfer_executor_fn(request: Request) -> TransferExecutor:
         return await submission_executor_fn(handle_submit_transfer_fn)
 
     return execute_fn
-
-
-__all__ = ["TransferExecutor", "get_transfer_executor_fn"]

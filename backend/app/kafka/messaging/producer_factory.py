@@ -21,9 +21,10 @@ def build_kafka_command_publisher(
     settings: KafkaSettings,
     *,
     topic: str | None = None,
+    producer: AIOKafkaProducer | None = None,
 ) -> KafkaCommandPublisher:
     return KafkaCommandPublisher(
-        build_aiokafka_producer(settings),
+        producer if producer is not None else build_aiokafka_producer(settings),
         topic or settings.command_topic,
         max_retries=settings.producer_max_retries,
         retry_backoff_ms=settings.producer_retry_backoff_ms,

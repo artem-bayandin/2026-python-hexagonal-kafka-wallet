@@ -173,16 +173,16 @@ Two modules named `dependencies.py` serve different layers. Do not merge them.
 - `dependencies.py` — auth gates (`require_admin_key`, `bind_current_user`, `require_admin_or_user_auth`), shared HTTP constants (`bearer_scheme`, `ADMIN_KEY_HEADER`), and re-exports of all executor symbols for routers.
 - `db_session.py` — `read_session(request)` for query routes (short-lived session, no explicit write transaction) and `write_session(request)` for commands (`session.begin()`).
 - `current_user_provider.py` — `ContextVarCurrentUserProvider` implementation, module singleton, and `get_current_user_provider()`.
-- `executors/<use_case>.py` — one file per executor: type alias (e.g. `ExchangeExecutor`) plus `get_*_executor(request)` closure that opens `read_session` or `write_session`, calls the matching `build_*_handler` from `app/dependencies.py`, and invokes the handler. Includes `current_user.py` for `get_current_user_executor`, which `bind_current_user` injects even though no route declares it as a handler parameter.
+- `executors/<use_case>.py` — one file per executor: type alias (e.g. `ExchangeExecutorFn`) plus `get_*_executor(request)` closure that opens `read_session` or `write_session`, calls the matching `build_*_handler` from `app/dependencies.py`, and invokes the handler. Includes `current_user.py` for `get_current_user_executor_fn`, which `bind_current_user` injects even though no route declares it as a handler parameter.
 
 **Two FastAPI dependency roles:**
 
 | Role | Used as | Examples | Purpose |
 | --- | --- | --- | --- |
 | Auth gates | `dependencies=[Depends(...)]` on the route | `bind_current_user`, `require_admin_key`, `require_admin_or_user_auth` | Run before the handler; side effects (ContextVar bind, 401/403) |
-| Executor creators | `Annotated[..., Depends(get_*_executor)]` on handler or auth-gate parameters | `get_exchange_executor`, `get_logout_executor`, `get_current_user_executor` | Inject a request-scoped async closure the caller invokes |
+| Executor creators | `Annotated[..., Depends(get_*_executor)]` on handler or auth-gate parameters | `get_exchange_executor`, `get_logout_executor_fn`, `get_current_user_executor_fn` | Inject a request-scoped async closure the caller invokes |
 
-Every executor creator lives under `executors/`, including those consumed only by auth gates (e.g. `get_current_user_executor` used inside `bind_current_user`).
+Every executor creator lives under `executors/`, including those consumed only by auth gates (e.g. `get_current_user_executor_fn` used inside `bind_current_user`).
 
 **Import rules:**
 

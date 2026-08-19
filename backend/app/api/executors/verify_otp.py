@@ -7,11 +7,11 @@ from app.domain import Result, VerifyOtpCommand, VerifyOtpResult
 
 from ..db_session import write_session
 
-VerifyOtpExecutor = Callable[[VerifyOtpCommand], Awaitable[Result[VerifyOtpResult]]]
+VerifyOtpExecutorFn = Callable[[VerifyOtpCommand], Awaitable[Result[VerifyOtpResult]]]
 
 
-def get_verify_otp_executor(request: Request) -> VerifyOtpExecutor:
-    async def execute(command: VerifyOtpCommand) -> Result[VerifyOtpResult]:
+def get_verify_otp_executor_fn(request: Request) -> VerifyOtpExecutorFn:
+    async def execute_fn(command: VerifyOtpCommand) -> Result[VerifyOtpResult]:
         async with write_session(request) as session:
             handler = build_verify_otp_handler(
                 session,
@@ -19,4 +19,4 @@ def get_verify_otp_executor(request: Request) -> VerifyOtpExecutor:
             )
             return await handler.handle(command)
 
-    return execute
+    return execute_fn
