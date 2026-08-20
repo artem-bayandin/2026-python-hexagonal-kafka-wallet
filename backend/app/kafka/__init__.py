@@ -5,7 +5,7 @@ from .runtime import (
     check_postgres,
     check_schema_revision,
 )
-from .wallet.dependencies import build_kafka_command_publisher
+from .topics.wallet.factory_publisher import build_kafka_command_publisher
 from .shared.dependencies import build_aiokafka_producer
 
 __all__ = [

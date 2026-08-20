@@ -13,13 +13,10 @@ from app.db import (
 )
 from app.domain import ExecutionHandlerRegistry
 
-from ..shared.dependencies import build_worker_consumer
-from ..dlq.dependencies import build_dlq_publisher
 from ..dlq.dlq_publisher import DlqPublisher
-from ..wallet.dependencies import build_kafka_command_publisher
-from ..wallet.wallet_publisher import KafkaWalletPublisher
+from .wallet_publisher import KafkaWalletPublisher
 
-from .dispatcher import DispatchAction, RecordDispatcher
+from ...worker.dispatcher import DispatchAction, RecordDispatcher
 
 
 logger = logging.getLogger(__name__)
@@ -88,24 +85,3 @@ class WalletWorkerConsumer:
                                 "offset": str(record.offset),
                             },
                         )
-
-
-def build_wallet_worker_consumer(
-    *,
-    runtime: WorkerRuntime,
-    engine: AsyncEngine,
-    shutdown_event: asyncio.Event,
-    execution_registry: ExecutionHandlerRegistry | None = None,
-) -> WalletWorkerConsumer:
-    consumer = build_worker_consumer(runtime.kafka, runtime.worker)
-    kafka_publisher = build_kafka_command_publisher(runtime.kafka)
-    dlq_publisher = build_dlq_publisher(runtime.kafka)
-    return WalletWorkerConsumer(
-        runtime=runtime,
-        engine=engine,
-        consumer=consumer,
-        kafka_publisher=kafka_publisher,
-        dlq_publisher=dlq_publisher,
-        execution_registry=execution_registry or ExecutionHandlerRegistry(),
-        shutdown_event=shutdown_event,
-    )

@@ -14,7 +14,8 @@ from ..runtime import (
     configure_process_logging,
     register_shutdown_handlers,
 )
-from ..worker import build_wallet_worker_consumer, build_worker_execution_registry
+from ..worker import build_worker_execution_registry
+from ..topics.wallet.factory_consumer import build_wallet_worker_consumer
 
 logger = logging.getLogger(__name__)
 

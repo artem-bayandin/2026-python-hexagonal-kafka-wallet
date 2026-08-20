@@ -30,10 +30,9 @@ from app.domain import (
 from .retry_loop import run_with_retries
 from .visibility import await_submitted_visibility_delay
 
-from ..dlq.dlq_context import build_dlq_context
-from ..dlq.dlq_publisher import DlqPublisher
-
-from ..wallet.wallet_tx_msg_mapper import WalletTxMsgMapper
+from ..topics.dlq.dlq_context import build_dlq_context
+from ..topics.dlq.dlq_publisher import DlqPublisher
+from ..topics.wallet.wallet_tx_msg_mapper import WalletTxMsgMapper
 
 logger = logging.getLogger(__name__)
 

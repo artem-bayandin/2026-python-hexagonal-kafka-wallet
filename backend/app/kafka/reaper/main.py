@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.config import load_reaper_runtime
 from app.db import build_session_factory
 
-from ..wallet.dependencies import build_kafka_command_publisher
+from ..topics.wallet.factory_publisher import build_kafka_command_publisher
 
 from ..runtime import (
     ReadinessError,

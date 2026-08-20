@@ -1,4 +1,3 @@
-from .consumer import WalletWorkerConsumer, build_wallet_worker_consumer
 from .dispatcher import DispatchAction, DispatchOutcome, RecordDispatcher
 from .execution_registry import build_worker_execution_registry
 from .retry_loop import run_with_retries
@@ -8,9 +7,7 @@ __all__ = [
     "DispatchAction",
     "DispatchOutcome",
     "RecordDispatcher",
-    "WalletWorkerConsumer",
     "await_submitted_visibility_delay",
-    "build_wallet_worker_consumer",
     "build_worker_execution_registry",
     "run_with_retries",
 ]
