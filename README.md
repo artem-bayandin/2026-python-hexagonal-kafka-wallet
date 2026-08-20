@@ -125,6 +125,11 @@ cd backend
 uv run python -m app.kafka.reaper
 ```
 
+### Optional commands
+
+- `docker compose down -v --remove-orphans` - (from the repo root) removes stops postgres/kafka, removes the containers (and their logs), and deletes the postgres_data and kafka_data volumes
+- `docker compose --env-file backend/.env up -d --force-recreate kafka` - recreate kafka
+
 ## Contribution and release policy
 
 - Use `uv` in `backend/` and commit `backend/uv.lock`; enable Yarn with `corepack enable` and commit `frontend/yarn.lock`.
