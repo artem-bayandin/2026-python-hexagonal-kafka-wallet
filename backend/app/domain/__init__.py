@@ -15,11 +15,11 @@ from .error_codes import (
     INVALID_PRECISION,
     INSUFFICIENT_FUNDS,
     CREDIT_FAILED,
-    COMMAND_ENVELOPE_INVALID,
+    WALLET_TX_MSG_INVALID,
 )
 from .result import Result
 from .safe_errors import (
-    SAFE_ENVELOPE_INVALID,
+    WALLET_TX_MESSAGE_INVALID,
     SAFE_EXECUTION_FAILED,
     SAFE_HANDLER_NOT_ENABLED,
     SAFE_PUBLICATION_FAILED,
@@ -28,8 +28,8 @@ from .safe_errors import (
 )
 from .token_claims import TokenClaims
 from .messaging import (
-    CommandEnvelope,
-    CommandType,
+    WalletTxMessage,
+    WalletTxType,
 )
 from .ports import (
     # Providers
@@ -49,7 +49,7 @@ from .ports import (
     UserWalletQueryRepository,
     # Services
     ClockService,
-    CommandPublisher,
+    MessagePublisher,
     OtpService,
     TokenService,
 )
@@ -159,11 +159,11 @@ __all__ = [
     "INVALID_PRECISION",
     "INSUFFICIENT_FUNDS",
     "CREDIT_FAILED",
-    "COMMAND_ENVELOPE_INVALID",
+    "WALLET_TX_MSG_INVALID",
     # .result
     "Result",
     # .safe_errors
-    "SAFE_ENVELOPE_INVALID",
+    "WALLET_TX_MESSAGE_INVALID",
     "SAFE_EXECUTION_FAILED",
     "SAFE_HANDLER_NOT_ENABLED",
     "SAFE_PUBLICATION_FAILED",
@@ -172,8 +172,8 @@ __all__ = [
     # .token_claims
     "TokenClaims",
     # .messaging
-    "CommandEnvelope",
-    "CommandType",
+    "WalletTxMessage",
+    "WalletTxType",
     # .ports
     # Providers
     "CurrentUserProvider",
@@ -192,7 +192,7 @@ __all__ = [
     "UserWalletQueryRepository",
     # Services
     "ClockService",
-    "CommandPublisher",
+    "MessagePublisher",
     "OtpService",
     "TokenService",
     # .read_models

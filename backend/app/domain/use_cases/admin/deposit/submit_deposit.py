@@ -7,7 +7,7 @@ from ....error_codes import (
     UNSUPPORTED_ASSET,
     USER_NOT_FOUND,
 )
-from ....messaging import CommandEnvelope, CommandType
+from ....messaging import WalletTxMessage, WalletTxType
 from ....ports import (
     ClockService,
     CurrencyQueryRepository,
@@ -18,7 +18,7 @@ from ....ports import (
 from ....read_models import SubmittedTransactionSpec
 from ....result import Result
 from ....value_objects import Money
-from ...sub_exec_base.submit_transaction import SubmissionInterimHandlerResult
+from ...sub_exec_base import SubmissionInterimHandlerResult
 from .admin_deposit_cmd import AdminDepositCommand
 
 ADMIN_PARTITION_KEY = "admin"
@@ -69,7 +69,7 @@ class SubmitDepositHandler:
             SubmittedTransactionSpec(
                 id=uuid4(),
                 request_id=request_id,
-                type=CommandType.DEPOSIT,
+                type=WalletTxType.DEPOSIT,
                 source_wallet_id=None,
                 source_amount=money.amount,
                 dest_wallet_id=wallet.id,
@@ -85,9 +85,9 @@ class SubmitDepositHandler:
             SubmissionInterimHandlerResult(
                 request_id=request_id,
                 key=ADMIN_PARTITION_KEY,
-                envelope=CommandEnvelope(
+                message=WalletTxMessage(
                     request_id=request_id,
-                    type=CommandType.DEPOSIT,
+                    msg_tx_type=WalletTxType.DEPOSIT,
                     submitted_at=now,
                 ),
             )

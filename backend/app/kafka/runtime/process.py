@@ -46,11 +46,3 @@ async def managed_kafka_producer(producer: AIOKafkaProducer) -> AsyncIterator[AI
         yield producer
     finally:
         await producer.stop()
-
-
-__all__ = [
-    "configure_process_logging",
-    "managed_kafka_producer",
-    "register_shutdown_handlers",
-    "run_until_shutdown",
-]

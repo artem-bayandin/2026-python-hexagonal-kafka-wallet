@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from ...messaging.command_envelope import CommandEnvelope
-from ...ports import CommandPublisher, TransactionCommandRepository
+from ...messaging import WalletTxMessage
+from ...ports import MessagePublisher, TransactionCommandRepository
 from ...result import Result
 from ...safe_errors import SAFE_PUBLICATION_FAILED
 
@@ -16,7 +16,7 @@ class SubmissionResult:
 class SubmissionInterimHandlerResult:
     request_id: UUID
     key: str
-    envelope: CommandEnvelope
+    message: WalletTxMessage
 
 
 class PublicationError(Exception):
@@ -34,17 +34,17 @@ def publication_error_from_exception(exc: Exception) -> PublicationError:
 class SubmitTransactionHandler:
     def __init__(
         self,
-        command_publisher: CommandPublisher,
+        message_publisher: MessagePublisher,
         tx_command_repo: TransactionCommandRepository,
     ) -> None:
-        self._command_publisher = command_publisher
+        self._message_publisher = message_publisher
         self._tx_command_repo = tx_command_repo
 
     async def finalize_after_persist(
         self, outcome: SubmissionInterimHandlerResult
     ) -> Result[SubmissionResult]:
         try:
-            await self._command_publisher.publish(key=outcome.key, envelope=outcome.envelope)
+            await self._message_publisher.publish(key=outcome.key, message=outcome.message)
         except Exception as exc:
             publication_error = publication_error_from_exception(exc)
             await self._tx_command_repo.fail_if_submitted(

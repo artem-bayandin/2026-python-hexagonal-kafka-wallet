@@ -6,9 +6,9 @@ from pydantic import BeforeValidator, Field, SecretStr, field_validator, model_v
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # other environments are not supported yet
-AppEnv = Literal["development"] # , "test", "production"]
+AppEnv = Literal["development"]  # , "test", "production"]
 # other security protocols are not supported yet
-SecurityProtocol = Literal["PLAINTEXT"] # , "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
+SecurityProtocol = Literal["PLAINTEXT"]  # , "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 _ENV_FILE = ".env"

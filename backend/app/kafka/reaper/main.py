@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.config import load_reaper_runtime
 from app.db import build_session_factory
-from app.kafka.messaging import build_kafka_command_publisher
-from app.kafka.runtime import (
+
+from ..wallet.dependencies import build_kafka_command_publisher
+
+from ..runtime import (
     ReadinessError,
     check_kafka_topics,
     check_postgres,
@@ -71,6 +73,3 @@ async def run_reaper() -> int:
 
 async def main() -> int:
     return await run_reaper()
-
-
-__all__ = ["main", "run_reaper"]

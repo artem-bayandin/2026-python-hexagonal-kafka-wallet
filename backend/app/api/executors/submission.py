@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request
 
 from app.db import AsyncSession, TransactionCommandRepositoryImpl
-from app.dependencies import build_command_publisher
+from app.dependencies import build_message_publisher
 from app.domain import (
     Result,
     SubmissionInterimHandlerResult,
@@ -20,7 +20,7 @@ SubmissionExecutorFn = Callable[[SubmissionInterimHandlerFn], Awaitable[Result[S
 
 
 def get_submission_executor_fn(request: Request) -> SubmissionExecutorFn:
-    command_publisher = build_command_publisher(
+    command_publisher = build_message_publisher(
         request.app.state.kafka_settings,
         request.app.state.kafka_producer,
     )
@@ -40,7 +40,7 @@ def get_submission_executor_fn(request: Request) -> SubmissionExecutorFn:
                 return Result.failure("INTERNAL_ERROR")
 
         try:
-            await command_publisher.publish(key=outcome.key, envelope=outcome.envelope)
+            await command_publisher.publish(key=outcome.key, message=outcome.message)
         except Exception as exc:
             publication_error = publication_error_from_exception(exc)
             async with write_session(request) as session:

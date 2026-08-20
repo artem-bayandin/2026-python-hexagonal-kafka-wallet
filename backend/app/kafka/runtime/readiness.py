@@ -84,13 +84,3 @@ async def check_worker_consumer_group(consumer: AIOKafkaConsumer, kafka: KafkaSe
         raise ReadinessError("Kafka consumer group metadata is unavailable") from error
     if kafka.command_topic not in topics:
         raise ReadinessError(f"Kafka command topic {kafka.command_topic!r} is not visible")
-
-
-__all__ = [
-    "ReadinessError",
-    "check_kafka_topics",
-    "check_postgres",
-    "check_schema_revision",
-    "check_worker_consumer_group",
-    "expected_alembic_revision",
-]

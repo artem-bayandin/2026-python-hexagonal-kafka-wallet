@@ -4,7 +4,8 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.config import load_worker_runtime
-from app.kafka.runtime import (
+
+from ..runtime import (
     ReadinessError,
     check_kafka_topics,
     check_postgres,
@@ -13,8 +14,7 @@ from app.kafka.runtime import (
     configure_process_logging,
     register_shutdown_handlers,
 )
-from app.kafka.worker import build_wallet_worker_consumer
-from app.kafka.worker.execution_registry import build_worker_execution_registry
+from ..worker import build_wallet_worker_consumer, build_worker_execution_registry
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,3 @@ async def run_worker() -> int:
 
 async def main() -> int:
     return await run_worker()
-
-
-__all__ = ["main", "run_worker"]

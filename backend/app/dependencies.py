@@ -21,7 +21,7 @@ from app.db import (
     UserWalletQueryRepositoryImpl,
 )
 from app.domain import (
-    CommandPublisher,
+    MessagePublisher,
     CurrentUserProvider,
     AdminBalancesHandler,
     CurrentUserHandler,
@@ -45,10 +45,10 @@ from app.kafka import build_kafka_command_publisher
 # CommandPublisher
 
 
-def build_command_publisher(
+def build_message_publisher(
     settings: KafkaSettings,
     producer: AIOKafkaProducer | None = None,
-) -> CommandPublisher:
+) -> MessagePublisher:
     return build_kafka_command_publisher(settings, producer=producer)
 
 

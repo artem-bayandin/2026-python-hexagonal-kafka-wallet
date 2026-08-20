@@ -19,8 +19,7 @@ from app.api import (
 )
 from app.config import ApiSettings, load_api_runtime
 from app.db import build_session_factory
-from app.kafka.messaging import build_aiokafka_producer
-from app.kafka.runtime import managed_kafka_producer
+from app.kafka import build_aiokafka_producer, managed_kafka_producer
 
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:

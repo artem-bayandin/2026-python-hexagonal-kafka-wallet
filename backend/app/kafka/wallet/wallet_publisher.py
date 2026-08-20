@@ -5,9 +5,9 @@ from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
 from aiokafka.structs import RecordMetadata
 
-from app.domain import CommandEnvelope, CommandPublisher
+from app.domain import WalletTxMessage, MessagePublisher
 
-from .envelope_codec import command_envelope_to_json
+from .wallet_tx_msg_mapper import WalletTxMsgMapper
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +19,11 @@ class PublishTimeoutError(TimeoutError):
 
 
 def _key_class(key: str) -> str:
-    return "admin" if key == _ADMIN_KEY else "user"
+    return "admin" if key == _ADMIN_KEY else key
 
 
-class KafkaCommandPublisher(CommandPublisher):
-    """Bounded command publisher: acks=all and idempotence are configured on the
+class KafkaWalletPublisher(MessagePublisher):
+    """Bounded message publisher: acks=all and idempotence are configured on the
     underlying producer; retries and the end-to-end wait are bounded here."""
 
     def __init__(
@@ -53,16 +53,16 @@ class KafkaCommandPublisher(CommandPublisher):
     def producer(self) -> AIOKafkaProducer:
         return self._producer
 
-    async def publish(self, *, key: str, envelope: CommandEnvelope) -> None:
+    async def publish(self, *, key: str, message: WalletTxMessage) -> None:
         if not key:
             raise ValueError("Kafka record key is required")
-        value = command_envelope_to_json(envelope)
+        value = WalletTxMsgMapper.command_envelope_to_json(message)
         key_bytes = key.encode("utf-8")
         log_context = {
             "topic": self._topic,
             "key_class": _key_class(key),
-            "request_id": str(envelope.request_id),
-            "command_type": str(envelope.type),
+            "request_id": str(message.request_id),
+            "msg_tx_type": str(message.msg_tx_type),
         }
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._delivery_timeout_s

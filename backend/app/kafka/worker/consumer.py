@@ -12,14 +12,15 @@ from app.db import (
     build_session_factory,
 )
 from app.domain import ExecutionHandlerRegistry
-from app.kafka.messaging import (
-    KafkaCommandPublisher,
-    build_kafka_command_publisher,
-    build_worker_consumer,
-)
+
+from ..shared.dependencies import build_worker_consumer
+from ..dlq.dependencies import build_dlq_publisher
+from ..dlq.dlq_publisher import DlqPublisher
+from ..wallet.dependencies import build_kafka_command_publisher
+from ..wallet.wallet_publisher import KafkaWalletPublisher
 
 from .dispatcher import DispatchAction, RecordDispatcher
-from .dlq import DlqPublisher
+
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class WalletWorkerConsumer:
         runtime: WorkerRuntime,
         engine: AsyncEngine,
         consumer: AIOKafkaConsumer,
-        kafka_publisher: KafkaCommandPublisher,
+        kafka_publisher: KafkaWalletPublisher,
         dlq_publisher: DlqPublisher,
         execution_registry: ExecutionHandlerRegistry,
         shutdown_event: asyncio.Event,
@@ -63,7 +64,7 @@ class WalletWorkerConsumer:
         return self._consumer
 
     @property
-    def kafka_publisher(self) -> KafkaCommandPublisher:
+    def kafka_publisher(self) -> KafkaWalletPublisher:
         return self._kafka_publisher
 
     async def run(self) -> None:
@@ -97,8 +98,8 @@ def build_wallet_worker_consumer(
     execution_registry: ExecutionHandlerRegistry | None = None,
 ) -> WalletWorkerConsumer:
     consumer = build_worker_consumer(runtime.kafka, runtime.worker)
-    kafka_publisher = build_kafka_command_publisher(runtime.kafka, topic=runtime.kafka.dlq_topic)
-    dlq_publisher = DlqPublisher(kafka_publisher, topic=runtime.kafka.dlq_topic)
+    kafka_publisher = build_kafka_command_publisher(runtime.kafka)
+    dlq_publisher = build_dlq_publisher(runtime.kafka)
     return WalletWorkerConsumer(
         runtime=runtime,
         engine=engine,
@@ -108,6 +109,3 @@ def build_wallet_worker_consumer(
         execution_registry=execution_registry or ExecutionHandlerRegistry(),
         shutdown_event=shutdown_event,
     )
-
-
-__all__ = ["WalletWorkerConsumer", "build_wallet_worker_consumer"]

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Response
 
-from app.kafka.runtime import (
+from app.kafka import (
     ReadinessError,
     check_kafka_topics,
     check_postgres,

@@ -9,7 +9,7 @@ from app.db import (
     build_session_factory,
 )
 from app.domain import (
-    CommandType,
+    WalletTxType,
     ExecuteDepositHandler,
     ExecuteExchangeHandler,
     ExecuteTransferHandler,
@@ -22,7 +22,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
     session_factory: async_sessionmaker[AsyncSession] = build_session_factory(engine)
     registry = ExecutionHandlerRegistry()
     registry.register(
-        CommandType.DEPOSIT,
+        WalletTxType.DEPOSIT,
         ExecuteDepositHandler(
             session_factory,
             TransactionCommandRepositoryImpl,
@@ -31,7 +31,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
         ),
     )
     registry.register(
-        CommandType.WITHDRAWAL,
+        WalletTxType.WITHDRAWAL,
         ExecuteWithdrawalHandler(
             session_factory,
             TransactionCommandRepositoryImpl,
@@ -41,7 +41,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
         ),
     )
     registry.register(
-        CommandType.EXCHANGE,
+        WalletTxType.EXCHANGE,
         ExecuteExchangeHandler(
             session_factory,
             TransactionCommandRepositoryImpl,
@@ -50,7 +50,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
         ),
     )
     registry.register(
-        CommandType.TRANSFER,
+        WalletTxType.TRANSFER,
         ExecuteTransferHandler(
             session_factory,
             TransactionCommandRepositoryImpl,
@@ -59,6 +59,3 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
         ),
     )
     return registry
-
-
-__all__ = ["build_worker_execution_registry"]

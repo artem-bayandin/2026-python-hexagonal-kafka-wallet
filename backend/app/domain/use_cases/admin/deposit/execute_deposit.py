@@ -7,7 +7,7 @@ from ....ports import ClockService, TransactionCommandRepository, UserWalletComm
 from ....read_models import TransactionItem
 from ....safe_errors import SAFE_EXECUTION_FAILED
 from ....value_objects import TransactionStatus
-from ...sub_exec_base.execute_cmd import PoisonExecutionError
+from ...sub_exec_base import PoisonExecutionError
 
 
 class ExecuteDepositHandler:

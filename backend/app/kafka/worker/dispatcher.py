@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import WorkerSettings
 from app.domain import (
-    COMMAND_ENVELOPE_INVALID,
-    CommandEnvelope,
-    CommandType,
+    WALLET_TX_MSG_INVALID,
+    WalletTxMessage,
+    WalletTxType,
     ExecutionHandlerRegistry,
     PoisonExecutionError,
     TERMINAL_STATUSES,
@@ -20,19 +20,20 @@ from app.domain import (
     TransactionItem,
     TransactionQueryRepository,
     TransactionStatus,
-)
-from app.domain import (
-    SAFE_ENVELOPE_INVALID,
+    WALLET_TX_MESSAGE_INVALID,
     SAFE_EXECUTION_FAILED,
     SAFE_HANDLER_NOT_ENABLED,
     SAFE_TRANSACTION_NOT_FOUND,
     SAFE_TYPE_MISMATCH,
 )
-from app.kafka.messaging import json_to_command_envelope
 
-from .dlq import DlqPublisher, build_dlq_context
 from .retry_loop import run_with_retries
 from .visibility import await_submitted_visibility_delay
+
+from ..dlq.dlq_context import build_dlq_context
+from ..dlq.dlq_publisher import DlqPublisher
+
+from ..wallet.wallet_tx_msg_mapper import WalletTxMsgMapper
 
 logger = logging.getLogger(__name__)
 
@@ -70,34 +71,34 @@ class RecordDispatcher:
         if record.value is None:
             await self._publish_poison_dlq(
                 key=key or "unknown",
-                envelope=None,
+                message=None,
                 request_id=None,
-                command_type=None,
-                failure_classification=COMMAND_ENVELOPE_INVALID,
-                safe_error=SAFE_ENVELOPE_INVALID,
+                msg_tx_type=None,
+                failure_classification=WALLET_TX_MSG_INVALID,
+                safe_error=WALLET_TX_MESSAGE_INVALID,
                 attempt_count=0,
             )
             return DispatchOutcome(action=DispatchAction.ACK)
 
-        decode_result = json_to_command_envelope(record.value)
+        decode_result = WalletTxMsgMapper.json_to_command_envelope(record.value)
         if not decode_result.is_success:
             await self._publish_poison_dlq(
                 key=key or "unknown",
-                envelope=None,
+                message=None,
                 request_id=None,
-                command_type=None,
-                failure_classification=COMMAND_ENVELOPE_INVALID,
-                safe_error=SAFE_ENVELOPE_INVALID,
+                msg_tx_type=None,
+                failure_classification=WALLET_TX_MSG_INVALID,
+                safe_error=WALLET_TX_MESSAGE_INVALID,
                 attempt_count=0,
             )
             return DispatchOutcome(action=DispatchAction.ACK)
 
-        envelope = decode_result.data
-        assert envelope is not None
-        request_id = envelope.request_id
+        wallet_tx_message = decode_result.data
+        assert wallet_tx_message is not None
+        request_id = wallet_tx_message.request_id
         log_extra = {
             "request_id": str(request_id),
-            "command_type": str(envelope.type),
+            "msg_tx_type": str(wallet_tx_message.msg_tx_type),
             "partition": str(record.partition),
             "offset": str(record.offset),
         }
@@ -115,19 +116,19 @@ class RecordDispatcher:
             if transaction is None:
                 await self._publish_poison_dlq(
                     key=key,
-                    envelope=envelope,
+                    message=wallet_tx_message,
                     request_id=str(request_id),
-                    command_type=str(envelope.type),
+                    msg_tx_type=str(wallet_tx_message.msg_tx_type),
                     failure_classification="transaction_not_found",
                     safe_error=SAFE_TRANSACTION_NOT_FOUND,
                     attempt_count=0,
                 )
                 return DispatchOutcome(action=DispatchAction.ACK)
 
-        if transaction.type != str(envelope.type):
+        if transaction.type != str(wallet_tx_message.msg_tx_type):
             await self._terminal_poison_failure(
                 key=key,
-                envelope=envelope,
+                message=wallet_tx_message,
                 transaction=transaction,
                 safe_error=SAFE_TYPE_MISMATCH,
                 failure_classification="type_mismatch",
@@ -165,7 +166,7 @@ class RecordDispatcher:
         except PoisonExecutionError as error:
             await self._terminal_poison_failure(
                 key=key,
-                envelope=envelope,
+                message=wallet_tx_message,
                 transaction=claimed_or_locked,
                 safe_error=error.safe_error,
                 failure_classification="execution_poison",
@@ -174,7 +175,7 @@ class RecordDispatcher:
         except Exception as error:
             await self._terminal_poison_failure(
                 key=key,
-                envelope=envelope,
+                message=wallet_tx_message,
                 transaction=claimed_or_locked,
                 safe_error=SAFE_EXECUTION_FAILED,
                 failure_classification=type(error).__name__,
@@ -211,7 +212,7 @@ class RecordDispatcher:
         return None
 
     async def _execute_claimed(self, transaction: TransactionItem) -> None:
-        handler = self._execution_registry.get(CommandType(transaction.type))
+        handler = self._execution_registry.get(WalletTxType(transaction.type))
         if handler is None:
             raise PoisonExecutionError(SAFE_HANDLER_NOT_ENABLED)
         await handler.execute(transaction)
@@ -220,7 +221,7 @@ class RecordDispatcher:
         self,
         *,
         key: str,
-        envelope: CommandEnvelope,
+        message: WalletTxMessage,
         transaction: TransactionItem,
         safe_error: str,
         failure_classification: str,
@@ -228,9 +229,9 @@ class RecordDispatcher:
     ) -> None:
         await self._publish_poison_dlq(
             key=key,
-            envelope=envelope,
+            message=message,
             request_id=str(transaction.request_id),
-            command_type=transaction.type,
+            msg_tx_type=transaction.type,
             failure_classification=failure_classification,
             safe_error=safe_error,
             attempt_count=attempt_count,
@@ -248,18 +249,18 @@ class RecordDispatcher:
         self,
         *,
         key: str,
-        envelope: CommandEnvelope | None,
+        message: WalletTxMessage | None,
         request_id: str | None,
-        command_type: str | None,
+        msg_tx_type: str | None,
         failure_classification: str,
         safe_error: str,
         attempt_count: int,
     ) -> None:
         context = build_dlq_context(
             request_id=request_id,
-            command_type=command_type,
+            msg_tx_type=msg_tx_type,
             failure_classification=failure_classification,
             safe_error=safe_error,
             attempt_count=attempt_count,
         )
-        await self._dlq_publisher.publish_failure(key=key, envelope=envelope, context=context)
+        await self._dlq_publisher.publish_failure(key=key, message=message, context=context)
