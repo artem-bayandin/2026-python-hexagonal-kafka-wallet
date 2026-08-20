@@ -13,6 +13,7 @@ from .repositories import (
     UserWalletQueryRepositoryImpl,
 )
 from .session import AsyncSession, build_session_factory
+from .models import Base
 
 __all__ = [
     # Repositories
@@ -31,4 +32,6 @@ __all__ = [
     # Session
     "AsyncSession",
     "build_session_factory",
+    # Base for alembic
+    "Base",
 ]
