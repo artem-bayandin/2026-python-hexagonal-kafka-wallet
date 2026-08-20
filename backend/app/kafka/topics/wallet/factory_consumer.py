@@ -1,25 +1,25 @@
 import asyncio
+from aiokafka import AIOKafkaConsumer
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.config import WorkerRuntime
 from app.domain import ExecutionHandlerRegistry
 
-from ...shared.dependencies import build_aiokafka_consumer
-from ..dlq.dependencies import build_dlq_publisher
-from .factory_publisher import build_kafka_command_publisher
+from ..dlq.dlq_publisher import DlqPublisher
 from .wallet_consumer import WalletWorkerConsumer
+from .wallet_publisher import KafkaWalletPublisher
 
 
 def build_wallet_worker_consumer(
     *,
+    consumer: AIOKafkaConsumer,
+    kafka_publisher: KafkaWalletPublisher,
+    dlq_publisher: DlqPublisher,
     runtime: WorkerRuntime,
     engine: AsyncEngine,
     shutdown_event: asyncio.Event,
     execution_registry: ExecutionHandlerRegistry | None = None,
 ) -> WalletWorkerConsumer:
-    consumer = build_aiokafka_consumer(runtime.kafka, runtime.worker)
-    kafka_publisher = build_kafka_command_publisher(runtime.kafka)
-    dlq_publisher = build_dlq_publisher(runtime.kafka)
     return WalletWorkerConsumer(
         runtime=runtime,
         engine=engine,

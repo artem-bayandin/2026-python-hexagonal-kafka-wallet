@@ -1,14 +1,12 @@
 import asyncio
 import logging
-
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.config import load_reaper_runtime
 from app.db import build_session_factory
 
-from ..topics.wallet.factory_publisher import build_kafka_command_publisher
-
-from ..runtime import (
+from ...topics.wallet.factory_publisher import build_kafka_command_publisher
+from ...runtime import (
     ReadinessError,
     check_kafka_topics,
     check_postgres,

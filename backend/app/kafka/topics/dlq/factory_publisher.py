@@ -1,8 +1,8 @@
 from aiokafka import AIOKafkaProducer
 
 from app.config import KafkaSettings
-from ...shared.dependencies import build_aiokafka_producer
 
+from ...shared.dependencies import build_aiokafka_producer
 from .dlq_publisher import DlqPublisher
 
 

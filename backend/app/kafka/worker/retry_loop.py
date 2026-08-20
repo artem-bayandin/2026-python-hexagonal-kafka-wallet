@@ -3,7 +3,6 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from app.config import WorkerSettings
-
 from app.domain import PoisonExecutionError, RetryableExecutionError
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from alembic.config import Config
 from alembic.script import ScriptDirectory

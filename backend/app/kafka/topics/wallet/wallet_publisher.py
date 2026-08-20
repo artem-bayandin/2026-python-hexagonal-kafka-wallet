@@ -1,6 +1,5 @@
 import asyncio
 import logging
-
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
 from aiokafka.structs import RecordMetadata

@@ -16,11 +16,13 @@ def _build_kafka_client_kwargs(settings: KafkaSettings) -> dict[str, Any]:
 def build_aiokafka_consumer(
     kafka: KafkaSettings,
     worker: WorkerSettings,
+    topic: str,
+    group_id: str,
 ) -> AIOKafkaConsumer:
     return AIOKafkaConsumer(
-        kafka.command_topic,
+        topic,
         **_build_kafka_client_kwargs(kafka),
-        group_id=kafka.worker_group_id,
+        group_id=group_id,
         enable_auto_commit=False,
         heartbeat_interval_ms=worker.heartbeat_interval_ms,
         session_timeout_ms=worker.session_timeout_ms,

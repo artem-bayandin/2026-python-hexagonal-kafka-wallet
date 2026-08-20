@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
 from uuid import UUID
-
 from aiokafka.structs import ConsumerRecord
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -29,7 +28,6 @@ from app.domain import (
 
 from .retry_loop import run_with_retries
 from .visibility import await_submitted_visibility_delay
-
 from ..topics.dlq.dlq_context import build_dlq_context
 from ..topics.dlq.dlq_publisher import DlqPublisher
 from ..topics.wallet.wallet_tx_msg_mapper import WalletTxMsgMapper

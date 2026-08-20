@@ -103,7 +103,7 @@ Run the command worker that consumes `wallet` (terminal 3). It is a host process
 
 ```sh
 cd backend
-uv run python -m app.kafka.worker
+uv run python -m app.kafka.workers.wallet
 ```
 
 Optional: inspect `wallet` or `wallet_dlq` with the broker console consumer (does not join `wallet_worker`):
@@ -122,7 +122,7 @@ The stale-`submitted` reaper (`uv run python -m app.kafka.reaper` from `backend/
 
 ```sh
 cd backend
-uv run python -m app.kafka.reaper
+uv run python -m app.kafka.workers.reaper
 ```
 
 ### Optional commands

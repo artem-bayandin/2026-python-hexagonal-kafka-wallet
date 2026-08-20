@@ -1,5 +1,4 @@
 import logging
-
 from aiokafka import AIOKafkaProducer
 
 from app.domain import WalletTxMessage

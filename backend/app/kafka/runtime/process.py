@@ -4,7 +4,6 @@ import signal
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from typing import Any
-
 from aiokafka import AIOKafkaProducer
 
 from app.config import LogLevel
