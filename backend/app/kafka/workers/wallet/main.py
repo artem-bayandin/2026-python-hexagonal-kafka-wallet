@@ -14,7 +14,7 @@ from ...runtime import (
     register_shutdown_handlers,
 )
 from ...shared.dependencies import build_aiokafka_consumer
-from ...worker import build_worker_execution_registry
+from ...topics.wallet.execution_registry import build_worker_execution_registry
 from ...topics.wallet.factory_consumer import build_wallet_worker_consumer
 from ...topics.wallet.factory_publisher import build_kafka_command_publisher
 from ...topics.dlq.factory_publisher import build_dlq_publisher

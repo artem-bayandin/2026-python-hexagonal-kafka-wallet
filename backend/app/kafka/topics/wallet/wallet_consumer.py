@@ -14,7 +14,7 @@ from app.domain import ExecutionHandlerRegistry
 
 from ..dlq.dlq_publisher import DlqPublisher
 from .wallet_publisher import KafkaWalletPublisher
-from ...worker.dispatcher import DispatchAction, RecordDispatcher
+from .dispatcher import DispatchAction, RecordDispatcher
 
 
 logger = logging.getLogger(__name__)

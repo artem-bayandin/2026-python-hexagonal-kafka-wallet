@@ -1,3 +1,5 @@
+# todo : this belongs to wallet worker package
+
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,11 +28,11 @@ from app.domain import (
     SAFE_TYPE_MISMATCH,
 )
 
-from .retry_loop import run_with_retries
-from .visibility import await_submitted_visibility_delay
-from ..topics.dlq.dlq_context import build_dlq_context
-from ..topics.dlq.dlq_publisher import DlqPublisher
-from ..topics.wallet.wallet_tx_msg_mapper import WalletTxMsgMapper
+from ...worker.retry_loop import run_with_retries
+from ...worker.visibility import await_submitted_visibility_delay
+from ..dlq.dlq_context import build_dlq_context
+from ..dlq.dlq_publisher import DlqPublisher
+from .wallet_tx_msg_mapper import WalletTxMsgMapper
 
 logger = logging.getLogger(__name__)
 
