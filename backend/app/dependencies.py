@@ -38,7 +38,7 @@ from app.domain import (
     SubmitTransferHandler,
     SubmitWithdrawalHandler,
 )
-from app.kafka import build_kafka_command_publisher
+from app.kafka import build_wallet_publisher
 
 # # # # Region: kafka
 
@@ -49,7 +49,7 @@ def build_message_publisher(
     settings: KafkaSettings,
     producer: AIOKafkaProducer | None = None,
 ) -> MessagePublisher:
-    return build_kafka_command_publisher(settings, producer=producer)
+    return build_wallet_publisher(settings, producer=producer)
 
 
 # # # # Region: routes.admin

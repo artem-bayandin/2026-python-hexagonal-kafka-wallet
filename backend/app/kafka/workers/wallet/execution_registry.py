@@ -1,14 +1,13 @@
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from app.auth import SystemClock
 from app.db import (
     AdminWalletCommandRepositoryImpl,
-    AsyncSession,
     TransactionCommandRepositoryImpl,
     UserWalletCommandRepositoryImpl,
-    build_session_factory,
 )
 from app.domain import (
+    ClockService,
     WalletTxType,
     ExecuteDepositHandler,
     ExecuteExchangeHandler,
@@ -18,8 +17,12 @@ from app.domain import (
 )
 
 
-def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegistry:
-    session_factory: async_sessionmaker[AsyncSession] = build_session_factory(engine)
+def build_wallet_execution_registry(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    clock: ClockService | None = None,
+) -> ExecutionHandlerRegistry:
+    clock_service = clock if clock is not None else SystemClock()
     registry = ExecutionHandlerRegistry()
     registry.register(
         WalletTxType.DEPOSIT,
@@ -27,7 +30,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
             session_factory,
             TransactionCommandRepositoryImpl,
             UserWalletCommandRepositoryImpl,
-            SystemClock(),
+            clock_service,
         ),
     )
     registry.register(
@@ -37,7 +40,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
             TransactionCommandRepositoryImpl,
             UserWalletCommandRepositoryImpl,
             AdminWalletCommandRepositoryImpl,
-            SystemClock(),
+            clock_service,
         ),
     )
     registry.register(
@@ -46,7 +49,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
             session_factory,
             TransactionCommandRepositoryImpl,
             UserWalletCommandRepositoryImpl,
-            SystemClock(),
+            clock_service,
         ),
     )
     registry.register(
@@ -55,7 +58,7 @@ def build_worker_execution_registry(engine: AsyncEngine) -> ExecutionHandlerRegi
             session_factory,
             TransactionCommandRepositoryImpl,
             UserWalletCommandRepositoryImpl,
-            SystemClock(),
+            clock_service,
         ),
     )
     return registry

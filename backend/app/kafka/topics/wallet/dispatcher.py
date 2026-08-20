@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
 from uuid import UUID
+
 from aiokafka.structs import ConsumerRecord
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -65,67 +66,71 @@ class RecordDispatcher:
 
     async def dispatch(self, record: ConsumerRecord[Any, Any]) -> DispatchOutcome:
         key = record.key.decode("utf-8") if record.key is not None else ""
-        if record.value is None:
-            await self._publish_poison_dlq(
-                key=key or "unknown",
-                message=None,
-                request_id=None,
-                msg_tx_type=None,
-                failure_classification=WALLET_TX_MSG_INVALID,
-                safe_error=WALLET_TX_MESSAGE_INVALID,
-                attempt_count=0,
-            )
-            return DispatchOutcome(action=DispatchAction.ACK)
+        parsed = self._try_parse_record(record)
+        if parsed is None:
+            return await self._poison_unreadable(key)
 
-        decode_result = WalletTxMsgMapper.json_to_command_envelope(record.value)
-        if not decode_result.is_success:
-            await self._publish_poison_dlq(
-                key=key or "unknown",
-                message=None,
-                request_id=None,
-                msg_tx_type=None,
-                failure_classification=WALLET_TX_MSG_INVALID,
-                safe_error=WALLET_TX_MESSAGE_INVALID,
-                attempt_count=0,
-            )
-            return DispatchOutcome(action=DispatchAction.ACK)
-
-        wallet_tx_message = decode_result.data
-        assert wallet_tx_message is not None
-        request_id = wallet_tx_message.request_id
         log_extra = {
-            "request_id": str(request_id),
-            "msg_tx_type": str(wallet_tx_message.msg_tx_type),
+            "request_id": str(parsed.request_id),
+            "msg_tx_type": str(parsed.msg_tx_type),
             "partition": str(record.partition),
             "offset": str(record.offset),
         }
         logger.info("worker delivery received", extra=log_extra)
 
-        async with self._session_factory() as session:
-            tx_query_repo = self._tx_query_repo_factory(session)
-            transaction = await tx_query_repo.get_by_request_id(request_id)
+        observation_result_or_tx = await self._observe_transaction(key, parsed, log_extra)
+        if isinstance(observation_result_or_tx, DispatchOutcome):
+            return observation_result_or_tx
 
+        claimed_or_locked = await self._claim_or_lock(parsed.request_id, observation_result_or_tx)
+        if claimed_or_locked is None:
+            logger.info("worker claim deferred", extra=log_extra)
+            return DispatchOutcome(action=DispatchAction.DEFER)
+
+        return await self._execute_with_retries(key, parsed, claimed_or_locked, log_extra)
+
+    def _try_parse_record(self, record: ConsumerRecord[Any, Any]) -> WalletTxMessage | None:
+        if record.value is None:
+            return None
+        decode_result = WalletTxMsgMapper.from_json(record.value)
+        if not decode_result.is_success or decode_result.data is None:
+            return None
+        return decode_result.data
+
+    async def _get_by_request_id(self, request_id: UUID) -> TransactionItem | None:
+        async with self._session_factory() as session:
+            return await self._tx_query_repo_factory(session).get_by_request_id(request_id)
+
+    async def _reload_after_visibility(self, request_id: UUID) -> TransactionItem | None:
+        await await_submitted_visibility_delay(self._worker_settings)
+        return await self._get_by_request_id(request_id)
+
+    async def _observe_transaction(
+        self,
+        key: str,
+        message: WalletTxMessage,
+        log_extra: dict[str, str],
+    ) -> TransactionItem | DispatchOutcome:
+        request_id = message.request_id
+        transaction = await self._get_by_request_id(request_id)
         if transaction is None:
-            await await_submitted_visibility_delay(self._worker_settings)
-            async with self._session_factory() as session:
-                tx_query_repo = self._tx_query_repo_factory(session)
-                transaction = await tx_query_repo.get_by_request_id(request_id)
+            transaction = await self._reload_after_visibility(request_id)
             if transaction is None:
                 await self._publish_poison_dlq(
                     key=key,
-                    message=wallet_tx_message,
+                    message=message,
                     request_id=str(request_id),
-                    msg_tx_type=str(wallet_tx_message.msg_tx_type),
+                    msg_tx_type=str(message.msg_tx_type),
                     failure_classification="transaction_not_found",
                     safe_error=SAFE_TRANSACTION_NOT_FOUND,
                     attempt_count=0,
                 )
                 return DispatchOutcome(action=DispatchAction.ACK)
 
-        if transaction.type != str(wallet_tx_message.msg_tx_type):
+        if transaction.type != str(message.msg_tx_type):
             await self._terminal_poison_failure(
                 key=key,
-                message=wallet_tx_message,
+                message=message,
                 transaction=transaction,
                 safe_error=SAFE_TYPE_MISMATCH,
                 failure_classification="type_mismatch",
@@ -137,10 +142,7 @@ class RecordDispatcher:
             return DispatchOutcome(action=DispatchAction.ACK)
 
         if transaction.status == TransactionStatus.SUBMITTED:
-            await await_submitted_visibility_delay(self._worker_settings)
-            async with self._session_factory() as session:
-                tx_query_repo = self._tx_query_repo_factory(session)
-                transaction = await tx_query_repo.get_by_request_id(request_id)
+            transaction = await self._reload_after_visibility(request_id)
             if transaction is None:
                 return DispatchOutcome(action=DispatchAction.DEFER)
             if transaction.status == TransactionStatus.SUBMITTED:
@@ -149,39 +151,7 @@ class RecordDispatcher:
             if transaction.status in TERMINAL_STATUSES:
                 return DispatchOutcome(action=DispatchAction.ACK)
 
-        claimed_or_locked = await self._claim_or_lock(request_id, transaction)
-        if claimed_or_locked is None:
-            logger.info("worker claim deferred", extra=log_extra)
-            return DispatchOutcome(action=DispatchAction.DEFER)
-
-        try:
-            await run_with_retries(
-                self._worker_settings,
-                request_id=str(request_id),
-                operation=lambda: self._execute_claimed(claimed_or_locked),
-            )
-        except PoisonExecutionError as error:
-            await self._terminal_poison_failure(
-                key=key,
-                message=wallet_tx_message,
-                transaction=claimed_or_locked,
-                safe_error=error.safe_error,
-                failure_classification="execution_poison",
-                attempt_count=self._worker_settings.max_attempts,
-            )
-        except Exception as error:
-            await self._terminal_poison_failure(
-                key=key,
-                message=wallet_tx_message,
-                transaction=claimed_or_locked,
-                safe_error=SAFE_EXECUTION_FAILED,
-                failure_classification=type(error).__name__,
-                attempt_count=self._worker_settings.max_attempts,
-            )
-        else:
-            logger.info("worker terminal commit succeeded", extra=log_extra)
-
-        return DispatchOutcome(action=DispatchAction.ACK)
+        return transaction
 
     async def _claim_or_lock(
         self,
@@ -192,27 +162,80 @@ class RecordDispatcher:
             tx_command_repo = self._tx_command_repo_factory(session)
             tx_query_repo = self._tx_query_repo_factory(session)
             if transaction.status == TransactionStatus.PENDING:
-                claimed = await tx_command_repo.claim_for_execution(request_id)
-                if claimed is not None:
+                in_progress = await tx_command_repo.update_for_execution(request_id)
+                if in_progress is not None:
                     logger.info(
                         "worker claim succeeded",
                         extra={"request_id": str(request_id)},
                     )
-                    return claimed
+                    return in_progress
                 reloaded = await tx_query_repo.get_by_request_id(request_id)
                 if reloaded is None or reloaded.status != TransactionStatus.IN_PROGRESS:
                     return None
                 return reloaded
             if transaction.status == TransactionStatus.IN_PROGRESS:
                 locked = await tx_command_repo.lock_by_request_id(request_id)
+                if locked is None or locked.status != TransactionStatus.IN_PROGRESS:
+                    return None
                 return locked
         return None
 
+    async def _execute_with_retries(
+        self,
+        key: str,
+        message: WalletTxMessage,
+        claimed: TransactionItem,
+        log_extra: dict[str, str],
+    ) -> DispatchOutcome:
+        try:
+            await run_with_retries(
+                self._worker_settings,
+                request_id=str(message.request_id),
+                operation=lambda: self._execute_claimed(claimed),
+            )
+        except PoisonExecutionError as error:
+            await self._terminal_poison_failure(
+                key=key,
+                message=message,
+                transaction=claimed,
+                safe_error=error.safe_error,
+                failure_classification="execution_poison",
+                attempt_count=self._worker_settings.max_attempts,
+            )
+        except Exception as error:
+            await self._terminal_poison_failure(
+                key=key,
+                message=message,
+                transaction=claimed,
+                safe_error=SAFE_EXECUTION_FAILED,
+                failure_classification=type(error).__name__,
+                attempt_count=self._worker_settings.max_attempts,
+            )
+        else:
+            logger.info("worker execution succeeded", extra=log_extra)
+        return DispatchOutcome(action=DispatchAction.ACK)
+
     async def _execute_claimed(self, transaction: TransactionItem) -> None:
-        handler = self._execution_registry.get(WalletTxType(transaction.type))
+        try:
+            tx_type = WalletTxType(transaction.type)
+        except ValueError as error:
+            raise PoisonExecutionError(SAFE_HANDLER_NOT_ENABLED) from error
+        handler = self._execution_registry.get(tx_type)
         if handler is None:
             raise PoisonExecutionError(SAFE_HANDLER_NOT_ENABLED)
         await handler.execute(transaction)
+
+    async def _poison_unreadable(self, key: str) -> DispatchOutcome:
+        await self._publish_poison_dlq(
+            key=key or "unknown",
+            message=None,
+            request_id=None,
+            msg_tx_type=None,
+            failure_classification=WALLET_TX_MSG_INVALID,
+            safe_error=WALLET_TX_MESSAGE_INVALID,
+            attempt_count=0,
+        )
+        return DispatchOutcome(action=DispatchAction.ACK)
 
     async def _terminal_poison_failure(
         self,

@@ -6,7 +6,7 @@ from ...shared.dependencies import build_aiokafka_producer
 from .wallet_publisher import KafkaWalletPublisher
 
 
-def build_kafka_command_publisher(
+def build_wallet_publisher(
     settings: KafkaSettings,
     *,
     producer: AIOKafkaProducer | None = None,

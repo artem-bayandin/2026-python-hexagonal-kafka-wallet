@@ -55,7 +55,7 @@ class KafkaWalletPublisher(MessagePublisher):
     async def publish(self, *, key: str, message: WalletTxMessage) -> None:
         if not key:
             raise ValueError("Kafka record key is required")
-        value = WalletTxMsgMapper.command_envelope_to_json(message)
+        value = WalletTxMsgMapper.to_json(message)
         key_bytes = key.encode("utf-8")
         log_context = {
             "topic": self._topic,

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.config import load_reaper_runtime
 from app.db import build_session_factory
 
-from ...topics.wallet.factory_publisher import build_kafka_command_publisher
+from ...topics.wallet.factory_publisher import build_wallet_publisher
 from ...runtime import (
     ReadinessError,
     check_kafka_topics,
@@ -24,7 +24,7 @@ async def run_reaper() -> int:
 
     engine: AsyncEngine = create_async_engine(runtime.settings.database_url)
     _session_factory = build_session_factory(engine)
-    publisher = build_kafka_command_publisher(runtime.kafka)
+    wallet_producer = build_wallet_publisher(runtime.kafka)
     shutdown_event = asyncio.Event()
     register_shutdown_handlers(shutdown_event)
     publisher_started = False
@@ -32,9 +32,9 @@ async def run_reaper() -> int:
     try:
         await check_postgres(engine)
         await check_schema_revision(engine)
-        await publisher.start()
+        await wallet_producer.start()
         publisher_started = True
-        await check_kafka_topics(publisher.producer, runtime.kafka)
+        await check_kafka_topics(wallet_producer.producer, runtime.kafka)
         logger.info(
             "reaper ready",
             extra={
@@ -62,7 +62,7 @@ async def run_reaper() -> int:
         return 1
     finally:
         if publisher_started:
-            await publisher.stop()
+            await wallet_producer.stop()
         await engine.dispose()
 
     logger.info("reaper stopped")

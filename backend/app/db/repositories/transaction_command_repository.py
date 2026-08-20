@@ -80,7 +80,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
             release_reservation=True,
         )
 
-    async def claim_for_execution(self, request_id: UUID) -> TransactionItem | None:
+    async def update_for_execution(self, request_id: UUID) -> TransactionItem | None:
         now = datetime.now(UTC)
         stmt = (
             update(TransactionModel)

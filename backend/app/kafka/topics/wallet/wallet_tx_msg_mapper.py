@@ -6,7 +6,7 @@ from app.domain import WALLET_TX_MSG_INVALID, WalletTxMessage, Result
 
 class WalletTxMsgMapper:
     @staticmethod
-    def command_envelope_to_json(message: WalletTxMessage) -> bytes:
+    def to_json(message: WalletTxMessage) -> bytes:
         payload = {
             "request_id": str(message.request_id),
             "type": str(message.msg_tx_type),
@@ -15,7 +15,7 @@ class WalletTxMsgMapper:
         return json.dumps(payload, separators=(",", ":")).encode("utf-8")
 
     @staticmethod
-    def json_to_command_envelope(data: bytes) -> Result[WalletTxMessage]:
+    def from_json(data: bytes) -> Result[WalletTxMessage]:
         """Decode the compact wire shape; malformed input is a domain failure, not an exception."""
         try:
             raw: Any = json.loads(data)
