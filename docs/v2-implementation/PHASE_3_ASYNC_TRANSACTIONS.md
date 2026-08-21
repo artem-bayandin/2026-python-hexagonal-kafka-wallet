@@ -14,7 +14,8 @@ Phase 3 is an integration milestone, not a production-release point: until the P
 
 ## Current implementation status
 
-- **Not started.** Phase 1 (Kafka infrastructure) is complete. Phase 2 (async schema and state machine) delivers the migrated schema, SQLAlchemy models, mappers, domain types, and API/UI field mapping — repository guard primitives are implemented in this phase, not Phase 2.
+- **Implemented.** Shared submit/execute skeleton and the four transaction slices (deposit, withdrawal, exchange, transfer) are in the codebase. Remaining sections below are the original implementation guide and may still describe the work as a plan (including the local retry loop that Phase 3A removed).
+- **Post-Phase-3 refactoring:** After this phase, Kafka folders, worker CLI, dispatcher/retry loop, DLQ wiring, and env retry settings were refactored. Paths such as `app/kafka/worker/` and the three-attempt local retry loop in this document may be outdated. Current record: [PHASE_3A_REFACTORING.md](PHASE_3A_REFACTORING.md).
 
 Canonical behavior is defined by [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §4/§7–§12, [API_CONTRACT.md](../v2/API_CONTRACT.md) §Asynchronous submission, [CONFIGURATION.md](../v2/CONFIGURATION.md) §5–§6, and [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Phase 3.
 

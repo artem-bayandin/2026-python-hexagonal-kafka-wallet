@@ -12,7 +12,8 @@ Work in this order:
 
 ## Current implementation status
 
-- **Not started.** Phase 3 is complete: all four mutations return `202` with `request_id`, the worker processes all types with duplicate safety, `GET /me/transactions` is the authoritative user snapshot exposing all Version 2 lifecycle fields, and the UI reconciles submissions by `request_id` via authoritative refresh.
+- **Not started** (SSE, notifier adapter, `/me/stream`, Wallet live client). Phase 3 **is implemented**: all four mutations return `202` with `request_id`, the worker processes all types with duplicate safety, `GET /me/transactions` is the authoritative user snapshot exposing all Version 2 lifecycle fields, and the UI reconciles submissions by `request_id` via authoritative refresh.
+- Kafka package layout, naming, and retry mapping after Phase 3 are recorded in [PHASE_3A_REFACTORING.md](PHASE_3A_REFACTORING.md). This phase does not publish or consume Kafka; PostgreSQL remains the stream source. The worker executes **once per delivery** (no local attempt loop), so the live UI may see fewer extra `in_progress` observations before `succeeded` or `failed`. Snapshot reconciliation is unchanged.
 
 Canonical behavior is defined by [API_CONTRACT.md](../v2/API_CONTRACT.md) §`GET /me/stream`, [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §12/§13, [CONFIGURATION.md](../v2/CONFIGURATION.md) §8, and [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Phase 4.
 

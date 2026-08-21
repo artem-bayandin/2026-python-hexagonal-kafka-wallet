@@ -13,7 +13,8 @@ Work in this order:
 
 ## Current implementation status
 
-- **Not started.** Phase 4 is complete: users receive secure live statuses over SSE with snapshot reconciliation. All four slices have proven duplicate safety — a prerequisite, because reaper republication intentionally permits duplicates.
+- **Not started** (stale-`submitted` scans, republication, admin long polling). The reaper **process shell** already exists after [PHASE_3A_REFACTORING.md](PHASE_3A_REFACTORING.md): `backend/app/kafka/workers/reaper/main.py`, CLI `uv run python -m app.kafka.workers.reaper`. It runs readiness, starts `build_wallet_publisher`, and idles; `_session_factory` is built and unused until this phase.
+- Phase 3 slices **are implemented** (duplicate safety is a prerequisite because reaper republication intentionally permits duplicates). Phase 4 SSE is a separate gate; do not treat this file as implying SSE is already shipped.
 
 Canonical behavior is defined by [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §8/§12/§14, [API_CONTRACT.md](../v2/API_CONTRACT.md) §`GET /admin/transactions`, [CONFIGURATION.md](../v2/CONFIGURATION.md) §7–§8, and [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Phase 5.
 
@@ -31,7 +32,7 @@ Recover stale `submitted` work safely (never republishing stale `pending` or `in
 
 ### In scope
 
-- Reaper: indexed bounded stale scans, concurrency-safe claiming, envelope/key reconstruction, republication, post-ack guard, failure handling, scheduling, observability.
+- Reaper: indexed bounded stale scans, concurrency-safe claiming, `WalletTxMessage`/key reconstruction, republication, post-ack guard, failure handling, scheduling, observability.
 - Admin long polling: frozen projection, opaque `(updated_at, id)` cursor, keyset query, bounded wait without holding a transaction, `GET /admin/transactions` contract, admin UI polling loop.
 
 ### Out of scope
@@ -49,7 +50,7 @@ Stale `submitted` work is recovered safely, stale later states are alerted rathe
 Create `backend/app/domain/use_cases/recovery/__init__.py` and `backend/app/domain/use_cases/recovery/reap_stale_submitted.py`:
 
 - **Candidate selection:** only `submitted` rows with `created_at < now() - REAPER_STALE_THRESHOLD_SECONDS`.
-- **Envelope reconstruction:** rebuild the exact original envelope (`request_id`, stored type, original `submitted_at`) and the exact original key from authoritative transaction data: the literal `admin` for deposits, the submitting user's UUID string for user commands — resolved from the stored transaction's source/destination wallet ownership, never from a mutable client payload.
+- **Message reconstruction:** rebuild the exact original `WalletTxMessage` (`request_id`, stored `WalletTxType` as `msg_tx_type`, original `submitted_at`) and the exact original key from authoritative transaction data: the literal `admin` for deposits, the submitting user's UUID string for user commands — resolved from the stored transaction's source/destination wallet ownership, never from a mutable client payload. Publish with `MessagePublisher.publish(*, key, message=...)`.
 - **Decisions:** bounded claim → publish → post-ack guarded `submitted → pending` (a zero-row result is a reload-and-observe outcome, never a forced transition) → on publication failure leave the row `submitted` for a later bounded pass → never release a reservation merely because a transaction is old → concurrent reaper instances must not create an avoidable publication storm.
 
 Extend `backend/app/db/repositories/transaction_query_repository.py` (and its port) with:
@@ -59,19 +60,19 @@ Extend `backend/app/db/repositories/transaction_query_repository.py` (and its po
 
 ## Step 2 — Reaper: process and operations
 
-Replace the Phase 1 idle shell in `backend/app/kafka/reaper/main.py` with the scheduled loop:
+Replace the idle loop in `backend/app/kafka/workers/reaper/main.py` (do not recreate `app/kafka/reaper/`). Reuse the existing `wallet_producer` from `build_wallet_publisher` and the unused `session_factory` for scans.
 
-- Every `REAPER_INTERVAL_SECONDS`: run one bounded scan (`REAPER_BATCH_SIZE`, 1–1000), then for each claimed row: reconstruct key/envelope, publish through the shared Phase 1 producer adapter (`acks=all`, idempotence, bounded retries/timeout), guard `submitted → pending` after acknowledgement.
+- Every `REAPER_INTERVAL_SECONDS`: run one bounded scan (`REAPER_BATCH_SIZE`, 1–1000), then for each claimed row: reconstruct key and `WalletTxMessage`, publish through `KafkaWalletPublisher` (`acks=all`, idempotence, one `send_and_wait` bounded by `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS` — no application attempt-count loop), guard `submitted → pending` after acknowledgement.
 - A publication failure leaves the row `submitted` and eligible for a later pass; emit an alert-level structured log.
-- Publish the same `request_id`, type, original `submitted_at`, and key the API used — never new identities.
-- Startup: only after schema revision, topics, producer, and worker recovery path are healthy (readiness checks from Phase 1).
+- Publish the same `request_id`, type, original `submitted_at`, and key the API used — never new identities. Worker execute is one attempt per delivery ([PHASE_3A_REFACTORING.md](PHASE_3A_REFACTORING.md)); reaper republish and Kafka redelivery are the retry paths, so duplicate-safe handlers remain mandatory.
+- Startup: only after schema revision, `wallet` topic metadata, and the producer are healthy (existing `runtime` readiness). This process does not start a wallet consumer; the command worker is `uv run python -m app.kafka.workers.wallet`.
 - Shutdown: stop accepting new scans, let the active bounded scan or publish attempt finish safely, close producer and sessions.
 - Observability: structured logs correlated by `request_id`; metrics for scan count, oldest-candidate age, republished count, guarded no-ops, stale `pending`/`in_progress` alerts; one-active-scheduler or leadership evidence (document the chosen mechanism — single local replica plus `SKIP LOCKED` claiming is acceptable for this delivery; record the decision).
 
 Run command (document once verified):
 
 ```bash
-cd backend && uv run python -m app.kafka.reaper
+cd backend && uv run python -m app.kafka.workers.reaper
 ```
 
 ## Step 3 — Admin long polling: domain and DB
