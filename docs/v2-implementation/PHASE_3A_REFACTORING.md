@@ -8,7 +8,7 @@ Phases that already happened (historical; do not treat their file paths or retry
 - [PHASE_2_ASYNC_SCHEMA_STATE_MACHINE.md](PHASE_2_ASYNC_SCHEMA_STATE_MACHINE.md) — schema and status machine
 - [PHASE_3_ASYNC_TRANSACTIONS.md](PHASE_3_ASYNC_TRANSACTIONS.md) — submit/execute slices, worker consume pipeline, local retry loop, DLQ
 
-Canonical env contract after this refactor: [CONFIGURATION.md](../v2/CONFIGURATION.md). Working notes used during the work (`kafka_folders.md`, `kafka_folders_v2.md`, `kafka_retry_upd.md`) are not the source of truth; **application code is**.
+Canonical env contract after this refactor: [CONFIGURATION.md](../v2/CONFIGURATION.md). Working notes used during the work are not the source of truth; **application code is**.
 
 ## Current implementation status
 
