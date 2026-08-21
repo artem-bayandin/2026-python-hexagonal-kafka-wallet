@@ -6,7 +6,7 @@ from ....error_codes import (
     INVALID_PRECISION,
     UNSUPPORTED_ASSET,
 )
-from ....messaging import CommandEnvelope, CommandType
+from ....messaging import WalletTxMessage, WalletTxType
 from ....ports import (
     ClockService,
     CurrencyQueryRepository,
@@ -17,7 +17,7 @@ from ....ports import (
 from ....read_models import SubmittedTransactionSpec
 from ....result import Result
 from ....value_objects import Money
-from ...sub_exec_base.submit_transaction import SubmissionInterimHandlerResult
+from ...sub_exec_base import SubmissionInterimHandlerResult
 from .withdraw_cmd import WithdrawCommand
 
 
@@ -62,7 +62,7 @@ class SubmitWithdrawalHandler:
             SubmittedTransactionSpec(
                 id=uuid4(),
                 request_id=request_id,
-                type=CommandType.WITHDRAWAL,
+                type=WalletTxType.WITHDRAWAL,
                 source_wallet_id=wallet.id,
                 source_amount=money.amount,
                 dest_wallet_id=None,
@@ -79,13 +79,10 @@ class SubmitWithdrawalHandler:
             SubmissionInterimHandlerResult(
                 request_id=request_id,
                 key=str(user.id),
-                envelope=CommandEnvelope(
+                message=WalletTxMessage(
                     request_id=request_id,
-                    type=CommandType.WITHDRAWAL,
+                    msg_tx_type=WalletTxType.WITHDRAWAL,
                     submitted_at=now,
                 ),
             )
         )
-
-
-__all__ = ["SubmitWithdrawalHandler"]

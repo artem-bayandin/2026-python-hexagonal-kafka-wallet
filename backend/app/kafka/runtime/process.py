@@ -4,7 +4,6 @@ import signal
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from typing import Any
-
 from aiokafka import AIOKafkaProducer
 
 from app.config import LogLevel
@@ -46,11 +45,3 @@ async def managed_kafka_producer(producer: AIOKafkaProducer) -> AsyncIterator[AI
         yield producer
     finally:
         await producer.stop()
-
-
-__all__ = [
-    "configure_process_logging",
-    "managed_kafka_producer",
-    "register_shutdown_handlers",
-    "run_until_shutdown",
-]

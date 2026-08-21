@@ -64,29 +64,25 @@ These settings are shared by the API command publisher, reaper republisher, and 
 
 | Variable | Required | Default | Validation and meaning |
 | --- | --- | --- | --- |
-| `KAFKA_PRODUCER_REQUEST_TIMEOUT_MS` | No | `10000` | Positive broker-request timeout. |
-| `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS` | No | `30000` | Positive end-to-end bound for one publish call, including internal retries; must be at least the request timeout. |
-| `KAFKA_PRODUCER_MAX_RETRIES` | No | `5` | Non-negative bounded retry count for transient publication failures. |
-| `KAFKA_PRODUCER_RETRY_BACKOFF_MS` | No | `200` | Positive initial delay between producer retries. |
-| `KAFKA_PRODUCER_RETRY_BACKOFF_MAX_MS` | No | `2000` | Positive retry-delay ceiling, not less than the initial backoff. |
+| `KAFKA_PRODUCER_REQUEST_TIMEOUT_MS` | No | `10000` | Positive broker-request timeout; also the consumer request timeout. |
+| `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS` | No | `30000` | Positive end-to-end bound for one publish call (`asyncio.wait_for` around `send_and_wait`); must be at least the request timeout. |
+| `KAFKA_PRODUCER_RETRY_BACKOFF_MS` | No | `200` | Fixed delay between aiokafka inner produce (and consumer fetch) retries. |
 
-All producers always use `acks=all` and Kafka producer idempotence; these guarantees are fixed and are not feature flags. Publication returns success only after broker acknowledgement and fails within `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS`; retries must remain bounded and must not turn a submit request, reaper pass, or DLQ publication into an unbounded wait.
+All producers always use `acks=all` and Kafka producer idempotence; these guarantees are fixed and are not feature flags. Publication returns success only after broker acknowledgement and fails within `KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS`. Inner produce retries are time-based inside aiokafka; idempotent mode does not expire batches on the request timeout, so the delivery bound is required.
 
 ## 6. Worker consumption and execution
 
-Each consumed command receives up to `WORKER_MAX_ATTEMPTS` in-process execution attempts (default `3`). Retry settings govern that local loop only; they do not create a persisted attempt count or a cross-redelivery budget.
+Each consumed command is executed once per delivery. There is no in-process attempt budget and no persisted attempts counter. A retryable infrastructure failure on that single execute follows the same terminal DB + DLQ + ACK path as poison.
 
 | Variable | Required | Default | Validation and meaning |
 | --- | --- | --- | --- |
-| `WORKER_MAX_ATTEMPTS` | Worker | `3` | Positive integer; includes the initial execution attempt. |
-| `WORKER_RETRY_BACKOFF_MS` | Worker | `500` | Positive initial delay before retrying a retryable execution failure. |
-| `WORKER_RETRY_BACKOFF_MAX_MS` | Worker | `5000` | Positive retry-delay ceiling, not less than the initial backoff. |
+| `WORKER_RETRY_BACKOFF_MS` | Worker | `500` | Positive delay used as the submitted-row visibility wait (not an execution retry schedule). |
 | `WORKER_POLL_TIMEOUT_MS` | Worker | `1000` | Positive maximum wait for a poll to return work or control to shutdown handling. |
 | `WORKER_HEARTBEAT_INTERVAL_MS` | Worker | `3000` | Positive consumer heartbeat interval. |
 | `WORKER_SESSION_TIMEOUT_MS` | Worker | `30000` | Positive broker session timeout and greater than the heartbeat interval. |
 | `WORKER_MAX_POLL_INTERVAL_MS` | Worker | `300000` | Positive maximum interval permitted between consumer polls. |
 
-The worker adapter must map polling, heartbeat, session, and maximum-poll settings to the selected client without exposing client-specific option names as additional public configuration. `WORKER_HEARTBEAT_INTERVAL_MS` must be comfortably below `WORKER_SESSION_TIMEOUT_MS`, and `WORKER_MAX_POLL_INTERVAL_MS` must exceed the worst-case time between polls, including command execution, the complete local retry schedule, database timeouts, and DLQ acknowledgement. The worker must continue heartbeats when the client supports it, must not hold a PostgreSQL transaction during retry backoff or Kafka waits, and must leave the original record unacknowledged if terminal-state or DLQ durability has not completed.
+The worker adapter must map polling, heartbeat, session, and maximum-poll settings to the selected client without exposing client-specific option names as additional public configuration. `WORKER_HEARTBEAT_INTERVAL_MS` must be comfortably below `WORKER_SESSION_TIMEOUT_MS`, and `WORKER_MAX_POLL_INTERVAL_MS` must exceed the worst-case time between polls, including command execution, database timeouts, and DLQ acknowledgement. Offsets are committed only after a dispatch ACK (`enable_auto_commit=false`). The worker must continue heartbeats when the client supports it, must not hold a PostgreSQL transaction during Kafka waits, and must leave the original record unacknowledged if terminal-state or DLQ durability has not completed.
 
 ## 7. Reaper settings
 
@@ -167,8 +163,8 @@ In addition to per-variable validation, startup and deployment checks enforce al
 
 - `KAFKA_COMMAND_TOPIC`, `KAFKA_DLQ_TOPIC`, and `KAFKA_WORKER_GROUP_ID` are non-empty; the command and DLQ topics are distinct.
 - Every wallet command has a non-empty key: submitting user UUID for user operations and the literal `admin` for deposits.
-- Producer acknowledgement is `all`, producer idempotence is enabled, retries are bounded, and delivery timeout is not shorter than request timeout.
-- `WORKER_MAX_ATTEMPTS` is positive; worker retry backoff is bounded; heartbeat is shorter than session timeout; maximum poll interval covers the worst-case local processing and retry duration.
+- Producer acknowledgement is `all`, producer idempotence is enabled, inner retries use `KAFKA_PRODUCER_RETRY_BACKOFF_MS`, and delivery timeout is not shorter than request timeout.
+- Heartbeat is shorter than session timeout; maximum poll interval covers polling plus the bounded DLQ publication wait.
 - Reaper interval, stale threshold, and batch size are positive and bounded; stale threshold exceeds the producer delivery bound plus operational jitter.
 - Admin default long-poll duration does not exceed `ADMIN_LONG_POLL_MAX_SECONDS`; SSE retry guidance is at least three seconds; SSE heartbeat is compatible with deployed proxy idle timeouts.
 - `ENABLE_DEMO_OTP=true` and `ADMIN_API_KEY` are accepted only in development; production requires explicit HTTPS CORS origins and rejects static admin access.

@@ -1,6 +1,6 @@
-from .command_envelope import CommandEnvelope, CommandType
+from .wallet_tx_message import WalletTxMessage, WalletTxType
 
 __all__ = [
-    "CommandEnvelope",
-    "CommandType",
+    "WalletTxMessage",
+    "WalletTxType",
 ]

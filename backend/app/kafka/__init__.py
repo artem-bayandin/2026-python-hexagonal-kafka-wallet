@@ -1,17 +1,19 @@
-from .messaging import (
-    KafkaCommandPublisher,
-    PublishTimeoutError,
-    build_aiokafka_producer,
-    build_kafka_command_publisher,
-    json_to_command_envelope,
-    command_envelope_to_json,
+from .runtime import (
+    managed_kafka_producer,
+    ReadinessError,
+    check_kafka_topics,
+    check_postgres,
+    check_schema_revision,
 )
+from .topics.wallet.factory_publisher import build_wallet_publisher
+from .shared.dependencies import build_aiokafka_producer
 
 __all__ = [
-    "KafkaCommandPublisher",
-    "PublishTimeoutError",
+    "managed_kafka_producer",
+    "ReadinessError",
+    "check_kafka_topics",
+    "check_postgres",
+    "check_schema_revision",
+    "build_wallet_publisher",
     "build_aiokafka_producer",
-    "build_kafka_command_publisher",
-    "json_to_command_envelope",
-    "command_envelope_to_json",
 ]

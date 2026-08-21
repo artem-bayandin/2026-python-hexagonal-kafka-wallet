@@ -3,11 +3,11 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
 
-from ..error_codes import COMMAND_ENVELOPE_INVALID
+from ..error_codes import WALLET_TX_MSG_INVALID
 from ..result import Result
 
 
-class CommandType(StrEnum):
+class WalletTxType(StrEnum):
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"
     EXCHANGE = "exchange"
@@ -15,15 +15,15 @@ class CommandType(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class CommandEnvelope:
+class WalletTxMessage:
     request_id: UUID
-    type: CommandType
+    msg_tx_type: WalletTxType
     submitted_at: datetime
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_id, UUID):
             raise ValueError("request_id must be a UUID.")
-        if not isinstance(self.type, CommandType):
+        if not isinstance(self.msg_tx_type, WalletTxType):
             raise ValueError("type must be one of the four command types.")
         if self.submitted_at.tzinfo is None or self.submitted_at.utcoffset() != timedelta(0):
             raise ValueError("submitted_at must be timezone-aware UTC.")
@@ -33,18 +33,18 @@ class CommandEnvelope:
         cls,
         *,
         request_id: object,
-        command_type: object,
+        msg_tx_type: object,
         submitted_at: object,
-    ) -> Result[CommandEnvelope]:
-        """Parse tolerated wire input into an envelope; malformed input is a domain failure."""
+    ) -> Result[WalletTxMessage]:
+        """Parse tolerated wire input into a wallet tx msg; malformed input is a domain failure."""
         try:
             parsed_request_id = (
                 request_id if isinstance(request_id, UUID) else UUID(str(request_id))
             )
             parsed_type = (
-                command_type
-                if isinstance(command_type, CommandType)
-                else CommandType(str(command_type))
+                msg_tx_type
+                if isinstance(msg_tx_type, WalletTxType)
+                else WalletTxType(str(msg_tx_type))
             )
             parsed_submitted_at = (
                 submitted_at
@@ -54,9 +54,9 @@ class CommandEnvelope:
             return Result.success(
                 cls(
                     request_id=parsed_request_id,
-                    type=parsed_type,
+                    msg_tx_type=parsed_type,
                     submitted_at=parsed_submitted_at,
                 )
             )
         except (ValueError, TypeError) as error:
-            return Result.failure(COMMAND_ENVELOPE_INVALID, error)
+            return Result.failure(WALLET_TX_MSG_INVALID, error)

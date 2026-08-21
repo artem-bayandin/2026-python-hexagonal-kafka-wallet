@@ -5,7 +5,7 @@
 | Terminal transaction observed | acknowledge and skip; no wallet mutation |
 | Transaction still ``submitted`` | defer/safe-retry; never acknowledge as a duplicate |
 | Guarded update affects zero rows | reload and observe; never force a transition |
-| Retryable infrastructure failure | retry up to 3 local attempts with bounded backoff |
+| Retryable infrastructure failure | first attempt is terminal; no in-process retry loop |
 | Poison input | terminal failure path; no repeated attempts; no balance mutation |
 """
 
@@ -13,14 +13,14 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
-from ...messaging.command_envelope import CommandType
+from ...messaging import WalletTxType
 from ...read_models import TransactionItem
 
 
 @dataclass(frozen=True, slots=True)
 class ExecuteCommand:
     request_id: UUID
-    command_type: CommandType
+    msg_tx_type: WalletTxType
 
 
 class ExecutionHandler(Protocol):
@@ -29,17 +29,17 @@ class ExecutionHandler(Protocol):
 
 class ExecutionHandlerRegistry:
     def __init__(self) -> None:
-        self._handlers: dict[CommandType, ExecutionHandler] = {}
+        self._handlers: dict[WalletTxType, ExecutionHandler] = {}
 
-    def register(self, command_type: CommandType, handler: ExecutionHandler) -> None:
-        self._handlers[command_type] = handler
+    def register(self, msg_tx_type: WalletTxType, handler: ExecutionHandler) -> None:
+        self._handlers[msg_tx_type] = handler
 
-    def get(self, command_type: CommandType) -> ExecutionHandler | None:
-        return self._handlers.get(command_type)
+    def get(self, msg_tx_type: WalletTxType) -> ExecutionHandler | None:
+        return self._handlers.get(msg_tx_type)
 
 
 class RetryableExecutionError(Exception):
-    """Infrastructure failure eligible for the bounded local retry loop."""
+    """Infrastructure failure that is not treated as deterministic poison input."""
 
 
 class PoisonExecutionError(Exception):
@@ -48,12 +48,3 @@ class PoisonExecutionError(Exception):
     def __init__(self, safe_error: str) -> None:
         super().__init__(safe_error)
         self.safe_error = safe_error
-
-
-__all__ = [
-    "ExecuteCommand",
-    "ExecutionHandler",
-    "ExecutionHandlerRegistry",
-    "PoisonExecutionError",
-    "RetryableExecutionError",
-]

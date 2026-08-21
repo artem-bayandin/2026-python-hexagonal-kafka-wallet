@@ -11,7 +11,7 @@ from ....ports import (
 from ....read_models import TransactionItem
 from ....safe_errors import SAFE_EXECUTION_FAILED
 from ....value_objects import TransactionStatus
-from ...sub_exec_base.execute_cmd import PoisonExecutionError
+from ...sub_exec_base import PoisonExecutionError
 
 
 class ExecuteTransferHandler:
@@ -94,6 +94,3 @@ class ExecuteTransferHandler:
             return 0
 
         return await tx_command_repo.complete_if_in_progress(request_id, None)
-
-
-__all__ = ["ExecuteTransferHandler"]

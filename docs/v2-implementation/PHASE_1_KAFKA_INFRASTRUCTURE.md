@@ -17,6 +17,7 @@ Work in this order:
 
 - **Phase 1 complete (2026-08-10).** Steps 1–8 implemented and smoke-checked. Version 1 wallet routes remain synchronous; no route publishes to Kafka yet.
 - Prerequisite gate from [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Prerequisites is green: Version 1 reproduces from a clean checkout, the Alembic baseline head (`d377d8c90992`) is recorded, baseline quality-command failures are written down, and an implementation branch with a rollback point exists.
+- **Post-Phase-3 refactoring:** Kafka package layout, naming, producer lifecycle, and retry mapping changed after this document was written. Treat file paths, CLI modules, and retry settings here as historical. Current record: [PHASE_3A_REFACTORING.md](PHASE_3A_REFACTORING.md).
 
 Canonical behavior is defined by [README.md](../v2/README.md), [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §3/§5/§9, [CONFIGURATION.md](../v2/CONFIGURATION.md) §4/§5/§10–§12, and [API_CONTRACT.md](../v2/API_CONTRACT.md) §Diagnostics and health.
 

@@ -12,8 +12,9 @@ Work in this order:
 
 ## Current implementation status
 
-- **Not started.** Phase 1 Kafka infrastructure is complete (broker, topics, settings, producer adapter, process shells).
+- **Implemented.** Schema, status machine, mappers, and API/UI field mapping from this phase are in the codebase. Remaining sections below are the original implementation guide and may still describe the work as a plan.
 - Version 1 Alembic head: `d377d8c90992` (`add_wallet_tables_version_1`). All Version 2 migrations upgrade from this exact head.
+- **Post-Phase-3 refactoring:** Kafka layout, naming, and retry mapping changed after Phases 1–3. Kafka paths and producer/worker details in this document may be outdated. Current record: [PHASE_3A_REFACTORING.md](PHASE_3A_REFACTORING.md).
 
 Canonical behavior is defined by [TECHNICAL_REQUIREMENTS.md](../v2/TECHNICAL_REQUIREMENTS.md) §6/§7/§11, [API_CONTRACT.md](../v2/API_CONTRACT.md) §Shared representations, and [IMPLEMENTATION_STEPS.md](../v2/IMPLEMENTATION_STEPS.md) §Phase 2.
 

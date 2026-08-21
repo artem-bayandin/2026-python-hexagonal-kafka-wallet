@@ -12,7 +12,7 @@ from .repositories.user_query_repository import UserQueryRepository
 from .repositories.user_wallet_command_repository import UserWalletCommandRepository
 from .repositories.user_wallet_query_repository import UserWalletQueryRepository
 from .services.clock_service import ClockService
-from .services.command_publisher import CommandPublisher
+from .services.message_publisher import MessagePublisher
 from .services.otp_service import OtpService
 from .services.token_service import TokenService
 
@@ -34,7 +34,7 @@ __all__ = [
     "UserWalletQueryRepository",
     # Services
     "ClockService",
-    "CommandPublisher",
+    "MessagePublisher",
     "OtpService",
     "TokenService",
 ]

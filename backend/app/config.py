@@ -1,20 +1,16 @@
-import os
 from functools import lru_cache
 from typing import Annotated, Literal, NamedTuple, Self
 
 from pydantic import BeforeValidator, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-AppEnv = Literal["development", "test", "production"]
-SecurityProtocol = Literal["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
+# other environments are not supported yet
+AppEnv = Literal["development"]  # , "test", "production"]
+# other security protocols are not supported yet
+SecurityProtocol = Literal["PLAINTEXT"]  # , "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 _ENV_FILE = ".env"
-_DEFAULT_LOG_LEVEL: LogLevel = "INFO"
-_DEFAULT_CORS_ALLOWED_ORIGINS = "http://127.0.0.1:5173,http://localhost:5173"
-_DEFAULT_KAFKA_COMMAND_TOPIC = "wallet"
-_DEFAULT_KAFKA_DLQ_TOPIC = "wallet_dlq"
-_DEFAULT_KAFKA_WORKER_GROUP_ID = "wallet_worker"
 _DEFAULT_KAFKA_SECURITY_PROTOCOL: SecurityProtocol = "PLAINTEXT"
 
 
@@ -36,20 +32,20 @@ class SharedSettings(BaseSettings):
 
     app_env: AppEnv
     database_url: str
-    log_level: LogLevel = _DEFAULT_LOG_LEVEL
+    log_level: LogLevel
 
 
 class ApiSettings(SharedSettings):
     """API-owned settings; extends the shared group with HTTP/auth concerns."""
 
     jwt_secret: SecretStr
+    jwt_access_token_ttl_minutes: int
     otp_hmac_secret: SecretStr
-    admin_api_key: OptionalStr = None
-    cors_allowed_origins: str = _DEFAULT_CORS_ALLOWED_ORIGINS
-    jwt_access_token_ttl_minutes: int = Field(default=60, gt=0)
-    otp_ttl_seconds: int = Field(default=300, gt=0)
-    otp_max_attempts: int = Field(default=5, gt=0)
+    otp_ttl_seconds: int
+    otp_max_attempts: int
     enable_demo_otp: bool = False
+    admin_api_key: OptionalStr = None
+    cors_allowed_origins: str
 
     @model_validator(mode="after")
     def _reject_prohibited_shortcuts(self) -> Self:
@@ -63,22 +59,17 @@ class ApiSettings(SharedSettings):
 class KafkaSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, env_prefix="KAFKA_", extra="ignore")
 
+    # base
     bootstrap_servers: str
-    command_topic: str = Field(default=_DEFAULT_KAFKA_COMMAND_TOPIC, min_length=1)
-    dlq_topic: str = Field(default=_DEFAULT_KAFKA_DLQ_TOPIC, min_length=1)
-    worker_group_id: str = Field(default=_DEFAULT_KAFKA_WORKER_GROUP_ID, min_length=1)
+    command_topic: str
+    dlq_topic: str
+    worker_group_id: str
+    # other
     security_protocol: SecurityProtocol = _DEFAULT_KAFKA_SECURITY_PROTOCOL
-    sasl_mechanism: OptionalStr = None
-    sasl_username: OptionalSecret = None
-    sasl_password: OptionalSecret = None
-    ssl_ca_file: OptionalStr = None
-    ssl_cert_file: OptionalStr = None
-    ssl_key_file: OptionalStr = None
+    # retry
     producer_request_timeout_ms: int = Field(default=10000, gt=0)
     producer_delivery_timeout_ms: int = Field(default=30000, gt=0)
-    producer_max_retries: int = Field(default=5, ge=0)
     producer_retry_backoff_ms: int = Field(default=200, gt=0)
-    producer_retry_backoff_max_ms: int = Field(default=2000, gt=0)
 
     @field_validator("bootstrap_servers")
     @classmethod
@@ -97,34 +88,13 @@ class KafkaSettings(BaseSettings):
                 "KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS must be at least "
                 "KAFKA_PRODUCER_REQUEST_TIMEOUT_MS"
             )
-        if self.producer_retry_backoff_max_ms < self.producer_retry_backoff_ms:
-            raise ValueError(
-                "KAFKA_PRODUCER_RETRY_BACKOFF_MAX_MS must not be less than "
-                "KAFKA_PRODUCER_RETRY_BACKOFF_MS"
-            )
-        self._validate_security_pairs()
         return self
-
-    def _validate_security_pairs(self) -> None:
-        sasl_selected = self.security_protocol in ("SASL_PLAINTEXT", "SASL_SSL")
-        sasl_fields = (self.sasl_mechanism, self.sasl_username, self.sasl_password)
-        if sasl_selected and any(field is None for field in sasl_fields):
-            raise ValueError(
-                "KAFKA_SASL_MECHANISM, KAFKA_SASL_USERNAME, and KAFKA_SASL_PASSWORD "
-                "are all required when a SASL security protocol is selected"
-            )
-        if not sasl_selected and any(field is not None for field in sasl_fields):
-            raise ValueError("KAFKA_SASL_* settings require a SASL security protocol")
-        if (self.ssl_cert_file is None) != (self.ssl_key_file is None):
-            raise ValueError("KAFKA_SSL_CERT_FILE and KAFKA_SSL_KEY_FILE must be set as a pair")
 
 
 class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, env_prefix="WORKER_", extra="ignore")
 
-    max_attempts: int = Field(default=3, ge=1)
     retry_backoff_ms: int = Field(default=500, gt=0)
-    retry_backoff_max_ms: int = Field(default=5000, gt=0)
     poll_timeout_ms: int = Field(default=1000, gt=0)
     heartbeat_interval_ms: int = Field(default=3000, gt=0)
     session_timeout_ms: int = Field(default=30000, gt=0)
@@ -132,20 +102,10 @@ class WorkerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_worker_invariants(self) -> Self:
-        if self.retry_backoff_max_ms < self.retry_backoff_ms:
-            raise ValueError(
-                "WORKER_RETRY_BACKOFF_MAX_MS must not be less than WORKER_RETRY_BACKOFF_MS"
-            )
         if self.heartbeat_interval_ms >= self.session_timeout_ms:
             raise ValueError("WORKER_HEARTBEAT_INTERVAL_MS must be below WORKER_SESSION_TIMEOUT_MS")
-        # Worst-case time between polls must stay below max.poll.interval: one poll
-        # wait plus the full local retry schedule (execution and DLQ waits are bounded
-        # separately and checked in validate_worker_composition).
-        worst_case_retry_ms = (self.max_attempts - 1) * self.retry_backoff_max_ms
-        if self.max_poll_interval_ms <= self.poll_timeout_ms + worst_case_retry_ms:
-            raise ValueError(
-                "WORKER_MAX_POLL_INTERVAL_MS must cover one poll plus the full retry schedule"
-            )
+        if self.max_poll_interval_ms <= self.poll_timeout_ms:
+            raise ValueError("WORKER_MAX_POLL_INTERVAL_MS must cover one poll wait")
         return self
 
     @property
@@ -163,8 +123,6 @@ class ReaperSettings(BaseSettings):
 
 
 class StreamingSettings(BaseSettings):
-    """API-owned SSE and admin long-poll settings (no common env prefix)."""
-
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     admin_long_poll_default_seconds: int = Field(default=25, ge=0)
@@ -181,35 +139,18 @@ class StreamingSettings(BaseSettings):
         return self
 
 
-def _require_readable_file(path: str | None, field_name: str) -> None:
-    if path is None:
-        raise ValueError(f"{field_name} is required when APP_ENV=production")
-    if not os.path.isfile(path) or not os.access(path, os.R_OK):
-        raise ValueError(f"{field_name} must point to a readable file")
-
-
-def validate_kafka_connection(kafka: KafkaSettings, *, app_env: AppEnv) -> None:
+def validate_kafka_connection(_: KafkaSettings, *, app_env: AppEnv) -> None:
     """Cross-group production invariants for the broker connection."""
     if app_env != "production":
         return
-    if kafka.security_protocol not in ("SSL", "SASL_SSL"):
-        raise ValueError("KAFKA_SECURITY_PROTOCOL must be SSL or SASL_SSL when APP_ENV=production")
-    _require_readable_file(kafka.ssl_ca_file, "KAFKA_SSL_CA_FILE")
-    if kafka.ssl_cert_file is not None:
-        _require_readable_file(kafka.ssl_cert_file, "KAFKA_SSL_CERT_FILE")
-        _require_readable_file(kafka.ssl_key_file, "KAFKA_SSL_KEY_FILE")
 
 
 def validate_worker_composition(kafka: KafkaSettings, worker: WorkerSettings) -> None:
-    """max.poll.interval must additionally cover the bounded DLQ publication wait."""
-    worst_case_retry_ms = (worker.max_attempts - 1) * worker.retry_backoff_max_ms
-    worst_case_ms = (
-        worker.poll_timeout_ms + worst_case_retry_ms + kafka.producer_delivery_timeout_ms
-    )
+    """max.poll.interval must cover polling plus the bounded DLQ publication wait."""
+    worst_case_ms = worker.poll_timeout_ms + kafka.producer_delivery_timeout_ms
     if worker.max_poll_interval_ms <= worst_case_ms:
         raise ValueError(
-            "WORKER_MAX_POLL_INTERVAL_MS must cover polling, the full retry schedule, "
-            "and the bounded DLQ publication wait"
+            "WORKER_MAX_POLL_INTERVAL_MS must cover polling and the bounded DLQ publication wait"
         )
 
 
