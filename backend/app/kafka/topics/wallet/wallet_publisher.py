@@ -23,23 +23,17 @@ def _key_class(key: str) -> str:
 
 class KafkaWalletPublisher(MessagePublisher):
     """Bounded message publisher: acks=all and idempotence are configured on the
-    underlying producer; retries and the end-to-end wait are bounded here."""
+    underlying producer; the end-to-end wait is bounded here."""
 
     def __init__(
         self,
         producer: AIOKafkaProducer,
         topic: str,
         *,
-        max_retries: int,
-        retry_backoff_ms: int,
-        retry_backoff_max_ms: int,
         delivery_timeout_ms: int,
     ) -> None:
         self._producer = producer
         self._topic = topic
-        self._max_retries = max_retries
-        self._retry_backoff_ms = retry_backoff_ms
-        self._retry_backoff_max_ms = retry_backoff_max_ms
         self._delivery_timeout_s = delivery_timeout_ms / 1000
 
     async def start(self) -> None:
@@ -63,43 +57,20 @@ class KafkaWalletPublisher(MessagePublisher):
             "request_id": str(message.request_id),
             "msg_tx_type": str(message.msg_tx_type),
         }
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + self._delivery_timeout_s
-        backoff_ms = self._retry_backoff_ms
-        for attempt in range(self._max_retries + 1):
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise self._bounded_timeout(log_context)
-            try:
-                metadata = await asyncio.wait_for(
-                    self._producer.send_and_wait(self._topic, key=key_bytes, value=value),
-                    timeout=remaining,
-                )
-            except TimeoutError as error:
-                raise self._bounded_timeout(log_context) from error
-            except KafkaError as error:
-                retriable = bool(getattr(error, "retriable", False))
-                if not retriable or attempt == self._max_retries:
-                    logger.error(
-                        "kafka publish failed definitively",
-                        extra={**log_context, "error_type": type(error).__name__},
-                    )
-                    raise
-                logger.warning(
-                    "kafka publish failed, retrying",
-                    extra={
-                        **log_context,
-                        "error_type": type(error).__name__,
-                        "attempt": attempt + 1,
-                        "backoff_ms": backoff_ms,
-                    },
-                )
-                await asyncio.sleep(min(backoff_ms / 1000, max(deadline - loop.time(), 0)))
-                backoff_ms = min(backoff_ms * 2, self._retry_backoff_max_ms)
-            else:
-                self._log_success(metadata, log_context)
-                return
-        raise self._bounded_timeout(log_context)
+        try:
+            metadata = await asyncio.wait_for(
+                self._producer.send_and_wait(self._topic, key=key_bytes, value=value),
+                timeout=self._delivery_timeout_s,
+            )
+        except TimeoutError as error:
+            raise self._bounded_timeout(log_context) from error
+        except KafkaError as error:
+            logger.error(
+                "kafka publish failed definitively",
+                extra={**log_context, "error_type": type(error).__name__},
+            )
+            raise
+        self._log_success(metadata, log_context)
 
     def _bounded_timeout(self, log_context: dict[str, str]) -> PublishTimeoutError:
         logger.error(

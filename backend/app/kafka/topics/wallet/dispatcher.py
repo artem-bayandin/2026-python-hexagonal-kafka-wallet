@@ -27,7 +27,6 @@ from app.domain import (
     SAFE_TYPE_MISMATCH,
 )
 
-from ...workers.retry_loop import run_with_retries
 from ...workers.visibility import await_submitted_visibility_delay
 from ..dlq.dlq_context import build_dlq_context
 from ..dlq.dlq_publisher import DlqPublisher
@@ -87,7 +86,7 @@ class RecordDispatcher:
             logger.info("worker claim deferred", extra=log_extra)
             return DispatchOutcome(action=DispatchAction.DEFER)
 
-        return await self._execute_with_retries(key, parsed, claimed_or_locked, log_extra)
+        return await self._execute(key, parsed, claimed_or_locked, log_extra)
 
     def _try_parse_record(self, record: ConsumerRecord[Any, Any]) -> WalletTxMessage | None:
         if record.value is None:
@@ -180,7 +179,7 @@ class RecordDispatcher:
                 return locked
         return None
 
-    async def _execute_with_retries(
+    async def _execute(
         self,
         key: str,
         message: WalletTxMessage,
@@ -188,11 +187,7 @@ class RecordDispatcher:
         log_extra: dict[str, str],
     ) -> DispatchOutcome:
         try:
-            await run_with_retries(
-                self._worker_settings,
-                request_id=str(message.request_id),
-                operation=lambda: self._execute_claimed(claimed),
-            )
+            await self._execute_claimed(claimed)
         except PoisonExecutionError as error:
             await self._terminal_poison_failure(
                 key=key,
@@ -200,7 +195,7 @@ class RecordDispatcher:
                 transaction=claimed,
                 safe_error=error.safe_error,
                 failure_classification="execution_poison",
-                attempt_count=self._worker_settings.max_attempts,
+                attempt_count=1,
             )
         except Exception as error:
             await self._terminal_poison_failure(
@@ -209,7 +204,7 @@ class RecordDispatcher:
                 transaction=claimed,
                 safe_error=SAFE_EXECUTION_FAILED,
                 failure_classification=type(error).__name__,
-                attempt_count=self._worker_settings.max_attempts,
+                attempt_count=1,
             )
         else:
             logger.info("worker execution succeeded", extra=log_extra)

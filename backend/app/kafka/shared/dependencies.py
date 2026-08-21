@@ -27,6 +27,8 @@ def build_aiokafka_consumer(
         heartbeat_interval_ms=worker.heartbeat_interval_ms,
         session_timeout_ms=worker.session_timeout_ms,
         max_poll_interval_ms=worker.max_poll_interval_ms,
+        request_timeout_ms=kafka.producer_request_timeout_ms,
+        retry_backoff_ms=kafka.producer_retry_backoff_ms,
     )
 
 

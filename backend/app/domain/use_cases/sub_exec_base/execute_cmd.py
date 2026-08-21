@@ -5,7 +5,7 @@
 | Terminal transaction observed | acknowledge and skip; no wallet mutation |
 | Transaction still ``submitted`` | defer/safe-retry; never acknowledge as a duplicate |
 | Guarded update affects zero rows | reload and observe; never force a transition |
-| Retryable infrastructure failure | retry up to 3 local attempts with bounded backoff |
+| Retryable infrastructure failure | first attempt is terminal; no in-process retry loop |
 | Poison input | terminal failure path; no repeated attempts; no balance mutation |
 """
 
@@ -39,7 +39,7 @@ class ExecutionHandlerRegistry:
 
 
 class RetryableExecutionError(Exception):
-    """Infrastructure failure eligible for the bounded local retry loop."""
+    """Infrastructure failure that is not treated as deterministic poison input."""
 
 
 class PoisonExecutionError(Exception):
