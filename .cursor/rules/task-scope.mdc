@@ -1,5 +1,5 @@
 ---
-description: Do only what the user explicitly requested — doc, code, or a named slice
+description: Do only what the user explicitly requested — doc, code, tests, or a named slice
 alwaysApply: true
 ---
 # Task scope — do only what was requested
@@ -10,10 +10,27 @@ Before creating or editing files, classify the request into one scope. Do not ex
 
 | Mode | User intent | Do | Do not |
 | --- | --- | --- | --- |
-| **Doc only** | Review, expand, append, or align a guide | Edit docs under `docs/` (or named doc paths) | Add or change application code, tests, or config |
-| **Code only** | Implement, fix, refactor named code | Edit the named layers/files | Rewrite phase guides unless asked |
-| **Doc + code** | Both are explicitly requested | Both, in the order stated | Extra “helpful” work outside scope |
+| **Doc only** | Review, expand, append, or align a guide | Edit docs under `docs/` (or named doc paths) | Application code, tests, or config |
+| **Code only** | Implement, fix, or refactor named code; tests not granted | Edit the named layers/files | Phase guides, test files, TDD cycle |
+| **Tests only** | Add, fix, or extend tests | Edit test files (and fixtures they need) | Production code or docs |
+| **Code + tests** | Implement named code and its tests | Named code and matching tests | Rewrite phase guides unless asked |
+| **Doc + code** | Docs and code; tests not granted | Both, in the order stated | Test files or a TDD cycle |
+| **Doc + code + tests** | Docs, code, and tests | All three, in the order stated | Extra work outside the request |
 | **Advise only** | Explain, review, compare, plan | Answer in chat; cite code/docs | Edit files unless asked to apply changes |
+
+## Tests axis
+
+Treat automated tests as a separate permission from code and docs. State the chosen mode **and** whether tests are in scope (one line).
+
+**Gate for other rules:** A later rule or skill that would add, change, or require tests (including TDD) may do so only when the classified scope includes tests (`tests only`, `code + tests`, or `doc + code + tests`). If tests are not in scope, skip that work; do not infer permission from the other rule.
+
+**If the request does not name tests:** After classifying doc vs code, **ask once** before writing or running a test suite:
+
+1. **Repo tests** — add/change unit, integration, or e2e tests in the project
+2. **AI smoke only** — run the app or a command and report; no new test files
+3. **Skip tests** — this turn stays code and/or docs only
+
+Do not assume TDD or new tests from “implement” alone. After the user answers, restate scope (e.g. `code + tests` or `code only` + AI smoke) and stay in that boundary.
 
 ## Partial vs full work
 
@@ -22,20 +39,22 @@ Before creating or editing files, classify the request into one scope. Do not ex
 - **Single layer** — only that layer (e.g. “add the domain handler for deposits”).
 - **Append doc with slices** — expand the phase guide with step-by-step slice sections (Phase 2 style); status may stay “not started” unless the user says implementation is done.
 
-If scope is ambiguous (doc vs code, full phase vs one slice, which files), **ask one clarifying question** instead of guessing.
+If scope is ambiguous (doc vs code vs tests, full phase vs one slice, which files), **ask one clarifying question** instead of guessing.
 
 ## Signal words
 
 - **Doc only:** “review”, “append”, “update the doc”, “expand the guide”, “align documentation”, “write the phase doc”.
 - **Code:** “implement”, “build”, “add endpoint”, “wire up”, “fix the bug in …”.
+- **Tests:** “write tests”, “add coverage”, “TDD”, “unit tests”, “fix the failing test”.
+- **AI smoke:** “smoke test”, “just run it”, “try it and report”.
 - **Append ≠ implement:** “append `PHASE_4.md` with implementation of Slices” means document the slices in that file, not ship the phase in the repo.
 
 ## Example (Phase 4)
 
 - Request: *Review `PHASE_4_ADMIN_WALLET.md` and append it with implementation of Slices in order Domain → DB → API → UI.*
-- **Correct:** Expand the markdown with slice sections, file paths, and checklists; no backend/frontend code.
+- **Correct:** Expand the markdown with slice sections, file paths, and checklists; no backend/frontend code or tests.
 - **Wrong:** Implement handlers, repositories, routes, and Admin UI because the phase doc describes them.
 
 ## After classifying
 
-State the chosen scope in one line, then execute only within that boundary.
+State the chosen scope in one line (include tests vs AI smoke vs skip), then execute only within that boundary.
