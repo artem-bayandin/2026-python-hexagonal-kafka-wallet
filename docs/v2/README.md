@@ -112,7 +112,7 @@ Kafka exactly-once does not cover Postgres writes — DB guards are the real mec
 
 ## SSE and UI
 
-- `GET /me/stream` (SSE): emits `{request_id, status, error?}` on every transition of the authenticated user's transactions. At sample scale the DB stays the source of truth; the notifier uses an in-process event bus, a 1s poll, or Postgres `LISTEN/NOTIFY` — pick at implementation time. Swappable for a `transaction-status-changed` topic if the notifier ever scales out.
+- `GET /me/stream` (SSE): emits `{request_id, status, type, error?}` on every transition of the authenticated user's transactions after `submitted`. PostgreSQL `LISTEN/NOTIFY` is the Version 2 notifier. Swappable later for a `transaction-status-changed` topic if the notifier ever scales out.
 - User UI: transaction list shows a status stepper that tolerates skipped states; on `succeeded` refetch balances; on `failed` display `error`.
 - Admin UI: long-poll `GET /admin/transactions` with a keyset cursor on `(updated_at, id)` — not `since=<last_seen_id>` alone (`id` is a UUID and is not monotonic). Query shape: `WHERE (updated_at, id) > (:since_updated_at, :since_id) ORDER BY updated_at ASC, id ASC` (or one opaque cursor encoding both). New submits set `updated_at` at insert; later status changes bump `updated_at`, so the same row can appear again — admin UI upserts by `id` / `request_id`. Long processing cannot be skipped: the row is visible from create, and each transition is another cursor event.
 

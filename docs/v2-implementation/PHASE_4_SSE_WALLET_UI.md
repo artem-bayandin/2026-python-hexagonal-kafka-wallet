@@ -25,6 +25,24 @@ Canonical behavior is defined by [API_CONTRACT.md](../v2/API_CONTRACT.md) §`GET
 
 Users receive secure live status notifications, recover from missed or repeated events through authoritative snapshots, and see correct balances and safe outcomes — while SSE remains a notification channel, never a source of truth.
 
+## Agreed decisions (this phase)
+
+These decisions override older Version 2 wording where they conflict. This document is the source of truth for Phase 4.
+
+| Topic | Decision |
+| --- | --- |
+| Notifier mechanism | PostgreSQL `LISTEN/NOTIFY` on `transaction_status_changed`. Do not reopen Kafka vs LISTEN vs WebSockets. |
+| `pg_notify` | Fire on every persisted status **other than** insert `submitted`: `pending`, `in_progress`, `succeeded`, `failed`. Do **not** notify on insert `submitted`. |
+| SSE `data` | `{request_id, status, type, error?}`. `type` is the API enum (`deposit`, `withdrawal`, `exchange`, `transfer`). |
+| Wallet list (option B) | Patch `status`/`error` in place only when `request_id` is already loaded. Do not insert a history row from SSE. |
+| Toasts (B2) | On every SSE status event, show a toast even if the row is not on the page. Copy: `{TYPE} (ID: {xxxx}) moved to {STATE}`. Display `withdrawal` as `withdraw`. `{xxxx}` is the first four characters of `request_id`. |
+| Toast UX | Top-right stack, newest on top, dismiss X, auto-hide after `VITE_STATUS_TOAST_MS` (default `5000`). Rounded corners; match existing button/card styling. |
+| Telemetry | Deferred. No metrics, Prometheus, or OpenTelemetry in this phase. Structured logs are allowed. |
+| Tests | AI smoke only. No new automated test files. |
+| Canonical docs | Update `API_CONTRACT.md` (SSE `type` field) and any README / technical / implementation lines that still say the notifier is undecided. |
+
+Wire names in this codebase: HTTP `GET /me/stream`; statuses `submitted`, `pending`, `in_progress`, `succeeded`, `failed`; identity field `request_id`; resume header `Last-Event-ID`; event name `transaction_status`.
+
 ## Prerequisites
 
 - [ ] The transfer hard stop gate (Phase 3, Slice 4) is green.
@@ -62,7 +80,7 @@ The notifier slice is wired through its own ports: `api` depends on `notifier.po
 
 - SSE is a notification channel; PostgreSQL remains authoritative; the UI reconciles from `GET /me/transactions` after every connect and reconnect.
 - Authentication is enforced before streaming, and every database selection used by the stream is scoped to the authenticated user — a client never receives another user's transaction status.
-- Events on the wire carry only `{request_id, status, error?}` plus an opaque event ID; heartbeats are non-semantic comments; no JWTs, emails, or transaction payload data in SSE `data:`.
+- Events on the wire carry `{request_id, status, type, error?}` plus an opaque event ID; heartbeats are non-semantic comments; no JWTs, emails, or amounts in SSE `data:`.
 - Once the `200` SSE response has started, failures close the connection — never append a JSON error envelope to the stream.
 - Monotonic client reconciliation: upsert by `request_id`, compare `updated_at` from snapshots, ignore status regressions, tolerate duplicates and skipped observations.
 - Disconnect cancellation releases tasks, database sessions, wakeup waiters, and the LISTEN connection promptly.
@@ -82,7 +100,6 @@ backend/app/
       status_event_repository.py       # driven: high-water + list after cursor
     adapters/
       pg_notifier.py                   # LISTEN + catch-up; depends on the repo port
-    channel.py                         # channel name, page size (optional)
   api/routers/stream.py                # SSE; depends on StatusNotifier only
   db/                                  # implements StatusEventRepository next to domain repo impls
 ```
@@ -228,6 +245,7 @@ class StatusCursor:
 class TransactionStatusEvent:
     request_id: UUID
     status: TransactionStatus
+    type: str
     error: str | None
     updated_at: datetime
     transaction_id: UUID  # used only to build the opaque resume cursor
@@ -277,7 +295,7 @@ ORDER BY updated_at ASC, id ASC
 LIMIT :limit
 ```
 
-**Emit side** (domain write path, not the LISTEN adapter): every guarded status transition that commits must `SELECT pg_notify('transaction_status_changed', :user_id)` **in the same transaction** as the update. `updated_at` must change in that same transaction (already required by Phase 2 guarded updates).
+**Emit side** (write path in `db`, not the LISTEN adapter): every persisted status other than insert `submitted` that commits must `SELECT pg_notify('transaction_status_changed', :user_id)` **in the same transaction** as the update (`pending`, `in_progress`, `succeeded`, `failed`, including `update_for_execution`). Do not notify on insert `submitted`. `updated_at` must change in that same transaction (already required by Phase 2 guarded updates).
 
 Notify **every distinct user** who can see the row:
 
@@ -290,12 +308,7 @@ If a later hexagonal refactor wants domain events plus an outbox, that is out of
 
 ## Step 3 — Notifier LISTEN adapter
 
-Create `backend/app/notifier/adapters/pg_notifier.py`. Channel name and page size may live in `backend/app/notifier/channel.py` (constants only).
-
-```python
-TRANSACTION_STATUS_CHANNEL = "transaction_status_changed"
-STATUS_EVENT_PAGE_SIZE = 100
-```
+Create `backend/app/notifier/adapters/pg_notifier.py`. Channel name and page size come from `StreamingSettings` (`TRANSACTION_STATUS_CHANNEL`, `STATUS_EVENT_PAGE_SIZE` in `.env`).
 
 `PostgresStatusNotifier`:
 
@@ -336,7 +349,7 @@ Behavior, per [API_CONTRACT.md](../v2/API_CONTRACT.md):
 - Decode `Last-Event-ID` here (unpadded base64url of `{"updated_at","id"}`); absent, expired, or unrecognized IDs start a fresh live stream (`after=None`) without an HTTP error.
 - Encode each emitted cursor the same way into SSE `id:`.
 - Consume the port with `async for event in notifier.subscribe(current_user.id, cursor)` — never `await subscribe(...)`.
-- Emit `event: transaction_status` frames with `id: <opaque cursor>` and `data: {"request_id":"…","status":"…","error":null}`.
+- Emit `event: transaction_status` frames with `id: <opaque cursor>` and `data: {"request_id":"…","status":"…","type":"…","error":null}`.
 - Heartbeats are an **API** concern: send `: keep-alive` comments every `SSE_HEARTBEAT_INTERVAL_SECONDS` (default 15s) even while the notifier is blocked on `wakeup.wait()`. Interleave with `asyncio.wait` / `wait_for` on the next event; do not require the notifier to yield heartbeats.
 - Send a `retry: <SSE_RETRY_MILLISECONDS>` field (≥ 3000) once per connection.
 - Disable buffering, compression, and caching in the app and document the trusted-proxy requirements (idle timeouts compatible with the heartbeat; forward `Last-Event-ID`).
@@ -355,13 +368,14 @@ Create `frontend/src/api/streamClient.ts` — native `EventSource` cannot attach
 
 Update `frontend/src/pages/WalletPage.tsx`:
 
-- On `transaction_status` events: upsert by `request_id` via `mergeStatus`, tolerate duplicates and skipped states, ignore regressions; render lifecycle status without assuming every intermediate state was observed.
+- On `transaction_status` events: if `request_id` is already in the loaded list, patch `status`/`error` in place via `mergeStatus` (option B). Do not insert a new history row from SSE. Tolerate duplicates and skipped states; ignore regressions; render lifecycle status without assuming every intermediate state was observed.
+- Always show a toast for the event (even when the row is not loaded): `{TYPE} (ID: {xxxx}) moved to {STATE}` where `TYPE` is `deposit` / `withdraw` / `exchange` / `transfer` (`withdrawal` displayed as `withdraw`), `{xxxx}` is the first four characters of `request_id`, and `{STATE}` is the new status. Stack toasts top-right, newest on top, dismiss X, auto-hide after `VITE_STATUS_TOAST_MS` (default 5000). Style like existing buttons/cards (rounded corners).
 - On `succeeded`: refetch `GET /me/balances` and relevant history.
 - On `failed`: clear temporary submission state, refetch authoritative history/balances, display only the safe `error`.
 - Show a degraded "live updates unavailable" indicator when disconnected — cached browser state is never presented as authoritative.
 - Clean up the stream (abort controller) on unmount and logout.
 
-Update `frontend/src/types/wallet.ts` with the `TransactionStatusEvent` type.
+Update `frontend/src/types/wallet.ts` with the `TransactionStatusEvent` type (`request_id`, `status`, `type`, `error`).
 
 ## Step 6 — Smoke check
 
@@ -385,5 +399,5 @@ Update `frontend/src/types/wallet.ts` with the `TransactionStatusEvent` type.
 - [ ] A forced disconnect and reconnect across rapid status changes reaches the correct PostgreSQL snapshot with no regression or cross-user disclosure.
 - [ ] The SSE smoke check covers reconnect, skipped states, duplicates, cross-user isolation, and transfer notify-both-parties without anomalies.
 - [ ] Hexagonal smoke: status-stream ports and read models in `notifier/`; LISTEN adapter in `notifier/adapters` depending on `StatusEventRepository`; SQL and `pg_notify` in `db`; SSE/cursor encoding in `api`; `domain` unchanged aside from write-path `pg_notify`.
-- [ ] Operational telemetry reports connections, disconnects, resume outcomes, notifier lag, and reconciliation failures without high-cardinality metric labels.
+- [ ] Operational telemetry (connections, disconnects, resume outcomes, notifier lag, reconciliation failures) is **deferred** — out of this phase.
 - [ ] `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy app` pass from `backend/`; `yarn lint`, `yarn typecheck`, `yarn build` pass from `frontend/`.

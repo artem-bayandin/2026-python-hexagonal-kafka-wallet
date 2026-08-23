@@ -129,6 +129,8 @@ class StreamingSettings(BaseSettings):
     admin_long_poll_max_seconds: int = Field(default=30, gt=0)
     sse_heartbeat_interval_seconds: int = Field(default=15, gt=0)
     sse_retry_milliseconds: int = Field(default=3000, ge=3000)
+    transaction_status_channel: str = Field(default="transaction_status_changed", min_length=1)
+    status_event_page_size: int = Field(default=100, gt=0, le=1000)
 
     @model_validator(mode="after")
     def _validate_streaming_invariants(self) -> Self:

@@ -255,12 +255,12 @@ X-Accel-Buffering: no
 
 Intermediaries and protocol implementations may add transport headers. The response body is an SSE stream encoded as UTF-8 and must not be response-compressed or buffered.
 
-Each transaction-status event has an opaque event ID, the event name `transaction_status`, and one JSON object in `data`:
+Each transaction-status event has an opaque event ID, the event name `transaction_status`, and one JSON object in `data` with `request_id`, `status`, `type` (`deposit`, `withdrawal`, `exchange`, or `transfer`), and `error` (`null` unless `status` is `failed`):
 
 ```text
 id: eyJ1cGRhdGVkX2F0IjoiMjAyNi0wOC0wNFQxMDowMDowMloiLCJpZCI6ImIxN2UzYTEyLTMzOTUtNGIxYy04MmE1LTJlNTc2MzJmZTZiNCJ9
 event: transaction_status
-data: {"request_id":"8527537d-f473-4074-8341-67db94e06e3a","status":"in_progress","error":null}
+data: {"request_id":"8527537d-f473-4074-8341-67db94e06e3a","status":"in_progress","type":"transfer","error":null}
 
 ```
 

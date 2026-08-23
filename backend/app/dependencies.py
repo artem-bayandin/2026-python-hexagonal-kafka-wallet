@@ -1,4 +1,5 @@
 from aiokafka import AIOKafkaProducer
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.auth import (
     HmacOtpService,
@@ -13,6 +14,7 @@ from app.db import (
     AuthSessionQueryRepositoryImpl,
     CurrencyQueryRepositoryImpl,
     OtpChallengeCommandRepositoryImpl,
+    StatusEventRepositoryImpl,
     TransactionCommandRepositoryImpl,
     TransactionQueryRepositoryImpl,
     UserCommandRepositoryImpl,
@@ -39,6 +41,7 @@ from app.domain import (
     SubmitWithdrawalHandler,
 )
 from app.kafka import build_wallet_publisher
+from app.notifier import PostgresStatusNotifier, StatusNotifier
 
 # # # # Region: kafka
 
@@ -249,4 +252,20 @@ def build_submit_transfer_handler(
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
+    )
+
+
+# # # # Region: routes.stream
+
+# StatusNotifier
+
+
+def build_status_notifier(
+    session_factory: async_sessionmaker[AsyncSession],
+    database_url: str,
+) -> StatusNotifier:
+    return PostgresStatusNotifier(
+        session_factory=session_factory,
+        database_url=database_url,
+        query_repository_factory=lambda session: StatusEventRepositoryImpl(session),
     )

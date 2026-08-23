@@ -18,6 +18,22 @@ export function isTerminal(status: TransactionStatus): boolean {
   return TERMINAL_STATUSES.has(status)
 }
 
+export function applyLiveStatus(
+  items: TransactionItem[],
+  event: Pick<TransactionItem, 'request_id' | 'status' | 'error'>,
+): TransactionItem[] {
+  return items.map((item) => {
+    if (item.request_id !== event.request_id) {
+      return item
+    }
+    return mergeStatus(item, {
+      ...item,
+      status: event.status,
+      error: event.error,
+    })
+  })
+}
+
 export function mergeStatus(
   current: TransactionItem | undefined,
   incoming: TransactionItem,

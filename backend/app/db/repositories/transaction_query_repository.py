@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import aliased
 
 from app.domain import (
@@ -16,6 +16,7 @@ from app.domain import (
 from ..mappers import TransactionDbMapper
 from ..models import CurrencyModel, TransactionModel, UserWalletModel
 from ..session import AsyncSession
+from .shared import tx_visible_to_user_clause
 
 SourceWalletModel = aliased(UserWalletModel, name="source_wallet")
 DestWalletModel = aliased(UserWalletModel, name="dest_wallet")
@@ -103,13 +104,7 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
         self, user_id: UUID, params: PaginationParams
     ) -> PaginatedResult[TransactionListRow]:
         offset = params.page_number * params.page_size
-        wallet_ids = select(UserWalletModel.id).where(UserWalletModel.user_id == user_id)
-        wallet_ids_subquery = wallet_ids.scalar_subquery()
-
-        ownership = or_(
-            TransactionModel.source_wallet_id.in_(wallet_ids_subquery),
-            TransactionModel.dest_wallet_id.in_(wallet_ids_subquery),
-        )
+        ownership = tx_visible_to_user_clause(user_id)
 
         count_stmt = select(func.count()).select_from(TransactionModel).where(ownership)
         total_items = (await self.session.execute(count_stmt)).scalar_one()
