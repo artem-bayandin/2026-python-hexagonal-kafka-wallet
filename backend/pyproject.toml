@@ -41,7 +41,7 @@ python_version = "3.14"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["aiokafka", "aiokafka.*"]
+module = ["aiokafka", "aiokafka.*", "asyncpg", "asyncpg.*"]
 follow_untyped_imports = true
 
 [[tool.mypy.overrides]]

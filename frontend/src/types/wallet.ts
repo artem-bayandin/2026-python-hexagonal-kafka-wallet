@@ -5,6 +5,15 @@ export type TransactionStatus =
   | 'succeeded'
   | 'failed'
 
+export type TransactionType = 'deposit' | 'withdrawal' | 'exchange' | 'transfer'
+
+export interface TransactionStatusEvent {
+  request_id: string
+  status: TransactionStatus
+  type: TransactionType
+  error: string | null
+}
+
 export interface BalanceItem {
   asset: string
   amount: string
@@ -18,7 +27,7 @@ export type BalanceList = {
 export interface TransactionItem {
   id: string
   request_id: string
-  type: 'deposit' | 'withdrawal' | 'exchange' | 'transfer'
+  type: TransactionType
   status: TransactionStatus
   source_asset: string | null
   dest_asset: string | null

@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { ApiError, logout } from '../api/client'
+import { connectTransactionStatusStream } from '../api/streamClient'
 import {
   createExchange,
   createTransfer,
@@ -13,10 +14,15 @@ import type {
   BalanceItem,
   CurrencyItem,
   TransactionItem,
+  TransactionStatusEvent,
   UserReferenceItem,
 } from '../types/wallet'
 import { normalizeEmail } from '../utils/email'
-import { reconcileTransactionsByRequestId, spendableOf } from '../utils/transaction_status'
+import {
+  applyLiveStatus,
+  reconcileTransactionsByRequestId,
+  spendableOf,
+} from '../utils/transaction_status'
 import { formatTransactionAsset, formatTransactionType } from '../utils/transaction'
 
 type WalletPageProps = {
@@ -25,6 +31,26 @@ type WalletPageProps = {
 }
 
 const TRANSACTIONS_PAGE_SIZE = 20
+
+const parsedToastMs = Number.parseInt(
+  import.meta.env.VITE_STATUS_TOAST_MS ?? '5000',
+  10,
+)
+const STATUS_TOAST_MS =
+  Number.isFinite(parsedToastMs) && parsedToastMs > 0 ? parsedToastMs : 5000
+
+type StatusToast = {
+  id: string
+  message: string
+}
+
+function toastTypeLabel(type: TransactionStatusEvent['type']): string {
+  return type === 'withdrawal' ? 'withdraw' : type
+}
+
+function statusToastMessage(event: TransactionStatusEvent): string {
+  return `${toastTypeLabel(event.type)} (ID: ${event.request_id.slice(0, 4)}) moved to ${event.status}`
+}
 
 function amountStepForPrecision(precision: number): string {
   if (precision <= 0) {
@@ -63,6 +89,8 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
   const [isLoadingMoreTransactions, setIsLoadingMoreTransactions] =
     useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [isLiveConnected, setIsLiveConnected] = useState(false)
+  const [statusToasts, setStatusToasts] = useState<StatusToast[]>([])
 
   const currentUserEmail = normalizeEmail(sessionStorage.getItem('user_email'))
 
@@ -135,6 +163,40 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
 
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    function pushStatusToast(message: string) {
+      const id = crypto.randomUUID()
+      setStatusToasts((current) => [{ id, message }, ...current])
+      window.setTimeout(() => {
+        setStatusToasts((current) => current.filter((toast) => toast.id !== id))
+      }, STATUS_TOAST_MS)
+    }
+
+    void connectTransactionStatusStream(controller.signal, {
+      onConnectionChange: setIsLiveConnected,
+      onEvent: (event) => {
+        pushStatusToast(statusToastMessage(event))
+        setTransactions((current) => applyLiveStatus(current, event))
+        if (event.status === 'succeeded' || event.status === 'failed') {
+          void loadWalletData().catch((error: unknown) => {
+            if (error instanceof ApiError) {
+              setErrorMessage(error.envelope.message)
+            }
+          })
+        }
+        if (event.status === 'failed' && event.error !== null) {
+          setErrorMessage(event.error)
+        }
+      },
+    })
+
+    return () => {
+      controller.abort()
     }
   }, [])
 
@@ -375,6 +437,30 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
     <main className="wallet-page">
       <h1>Wallet</h1>
       <p className="auth-detail">Your balances and wallet operations.</p>
+      {!isLiveConnected && (
+        <p className="auth-detail" role="status">
+          Live updates unavailable. Showing the last loaded snapshot.
+        </p>
+      )}
+      <div className="status-toast-stack" aria-live="polite">
+        {statusToasts.map((toast) => (
+          <div className="status-toast" key={toast.id} role="status">
+            <span>{toast.message}</span>
+            <button
+              className="status-toast-dismiss"
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() =>
+                setStatusToasts((current) =>
+                  current.filter((item) => item.id !== toast.id),
+                )
+              }
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
 
       {errorMessage !== null && (
         <p className="auth-error" role="alert">

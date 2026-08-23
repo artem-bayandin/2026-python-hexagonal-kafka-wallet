@@ -15,10 +15,12 @@ from app.api import (
     auth_router,
     health_router,
     reference_router,
+    stream_router,
     wallet_router,
 )
 from app.config import ApiSettings, load_api_runtime
 from app.db import build_session_factory
+from app.dependencies import build_status_notifier
 from app.kafka import build_aiokafka_producer, managed_kafka_producer
 
 
@@ -28,6 +30,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     engine: AsyncEngine = create_async_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
     kafka_producer = build_aiokafka_producer(runtime.kafka)
+    status_notifier = build_status_notifier(session_factory, resolved.database_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -41,6 +44,8 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.kafka_producer = kafka_producer
     app.state.kafka_settings = runtime.kafka
+    app.state.status_notifier = status_notifier
+    app.state.streaming_settings = runtime.streaming
 
     cors_origins = [
         origin.strip() for origin in resolved.cors_allowed_origins.split(",") if origin.strip()
@@ -62,5 +67,6 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(reference_router)
     app.include_router(admin_router)
     app.include_router(wallet_router)
+    app.include_router(stream_router)
 
     return app

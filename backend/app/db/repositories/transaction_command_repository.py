@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.domain import (
     SubmittedTransactionSpec,
@@ -9,9 +9,10 @@ from app.domain import (
     TransactionItem,
     TransactionStatus,
 )
+from app.config import get_streaming_settings
 
 from ..mappers import TransactionDbMapper
-from ..models import TransactionModel
+from ..models import TransactionModel, UserWalletModel
 from ..session import AsyncSession
 from .user_wallet_command_repository import UserWalletCommandRepositoryImpl
 
@@ -98,6 +99,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
         model = result.scalar_one_or_none()
         if model is None:
             return None
+        await self._notify_visible_users(model)
         return TransactionDbMapper.to_domain(model)
 
     async def complete_if_in_progress(self, request_id: UUID, safe_error: str | None) -> int:
@@ -141,6 +143,7 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
         model.updated_at = now
         model.error = safe_error
         await self.session.flush()
+        await self._notify_visible_users(model)
         return 1
 
     async def lock_by_request_id(self, request_id: UUID) -> TransactionItem | None:
@@ -153,3 +156,31 @@ class TransactionCommandRepositoryImpl(TransactionCommandRepository):
         if model is None:
             return None
         return TransactionDbMapper.to_domain(model)
+
+    async def _notify_visible_users(self, model: TransactionModel) -> None:
+        wallet_ids = [
+            wallet_id
+            for wallet_id in (model.source_wallet_id, model.dest_wallet_id)
+            if wallet_id is not None
+        ]
+        if not wallet_ids:
+            return
+        user_ids = (
+            (
+                await self.session.execute(
+                    select(UserWalletModel.user_id)
+                    .where(UserWalletModel.id.in_(wallet_ids))
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for user_id in user_ids:
+            await self.session.execute(
+                text("SELECT pg_notify(:channel, :payload)"),
+                {
+                    "channel": get_streaming_settings().transaction_status_channel,
+                    "payload": str(user_id),
+                },
+            )

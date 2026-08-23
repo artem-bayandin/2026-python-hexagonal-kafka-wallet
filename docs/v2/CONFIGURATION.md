@@ -104,6 +104,8 @@ The reaper scans only stale `submitted` rows, republishes the original command k
 | `ADMIN_LONG_POLL_MAX_SECONDS` | API | `30` | Positive integer and the inclusive maximum accepted `timeout_seconds`; `0` remains valid per request to disable waiting. |
 | `SSE_HEARTBEAT_INTERVAL_SECONDS` | API | `15` | Positive interval for sending an SSE comment such as `: keep-alive` while no application event is available. |
 | `SSE_RETRY_MILLISECONDS` | API | `3000` | Integer of at least `3000`; the server may emit this SSE `retry` value as reconnect guidance. |
+| `TRANSACTION_STATUS_CHANNEL` | API, worker | `transaction_status_changed` | PostgreSQL `LISTEN`/`NOTIFY` channel name; API listeners and worker/API emitters must use the same value. |
+| `STATUS_EVENT_PAGE_SIZE` | API | `100` | Integer from `1` through `1000`; maximum status-event rows fetched per catch-up page. |
 
 Admin long polling remains a PostgreSQL query over the `(updated_at, id)` cursor and never reads Kafka. SSE heartbeats carry no application meaning, must not advance the event cursor, and should be shorter than the idle timeout of every trusted reverse proxy or load balancer. The server may close a stream at any time; reconnect remains at least once, uses `Last-Event-ID`, and requires a database-backed snapshot reconciliation as defined by the API contract.
 
@@ -114,6 +116,7 @@ Reverse proxies must disable buffering and response compression for `GET /me/str
 | Variable | Required | Default | Validation and meaning |
 | --- | --- | --- | --- |
 | `VITE_API_BASE_URL` | Frontend build | None | Public API origin without a trailing slash. Production must use HTTPS, and its origin must be allowed by `CORS_ALLOWED_ORIGINS`. |
+| `VITE_STATUS_TOAST_MS` | Frontend build | `5000` | Positive milliseconds to show a status toast before auto-hide. |
 
 Every `VITE_*` value is public build-time data. The frontend must never receive database or Kafka URLs, JWT or OTP secrets, admin credentials, TLS private keys, SASL credentials, or server timeout controls.
 
@@ -121,10 +124,10 @@ Every `VITE_*` value is public build-time data. The frontend must never receive 
 
 | Process | Owns and validates |
 | --- | --- |
-| API | Shared database, authentication, CORS and logging settings; Kafka connection and command-topic settings; producer settings; admin long-poll settings; SSE settings. |
-| Worker | Shared database and logging settings; Kafka connection, command-topic, DLQ-topic and worker-group settings; producer settings for DLQ publication; worker execution and consumer-liveness settings. |
+| API | Shared database, authentication, CORS and logging settings; Kafka connection and command-topic settings; producer settings; admin long-poll settings; SSE settings; `TRANSACTION_STATUS_CHANNEL` and `STATUS_EVENT_PAGE_SIZE`. |
+| Worker | Shared database and logging settings; Kafka connection, command-topic, DLQ-topic and worker-group settings; producer settings for DLQ publication; worker execution and consumer-liveness settings; `TRANSACTION_STATUS_CHANNEL` (NOTIFY emit). |
 | Reaper | Shared database and logging settings; Kafka connection and command-topic settings; producer settings; reaper schedule, staleness, and batch settings. |
-| Frontend build | `VITE_API_BASE_URL` only. |
+| Frontend build | `VITE_API_BASE_URL` and `VITE_STATUS_TOAST_MS`. |
 | Topic bootstrap or deployment tooling | Topic names plus partition, replication, retention, TLS, authentication, and ACL policy; application processes do not auto-create production topics. |
 
 Settings shared by processes must resolve to compatible values in one deployment. The worker does not own HTTP, SSE, CORS, JWT, OTP, or admin settings; the reaper does not own consumer-group, DLQ, worker-retry, HTTP, or authentication settings; the API does not consume from `wallet`.
