@@ -116,7 +116,7 @@ docker compose --env-file backend/.env exec kafka \
   --from-beginning
 ```
 
-The stale-`submitted` reaper (`uv run python -m app.kafka.reaper` from `backend/`) is a later Version 2 process. It republishes to `wallet`; it does not consume either topic.
+The stale-`submitted` reaper (`uv run python -m app.kafka.workers.reaper` from `backend/`) is a later Version 2 process. It republishes to `wallet`; it does not consume either topic.
 
 ### Terminal 4 [optional]
 
