@@ -5,6 +5,7 @@ from .pagination import PaginatedResult, PaginationParams
 from .transaction import (
     TransactionItem,
     SubmittedTransactionSpec,
+    StaleSubmittedCandidate,
     TransactionListRow,
     TransactionListItem,
     TransactionMapper,
@@ -20,6 +21,7 @@ __all__ = [
     "PaginatedResult",
     "PaginationParams",
     "SubmittedTransactionSpec",
+    "StaleSubmittedCandidate",
     "TransactionItem",
     "TransactionListRow",
     "TransactionListItem",

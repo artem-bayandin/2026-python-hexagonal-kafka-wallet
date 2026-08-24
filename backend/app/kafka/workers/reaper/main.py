@@ -14,6 +14,7 @@ from ...runtime import (
     configure_process_logging,
     register_shutdown_handlers,
 )
+from .dependencies import build_reap_stale_submitted_handler
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,14 @@ async def run_reaper() -> int:
     configure_process_logging(runtime.settings.log_level)
 
     engine: AsyncEngine = create_async_engine(runtime.settings.database_url)
-    _session_factory = build_session_factory(engine)
+    session_factory = build_session_factory(engine)
     wallet_producer = build_wallet_publisher(runtime.kafka)
+    handler = build_reap_stale_submitted_handler(
+        session_factory,
+        wallet_producer,
+        reaper_settings=runtime.reaper,
+        kafka_settings=runtime.kafka,
+    )
     shutdown_event = asyncio.Event()
     register_shutdown_handlers(shutdown_event)
     publisher_started = False
@@ -40,6 +47,8 @@ async def run_reaper() -> int:
             extra={
                 "command_topic": runtime.kafka.command_topic,
                 "interval_seconds": runtime.reaper.interval_seconds,
+                "stale_threshold_seconds": runtime.reaper.stale_threshold_seconds,
+                "batch_size": runtime.reaper.batch_size,
             },
         )
 
@@ -50,10 +59,10 @@ async def run_reaper() -> int:
                     timeout=runtime.reaper.interval_seconds,
                 )
             except TimeoutError:
-                logger.debug(
-                    "reaper idle tick",
-                    extra={"interval_seconds": runtime.reaper.interval_seconds},
-                )
+                try:
+                    await handler.reap()
+                except Exception:
+                    logger.exception("reaper pass failed")
     except ReadinessError:
         logger.exception("reaper readiness failed")
         return 1

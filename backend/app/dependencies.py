@@ -61,6 +61,7 @@ def build_message_publisher(
 
 
 def build_submit_deposit_handler(
+    settings: KafkaSettings,
     session: AsyncSession,
 ) -> SubmitDepositHandler:
     return SubmitDepositHandler(
@@ -69,6 +70,7 @@ def build_submit_deposit_handler(
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
+        settings.admin_partition_key,
     )
 
 

@@ -21,8 +21,6 @@ from ....value_objects import Money
 from ...sub_exec_base import SubmissionInterimHandlerResult
 from .admin_deposit_cmd import AdminDepositCommand
 
-ADMIN_PARTITION_KEY = "admin"
-
 
 class SubmitDepositHandler:
     def __init__(
@@ -32,12 +30,14 @@ class SubmitDepositHandler:
         user_wallets_repo: UserWalletCommandRepository,
         tx_command_repo: TransactionCommandRepository,
         clock_service: ClockService,
+        admin_partition_key: str,
     ) -> None:
         self._user_query_repo = user_query_repo
         self._currency_query_repo = currency_query_repo
         self._user_wallets_repo = user_wallets_repo
         self._tx_command_repo = tx_command_repo
         self._clock_service = clock_service
+        self._admin_partition_key = admin_partition_key
 
     async def validate_and_store_initial_tx(
         self, command: AdminDepositCommand
@@ -84,7 +84,7 @@ class SubmitDepositHandler:
         return Result.success(
             SubmissionInterimHandlerResult(
                 request_id=request_id,
-                key=ADMIN_PARTITION_KEY,
+                key=self._admin_partition_key,
                 message=WalletTxMessage(
                     request_id=request_id,
                     msg_tx_type=WalletTxType.DEPOSIT,

@@ -29,28 +29,3 @@ class PublicationError(Exception):
 
 def publication_error_from_exception(exc: Exception) -> PublicationError:
     return PublicationError(SAFE_PUBLICATION_FAILED)
-
-
-class SubmitTransactionHandler:
-    def __init__(
-        self,
-        message_publisher: MessagePublisher,
-        tx_command_repo: TransactionCommandRepository,
-    ) -> None:
-        self._message_publisher = message_publisher
-        self._tx_command_repo = tx_command_repo
-
-    async def finalize_after_persist(
-        self, outcome: SubmissionInterimHandlerResult
-    ) -> Result[SubmissionResult]:
-        try:
-            await self._message_publisher.publish(key=outcome.key, message=outcome.message)
-        except Exception as exc:
-            publication_error = publication_error_from_exception(exc)
-            await self._tx_command_repo.fail_if_submitted(
-                outcome.request_id,
-                publication_error.safe_message,
-            )
-        else:
-            await self._tx_command_repo.mark_pending_if_submitted(outcome.request_id)
-        return Result.success(SubmissionResult(request_id=outcome.request_id))

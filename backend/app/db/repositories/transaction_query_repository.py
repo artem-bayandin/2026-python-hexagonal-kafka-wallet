@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -8,9 +9,11 @@ from sqlalchemy.orm import aliased
 from app.domain import (
     PaginatedResult,
     PaginationParams,
+    StaleSubmittedCandidate,
     TransactionItem,
     TransactionQueryRepository,
     TransactionListRow,
+    TransactionStatus,
 )
 
 from ..mappers import TransactionDbMapper
@@ -122,3 +125,58 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
         result = await self.session.execute(stmt)
         items = self._rows_to_list_rows(result.all())
         return PaginatedResult(total_items=total_items, items=items)
+
+    async def list_stale_submitted(
+        self, cutoff: datetime, batch_size: int
+    ) -> list[StaleSubmittedCandidate]:
+        stmt = (
+            select(
+                TransactionModel.request_id,
+                TransactionModel.type,
+                TransactionModel.created_at,
+                SourceWalletModel.user_id,
+                DestWalletModel.user_id,
+            )
+            .outerjoin(
+                SourceWalletModel,
+                TransactionModel.source_wallet_id == SourceWalletModel.id,
+            )
+            .outerjoin(
+                DestWalletModel,
+                TransactionModel.dest_wallet_id == DestWalletModel.id,
+            )
+            .where(
+                TransactionModel.status == TransactionStatus.SUBMITTED.value,
+                TransactionModel.created_at < cutoff,
+            )
+            .order_by(TransactionModel.created_at.asc(), TransactionModel.id.asc())
+            .limit(batch_size)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return [
+            StaleSubmittedCandidate(
+                request_id=row[0],
+                type=row[1],
+                created_at=row[2],
+                source_user_id=row[3],
+                # dest_user_id=row[4],
+            )
+            for row in rows
+        ]
+
+    async def count_stale_pending(self, cutoff: datetime) -> int:
+        return await self._count_stale_status(TransactionStatus.PENDING, cutoff)
+
+    async def count_stale_in_progress(self, cutoff: datetime) -> int:
+        return await self._count_stale_status(TransactionStatus.IN_PROGRESS, cutoff)
+
+    async def _count_stale_status(self, status: TransactionStatus, cutoff: datetime) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(TransactionModel)
+            .where(
+                TransactionModel.status == status.value,
+                TransactionModel.created_at < cutoff,
+            )
+        )
+        return (await self.session.execute(stmt)).scalar_one()

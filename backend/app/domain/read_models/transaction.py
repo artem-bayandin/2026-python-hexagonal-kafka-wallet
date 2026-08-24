@@ -56,6 +56,17 @@ class TransactionListItem:
 
 
 @dataclass(frozen=True, slots=True)
+class StaleSubmittedCandidate:
+    """Authoritative fields needed to republish a stale ``submitted`` row."""
+
+    request_id: UUID
+    type: str
+    created_at: datetime
+    source_user_id: UUID | None
+    # dest_user_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
 class TransactionListRow:
     id: UUID
     request_id: UUID

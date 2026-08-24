@@ -12,6 +12,7 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 _ENV_FILE = ".env"
 _DEFAULT_KAFKA_SECURITY_PROTOCOL: SecurityProtocol = "PLAINTEXT"
+_DEFAULT_KAFKA_ADMIN_PARTITION_KEY: str = "admin"
 
 
 def _empty_to_none(value: object) -> object:
@@ -66,6 +67,7 @@ class KafkaSettings(BaseSettings):
     worker_group_id: str
     # other
     security_protocol: SecurityProtocol = _DEFAULT_KAFKA_SECURITY_PROTOCOL
+    admin_partition_key: str = Field(default=_DEFAULT_KAFKA_ADMIN_PARTITION_KEY, min_length=1)
     # retry
     producer_request_timeout_ms: int = Field(default=10000, gt=0)
     producer_delivery_timeout_ms: int = Field(default=30000, gt=0)

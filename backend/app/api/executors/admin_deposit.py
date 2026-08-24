@@ -18,7 +18,7 @@ def get_admin_deposit_executor_fn(request: Request) -> AdminDepositExecutorFn:
         async def handle_submit_deposit_fn(
             session: AsyncSession,
         ) -> Result[SubmissionInterimHandlerResult]:
-            handler = build_submit_deposit_handler(session)
+            handler = build_submit_deposit_handler(request.app.state.kafka_settings, session)
             return await handler.validate_and_store_initial_tx(command)
 
         return await submission_executor_fn(handle_submit_deposit_fn)

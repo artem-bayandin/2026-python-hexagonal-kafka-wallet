@@ -18,11 +18,12 @@ from .wallet.exchange import ExchangeCommand, SubmitExchangeHandler, ExecuteExch
 from .wallet.transfer import TransferCommand, SubmitTransferHandler, ExecuteTransferHandler
 from .wallet.withdraw import WithdrawCommand, SubmitWithdrawalHandler, ExecuteWithdrawalHandler
 
+from .recovery.reap_stale_submitted import ReapStaleSubmittedHandler
+
 from .sub_exec_base.submit_transaction import (
     PublicationError,
     SubmissionInterimHandlerResult,
     SubmissionResult,
-    SubmitTransactionHandler,
     publication_error_from_exception,
 )
 from .sub_exec_base.execute_cmd import (
@@ -82,11 +83,12 @@ __all__ = [
     "WithdrawCommand",
     "SubmitWithdrawalHandler",
     "ExecuteWithdrawalHandler",
+    # Recovery
+    "ReapStaleSubmittedHandler",
     # Submission
     "PublicationError",
     "SubmissionInterimHandlerResult",
     "SubmissionResult",
-    "SubmitTransactionHandler",
     "publication_error_from_exception",
     # Execution
     "ExecuteCommand",
