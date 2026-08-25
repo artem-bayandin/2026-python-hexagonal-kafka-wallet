@@ -2,10 +2,10 @@ import { ApiError } from './client'
 import { parseSubmissionAccepted, type SubmissionAccepted } from './submission'
 import type {
   AdminDepositRequest,
+  AdminTransactionPollResponse,
   BalanceList,
   CurrencyItem,
   DataList,
-  TransactionList,
   UserReferenceItem,
 } from '../types/admin'
 
@@ -20,6 +20,10 @@ export function getAdminKey(): string | null {
 }
 
 export function setAdminKey(key: string): void {
+  if (key === '') {
+    sessionStorage.removeItem(ADMIN_KEY_STORAGE)
+    return
+  }
   sessionStorage.setItem(ADMIN_KEY_STORAGE, key)
 }
 
@@ -93,8 +97,13 @@ export async function adminDeposit(
   return submitAdminMutation('/admin/deposits', body)
 }
 
-export async function getAdminBalances(): Promise<BalanceList> {
-  const response = await adminFetch('/admin/balances')
+export async function getAdminBalances(
+  signal?: AbortSignal,
+): Promise<BalanceList> {
+  const response = await adminFetch(
+    '/admin/balances',
+    signal === undefined ? {} : { signal },
+  )
   if (!response.ok) {
     throw await parseErrorResponse(response)
   }
@@ -102,16 +111,33 @@ export async function getAdminBalances(): Promise<BalanceList> {
 }
 
 export async function listAdminTransactions(
-  pageNumber = 0,
-  pageSize = 20,
-): Promise<TransactionList> {
-  const params = new URLSearchParams({
-    page_number: String(pageNumber),
-    page_size: String(pageSize),
-  })
-  const response = await adminFetch(`/admin/transactions?${params.toString()}`)
+  {
+    cursor,
+    limit,
+    timeoutSeconds,
+    signal,
+  }: {
+    cursor?: string
+    limit?: number
+    timeoutSeconds?: number
+    signal?: AbortSignal
+  } = {},
+): Promise<AdminTransactionPollResponse> {
+  const params = new URLSearchParams()
+  if (cursor !== undefined) {
+    params.set('cursor', cursor)
+  }
+  if (limit !== undefined) {
+    params.set('limit', String(limit))
+  }
+  if (timeoutSeconds !== undefined) {
+    params.set('timeout_seconds', String(timeoutSeconds))
+  }
+  const query = params.toString()
+  const path = query === '' ? '/admin/transactions' : `/admin/transactions?${query}`
+  const response = await adminFetch(path, signal === undefined ? {} : { signal })
   if (!response.ok) {
     throw await parseErrorResponse(response)
   }
-  return response.json() as Promise<TransactionList>
+  return response.json() as Promise<AdminTransactionPollResponse>
 }

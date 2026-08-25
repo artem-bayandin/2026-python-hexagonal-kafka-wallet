@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.api import (
     DomainResultError,
@@ -20,17 +20,18 @@ from app.api import (
 )
 from app.config import ApiSettings, load_api_runtime
 from app.db import build_session_factory
-from app.dependencies import build_status_notifier
+from app.dependencies import build_admin_status_listener, build_status_notifier
 from app.kafka import build_aiokafka_producer, managed_kafka_producer
 
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
     runtime = load_api_runtime()
     resolved = settings or runtime.api
-    engine: AsyncEngine = create_async_engine(resolved.database_url)
+    engine = create_async_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
     kafka_producer = build_aiokafka_producer(runtime.kafka)
     status_notifier = build_status_notifier(session_factory, resolved.database_url)
+    admin_status_listener = build_admin_status_listener(resolved.database_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -45,6 +46,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.state.kafka_producer = kafka_producer
     app.state.kafka_settings = runtime.kafka
     app.state.status_notifier = status_notifier
+    app.state.admin_status_listener = admin_status_listener
     app.state.streaming_settings = runtime.streaming
 
     cors_origins = [

@@ -41,7 +41,12 @@ from app.domain import (
     SubmitWithdrawalHandler,
 )
 from app.kafka import build_wallet_publisher
-from app.notifier import PostgresStatusNotifier, StatusNotifier
+from app.notifier import (
+    AdminStatusListener,
+    PostgresAdminStatusListener,
+    PostgresStatusNotifier,
+    StatusNotifier,
+)
 
 # # # # Region: kafka
 
@@ -61,6 +66,7 @@ def build_message_publisher(
 
 
 def build_submit_deposit_handler(
+    settings: KafkaSettings,
     session: AsyncSession,
 ) -> SubmitDepositHandler:
     return SubmitDepositHandler(
@@ -69,6 +75,7 @@ def build_submit_deposit_handler(
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
+        settings.admin_partition_key,
     )
 
 
@@ -256,6 +263,13 @@ def build_submit_transfer_handler(
 
 
 # # # # Region: routes.stream
+
+# AdminStatusListener
+
+
+def build_admin_status_listener(database_url: str) -> AdminStatusListener:
+    return PostgresAdminStatusListener(database_url=database_url)
+
 
 # StatusNotifier
 

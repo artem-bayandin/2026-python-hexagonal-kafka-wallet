@@ -1,32 +1,35 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.exceptions import RequestValidationError
 
 from app.domain import (
-    AdminDepositCommand,
     AdminBalancesQuery,
+    AdminDepositCommand,
+    AdminTransactionCursor,
     AdminTransactionsQuery,
-    PaginationParams,
+    TransactionListItem,
 )
 
+from ..admin_transaction_cursor_codec import AdminTransactionCursorCodec
+from ..dependencies import require_admin_key
 from ..executors import (
-    AdminDepositExecutorFn,
     AdminBalancesExecutorFn,
+    AdminDepositExecutorFn,
     ListAdminTransactionsExecutorFn,
-    get_admin_deposit_executor_fn,
     get_admin_balances_executor_fn,
+    get_admin_deposit_executor_fn,
     get_list_admin_transactions_executor_fn,
 )
-from ..dependencies import require_admin_key
 from ..formatting import format_amount_with_precision, map_not_null_asset_precision
 from ..result_mapping import unwrap_domain_result
 from ..schemas import (
     AdminDepositRequest,
+    AdminTransactionPollResponse,
     BalanceItemResponse,
     BalanceListResponse,
     SubmissionAcceptedResponse,
     TransactionItemResponse,
-    TransactionListResponse,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -78,18 +81,37 @@ async def get_admin_balances(
     dependencies=[Depends(require_admin_key)],
 )
 async def list_admin_transactions(
+    request: Request,
     executor_fn: Annotated[
         ListAdminTransactionsExecutorFn, Depends(get_list_admin_transactions_executor_fn)
     ],
-    page_number: Annotated[int, Query(ge=0)] = 0,
-    page_size: Annotated[int, Query(gt=0, le=100)] = 20,
-) -> TransactionListResponse:
+    cursor: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    timeout_seconds: Annotated[int | None, Query(ge=0)] = None,
+) -> AdminTransactionPollResponse:
+    try:
+        after = AdminTransactionCursorCodec.decode(cursor)
+    except ValueError as error:
+        raise _query_validation_error("cursor") from error
+
+    streaming_settings = request.app.state.streaming_settings
+    resolved_timeout_seconds = (
+        streaming_settings.admin_long_poll_default_seconds
+        if timeout_seconds is None
+        else timeout_seconds
+    )
+    if resolved_timeout_seconds > streaming_settings.admin_long_poll_max_seconds:
+        raise _query_validation_error("timeout_seconds")
+    if after is None:
+        resolved_timeout_seconds = 0
+
     result = await executor_fn(
-        AdminTransactionsQuery(PaginationParams(page_number=page_number, page_size=page_size))
+        AdminTransactionsQuery(after=after, limit=limit),
+        resolved_timeout_seconds,
     )
     data = unwrap_domain_result(result)
-    return TransactionListResponse(
-        total_items=data.total_items,
+    next_cursor = _next_admin_transaction_cursor(data, after=after, input_cursor=cursor)
+    return AdminTransactionPollResponse(
         items=[
             TransactionItemResponse(
                 id=item.id,
@@ -111,6 +133,36 @@ async def list_admin_transactions(
                 created_at=item.created_at,
                 updated_at=item.updated_at,
             )
-            for item in data.items
+            for item in data
         ],
+        next_cursor=next_cursor,
+    )
+
+
+def _next_admin_transaction_cursor(
+    items: list[TransactionListItem],
+    *,
+    after: AdminTransactionCursor | None,
+    input_cursor: str | None,
+) -> str | None:
+    if not items:
+        return input_cursor if after is not None else None
+    last_item = items[-1]
+    return AdminTransactionCursorCodec.encode(
+        AdminTransactionCursor(
+            updated_at=last_item.updated_at,
+            transaction_id=last_item.id,
+        )
+    )
+
+
+def _query_validation_error(field: str) -> RequestValidationError:
+    return RequestValidationError(
+        [
+            {
+                "type": "value_error",
+                "loc": ("query", field),
+                "msg": "Invalid query parameter.",
+            }
+        ]
     )

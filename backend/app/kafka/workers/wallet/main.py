@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import load_worker_runtime
 from app.db import build_session_factory
@@ -26,7 +26,7 @@ async def run_wallet_worker() -> int:
     runtime = load_worker_runtime()
     configure_process_logging(runtime.settings.log_level)
 
-    engine: AsyncEngine = create_async_engine(runtime.settings.database_url)
+    engine = create_async_engine(runtime.settings.database_url)
     session_factory = build_session_factory(engine)
     shutdown_event = asyncio.Event()
     register_shutdown_handlers(shutdown_event)

@@ -54,6 +54,7 @@ from .ports import (
     TokenService,
 )
 from .read_models import (
+    AdminTransactionCursor,
     AuthSessionItem,
     CurrencyItem,
     OtpChallengeItem,
@@ -68,6 +69,7 @@ from .read_models import (
     UserReferenceItem,
     TransactionListRow,
     SubmittedTransactionSpec,
+    StaleSubmittedCandidate,
 )
 from .use_cases import (
     # Admin balances
@@ -118,11 +120,12 @@ from .use_cases import (
     WithdrawCommand,
     SubmitWithdrawalHandler,
     ExecuteWithdrawalHandler,
+    # Recovery
+    ReapStaleSubmittedHandler,
     # Submission
     PublicationError,
     SubmissionInterimHandlerResult,
     SubmissionResult,
-    SubmitTransactionHandler,
     publication_error_from_exception,
     # Execution
     ExecuteCommand,
@@ -196,6 +199,7 @@ __all__ = [
     "OtpService",
     "TokenService",
     # .read_models
+    "AdminTransactionCursor",
     "AuthSessionItem",
     "CurrencyItem",
     "OtpChallengeItem",
@@ -210,6 +214,7 @@ __all__ = [
     "UserReferenceItem",
     "TransactionListRow",
     "SubmittedTransactionSpec",
+    "StaleSubmittedCandidate",
     # .use_cases
     # Admin balances
     "AdminBalancesQuery",
@@ -259,11 +264,12 @@ __all__ = [
     "WithdrawCommand",
     "SubmitWithdrawalHandler",
     "ExecuteWithdrawalHandler",
+    # Recovery
+    "ReapStaleSubmittedHandler",
     # Submission
     "PublicationError",
     "SubmissionInterimHandlerResult",
     "SubmissionResult",
-    "SubmitTransactionHandler",
     "publication_error_from_exception",
     # Execution
     "ExecuteCommand",

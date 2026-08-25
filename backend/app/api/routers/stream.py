@@ -6,8 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse
 
-from app.config import StreamingSettings
-from app.notifier import StatusNotifier, TransactionStatusEvent
+from app.notifier import TransactionStatusEvent
 
 from ..dependencies import bind_current_user
 from ..current_user_provider import get_current_user_provider
@@ -21,12 +20,12 @@ async def stream_transaction_status(
     request: Request,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
-    notifier: StatusNotifier = request.app.state.status_notifier
-    streaming: StreamingSettings = request.app.state.streaming_settings
+    notifier = request.app.state.status_notifier
+    streaming_settings = request.app.state.streaming_settings
     user_id = get_current_user_provider().get().id
     after = SseStatusEncoder.decode_status_event_id(last_event_id)
-    heartbeat_seconds = streaming.sse_heartbeat_interval_seconds
-    retry_milliseconds = streaming.sse_retry_milliseconds
+    heartbeat_seconds = streaming_settings.sse_heartbeat_interval_seconds
+    retry_milliseconds = streaming_settings.sse_retry_milliseconds
 
     async def event_stream() -> AsyncIterator[str]:
         yield f"retry: {retry_milliseconds}\n\n"

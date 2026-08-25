@@ -2,8 +2,7 @@ from dataclasses import dataclass
 
 from ...ports import TransactionQueryRepository
 from ...read_models import (
-    PaginatedResult,
-    PaginationParams,
+    AdminTransactionCursor,
     TransactionListItem,
     TransactionMapper,
 )
@@ -12,19 +11,20 @@ from ...result import Result
 
 @dataclass(frozen=True, slots=True)
 class AdminTransactionsQuery:
-    params: PaginationParams
+    after: AdminTransactionCursor | None
+    limit: int
 
 
 class AdminTransactionsHandler:
     def __init__(self, transaction_query_repo: TransactionQueryRepository) -> None:
         self._transaction_query_repo = transaction_query_repo
 
-    async def handle(
-        self, query: AdminTransactionsQuery
-    ) -> Result[PaginatedResult[TransactionListItem]]:
-        page = await self._transaction_query_repo.get_all_transactions_page(query.params)
+    async def handle(self, query: AdminTransactionsQuery) -> Result[list[TransactionListItem]]:
+        rows = await self._transaction_query_repo.list_all_transactions_after(
+            query.after,
+            query.limit,
+        )
         items = [
-            TransactionMapper.transaction_list_row_to_item(row, viewer_user_id=None)
-            for row in page.items
+            TransactionMapper.transaction_list_row_to_item(row, viewer_user_id=None) for row in rows
         ]
-        return Result.success(PaginatedResult(total_items=page.total_items, items=items))
+        return Result.success(items)
