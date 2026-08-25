@@ -1,5 +1,4 @@
 import json
-from typing import Any
 
 from app.domain import WALLET_TX_MSG_INVALID, WalletTxMessage, Result
 
@@ -18,7 +17,7 @@ class WalletTxMsgMapper:
     def from_json(data: bytes) -> Result[WalletTxMessage]:
         """Decode the compact wire shape; malformed input is a domain failure, not an exception."""
         try:
-            raw: Any = json.loads(data)
+            raw = json.loads(data)
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
             return Result.failure(WALLET_TX_MSG_INVALID, error)
         if not isinstance(raw, dict):

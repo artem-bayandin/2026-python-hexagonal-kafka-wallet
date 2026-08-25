@@ -56,7 +56,7 @@ export interface TransactionItem {
   updated_at: string
 }
 
-export type TransactionList = {
-  total_items: number
+export type AdminTransactionPollResponse = {
   items: TransactionItem[]
+  next_cursor: string | null
 }

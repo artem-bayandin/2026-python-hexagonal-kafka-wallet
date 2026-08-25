@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import {
   adminDeposit,
@@ -13,16 +13,177 @@ import type {
   BalanceItem,
   CurrencyItem,
   TransactionItem,
+  TransactionStatus,
   UserReferenceItem,
 } from '../types/admin'
 import { formatTransactionAsset } from '../utils/transaction'
-import { reconcileTransactionsByRequestId, spendableOf } from '../utils/transaction_status'
+import { spendableOf } from '../utils/transaction_status'
 
 type AdminPageProps = {
   onBack: () => void
 }
 
-const TRANSACTIONS_PAGE_SIZE = 20
+const TRANSACTIONS_POLL_LIMIT = 100
+const INITIAL_RETRY_MS = 1000
+const MAX_RETRY_MS = 8000
+
+const parsedToastMs = Number.parseInt(
+  import.meta.env.VITE_STATUS_TOAST_MS ?? '5000',
+  10,
+)
+const STATUS_TOAST_MS =
+  Number.isFinite(parsedToastMs) && parsedToastMs > 0 ? parsedToastMs : 5000
+
+const STATUS_RANK: Record<TransactionStatus, number> = {
+  submitted: 0,
+  pending: 1,
+  in_progress: 2,
+  succeeded: 3,
+  failed: 3,
+}
+
+const TOAST_STATUSES = new Set<TransactionStatus>([
+  'pending',
+  'in_progress',
+  'succeeded',
+  'failed',
+])
+
+function isTerminalStatus(status: TransactionStatus): boolean {
+  return status === 'succeeded' || status === 'failed'
+}
+
+type StatusToast = {
+  id: string
+  message: string
+}
+
+type TimestampKey = {
+  epochSecond: number
+  fraction: string
+}
+
+function timestampKey(value: string): TimestampKey | null {
+  const match =
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/.exec(
+      value,
+    )
+  if (match === null) {
+    return null
+  }
+  const epochSecond = Date.parse(`${match[1]}${match[3]}`)
+  if (Number.isNaN(epochSecond)) {
+    return null
+  }
+  return { epochSecond, fraction: match[2] ?? '' }
+}
+
+function compareTimestamps(left: string, right: string): number {
+  const leftKey = timestampKey(left)
+  const rightKey = timestampKey(right)
+  if (leftKey === null || rightKey === null) {
+    return left.localeCompare(right)
+  }
+  if (leftKey.epochSecond !== rightKey.epochSecond) {
+    return leftKey.epochSecond - rightKey.epochSecond
+  }
+  const precision = Math.max(leftKey.fraction.length, rightKey.fraction.length)
+  return leftKey.fraction
+    .padEnd(precision, '0')
+    .localeCompare(rightKey.fraction.padEnd(precision, '0'))
+}
+
+function newestFirst(
+  left: TransactionItem,
+  right: TransactionItem,
+): number {
+  const timestampOrder = compareTimestamps(right.updated_at, left.updated_at)
+  return timestampOrder === 0 ? right.id.localeCompare(left.id) : timestampOrder
+}
+
+function upsertTransaction(
+  current: TransactionItem[],
+  incoming: TransactionItem,
+): { accepted: boolean; items: TransactionItem[] } {
+  const matching = current.filter(
+    (item) =>
+      item.id === incoming.id || item.request_id === incoming.request_id,
+  )
+  if (matching.length === 0) {
+    return {
+      accepted: true,
+      items: [...current, incoming].sort(newestFirst),
+    }
+  }
+
+  const existing = matching.reduce((latest, item) =>
+    compareTimestamps(item.updated_at, latest.updated_at) > 0 ? item : latest,
+  )
+  if (
+    compareTimestamps(incoming.updated_at, existing.updated_at) <= 0 ||
+    STATUS_RANK[incoming.status] < STATUS_RANK[existing.status] ||
+    (isTerminalStatus(existing.status) &&
+      incoming.status !== existing.status)
+  ) {
+    return { accepted: false, items: current }
+  }
+
+  return {
+    accepted: true,
+    items: [
+      ...current.filter(
+        (item) =>
+          item.id !== incoming.id &&
+          item.request_id !== incoming.request_id,
+      ),
+      incoming,
+    ].sort(newestFirst),
+  }
+}
+
+function isAdminWalletTransaction(item: TransactionItem): boolean {
+  return item.type === 'deposit' || item.type === 'withdrawal'
+}
+
+function statusToastMessage(item: TransactionItem): string {
+  const type = item.type === 'withdrawal' ? 'withdraw' : item.type
+  return `${type} (ID: ${item.request_id.slice(0, 4)}) moved to ${item.status}`
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function isAuthorizationError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError && (error.status === 401 || error.status === 403)
+  )
+}
+
+function isTransientTransportError(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError &&
+      (error.status === 408 || error.status === 429 || error.status >= 500))
+  )
+}
+
+function waitForRetry(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+    const timeoutId = window.setTimeout(finish, milliseconds)
+    signal.addEventListener('abort', finish, { once: true })
+
+    function finish() {
+      window.clearTimeout(timeoutId)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+  })
+}
 
 function amountStepForPrecision(precision: number): string {
   if (precision <= 0) {
@@ -41,59 +202,302 @@ export function AdminPage({ onBack }: AdminPageProps) {
   const [users, setUsers] = useState<UserReferenceItem[]>([])
   const [balances, setBalances] = useState<BalanceItem[]>([])
   const [transactions, setTransactions] = useState<TransactionItem[]>([])
-  const [transactionsTotalItems, setTransactionsTotalItems] = useState(0)
-  const [transactionsPageNumber, setTransactionsPageNumber] = useState(0)
   const [selectedCurrencyLabel, setSelectedCurrencyLabel] = useState('')
   const [selectedUserEmail, setSelectedUserEmail] = useState('')
   const [amount, setAmount] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [pollErrorMessage, setPollErrorMessage] = useState<string | null>(null)
   const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmittingDeposit, setIsSubmittingDeposit] = useState(false)
-  const [isLoadingMoreTransactions, setIsLoadingMoreTransactions] =
-    useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
+  const [pollSessionId, setPollSessionId] = useState<number | null>(null)
+  const [statusToasts, setStatusToasts] = useState<StatusToast[]>([])
+  const pollControllerRef = useRef<AbortController | null>(null)
+  const loadGenerationRef = useRef(0)
+  const transactionsRef = useRef<TransactionItem[]>([])
+  const succeededAdminTransactionsRef = useRef(new Set<string>())
+  const toastTimersRef = useRef(new Map<string, number>())
 
   const selectedCurrency = currencies.find(
     (currency) => currency.label === selectedCurrencyLabel,
   )
 
-  const isBusy =
-    isLoading || isSubmittingDeposit || isLoadingMoreTransactions
+  const isBusy = isLoading || isSubmittingDeposit
 
-  async function loadWalletData() {
-    const [balanceResult, transactionResult] = await Promise.all([
-      getAdminBalances(),
-      listAdminTransactions(0, TRANSACTIONS_PAGE_SIZE),
-    ])
-    setBalances(balanceResult.items)
-    setTransactions(transactionResult.items)
-    setTransactionsTotalItems(transactionResult.total_items)
-    setTransactionsPageNumber(0)
-  }
+  useEffect(() => {
+    const toastTimers = toastTimersRef.current
+    return () => {
+      for (const timeoutId of toastTimers.values()) {
+        window.clearTimeout(timeoutId)
+      }
+      toastTimers.clear()
+    }
+  }, [])
 
-  async function loadReferenceData() {
+  useEffect(() => {
+    if (pollSessionId === null) {
+      return
+    }
+
+    const controller = new AbortController()
+    const { signal } = controller
+    pollControllerRef.current = controller
+
+    function clearToastTimers() {
+      for (const timeoutId of toastTimersRef.current.values()) {
+        window.clearTimeout(timeoutId)
+      }
+      toastTimersRef.current.clear()
+    }
+
+    function loseAdminAccess(message: string) {
+      if (signal.aborted) {
+        return
+      }
+      loadGenerationRef.current += 1
+      controller.abort()
+      setAdminKey('')
+      setAdminKeyInput('')
+      setPollSessionId(null)
+      setCurrencies([])
+      setUsers([])
+      setBalances([])
+      setSelectedCurrencyLabel('')
+      setSelectedUserEmail('')
+      setAmount('')
+      transactionsRef.current = []
+      setTransactions([])
+      succeededAdminTransactionsRef.current.clear()
+      clearToastTimers()
+      setStatusToasts([])
+      setDataLoaded(false)
+      setAcceptanceMessage(null)
+      setPollErrorMessage(null)
+      setErrorMessage(null)
+      setErrorMessage(message)
+    }
+
+    function pushStatusToast(message: string) {
+      const id = crypto.randomUUID()
+      setStatusToasts((current) => [{ id, message }, ...current])
+      const timeoutId = window.setTimeout(() => {
+        toastTimersRef.current.delete(id)
+        setStatusToasts((current) =>
+          current.filter((toast) => toast.id !== id),
+        )
+      }, STATUS_TOAST_MS)
+      toastTimersRef.current.set(id, timeoutId)
+    }
+
+    async function refreshBalances() {
+      try {
+        const result = await getAdminBalances(signal)
+        if (!signal.aborted) {
+          setBalances(result.items)
+        }
+      } catch (error) {
+        if (signal.aborted || isAbortError(error)) {
+          return
+        }
+        if (isAuthorizationError(error)) {
+          loseAdminAccess(error.envelope.message)
+        } else if (error instanceof ApiError) {
+          setErrorMessage(error.envelope.message)
+        } else {
+          setErrorMessage('Unable to refresh admin balances.')
+        }
+      }
+    }
+
+    async function processItems(items: TransactionItem[], live: boolean) {
+      let current = transactionsRef.current
+      let shouldRefreshBalances = false
+
+      for (const item of items) {
+        const result = upsertTransaction(current, item)
+        if (!result.accepted) {
+          continue
+        }
+        current = result.items
+
+        if (
+          isAdminWalletTransaction(item) &&
+          item.status === 'succeeded' &&
+          !succeededAdminTransactionsRef.current.has(item.request_id)
+        ) {
+          succeededAdminTransactionsRef.current.add(item.request_id)
+          shouldRefreshBalances = live
+        }
+
+        if (
+          live &&
+          isAdminWalletTransaction(item) &&
+          TOAST_STATUSES.has(item.status)
+        ) {
+          pushStatusToast(statusToastMessage(item))
+        }
+      }
+
+      if (current !== transactionsRef.current) {
+        transactionsRef.current = current
+        setTransactions(current)
+      }
+      if (shouldRefreshBalances) {
+        await refreshBalances()
+      }
+    }
+
+    async function pollTransactions() {
+      let cursor: string | undefined
+      let catchingUp = true
+      let retryCount = 0
+
+      while (!signal.aborted) {
+        try {
+          const result = await listAdminTransactions({
+            ...(cursor === undefined ? {} : { cursor }),
+            limit: TRANSACTIONS_POLL_LIMIT,
+            ...(catchingUp ? { timeoutSeconds: 0 } : {}),
+            signal,
+          })
+          if (signal.aborted) {
+            return
+          }
+
+          retryCount = 0
+          setPollErrorMessage(null)
+          await processItems(result.items, !catchingUp)
+          if (signal.aborted) {
+            return
+          }
+
+          const nextCursor = result.next_cursor ?? undefined
+          if (result.items.length > 0 && nextCursor === undefined) {
+            setPollErrorMessage(
+              'Live transaction updates returned an invalid cursor.',
+            )
+            return
+          }
+          cursor = nextCursor
+
+          if (catchingUp) {
+            if (result.items.length === 0) {
+              catchingUp = false
+              await refreshBalances()
+              if (signal.aborted) {
+                return
+              }
+            }
+            continue
+          }
+
+          if (cursor === undefined && result.items.length === 0) {
+            await waitForRetry(INITIAL_RETRY_MS, signal)
+          }
+        } catch (error) {
+          if (signal.aborted || isAbortError(error)) {
+            return
+          }
+          if (isAuthorizationError(error)) {
+            loseAdminAccess(error.envelope.message)
+            return
+          }
+          if (!isTransientTransportError(error)) {
+            setPollErrorMessage(
+              error instanceof ApiError
+                ? error.envelope.message
+                : 'Live transaction updates stopped.',
+            )
+            return
+          }
+
+          retryCount = Math.min(retryCount + 1, 4)
+          setPollErrorMessage(
+            'Live transaction updates unavailable. Retrying…',
+          )
+          const retryMilliseconds = Math.min(
+            INITIAL_RETRY_MS * 2 ** (retryCount - 1),
+            MAX_RETRY_MS,
+          )
+          await waitForRetry(retryMilliseconds, signal)
+        }
+      }
+    }
+
+    void pollTransactions()
+
+    return () => {
+      controller.abort()
+      if (pollControllerRef.current === controller) {
+        pollControllerRef.current = null
+      }
+    }
+  }, [pollSessionId])
+
+  async function handleSaveKey(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const key = adminKeyInput.trim()
+    const generation = loadGenerationRef.current + 1
+    loadGenerationRef.current = generation
+    pollControllerRef.current?.abort()
+    setPollSessionId(null)
+    setAdminKey(key)
     setIsLoading(true)
     setErrorMessage(null)
+    setPollErrorMessage(null)
     setAcceptanceMessage(null)
+    setDataLoaded(false)
+    setCurrencies([])
+    setUsers([])
+    setBalances([])
+    setSelectedCurrencyLabel('')
+    setSelectedUserEmail('')
+    setAmount('')
+    transactionsRef.current = []
+    setTransactions([])
+    succeededAdminTransactionsRef.current.clear()
+    for (const timeoutId of toastTimersRef.current.values()) {
+      window.clearTimeout(timeoutId)
+    }
+    toastTimersRef.current.clear()
+    setStatusToasts([])
 
     try {
-      const [currencyResult, userResult] = await Promise.all([
+      const [currencyResult, userResult, balanceResult] = await Promise.all([
         listReferenceCurrencies(),
         listReferenceUsers(),
+        getAdminBalances(),
       ])
+      if (loadGenerationRef.current !== generation) {
+        return
+      }
       setCurrencies(currencyResult.items)
       setUsers(userResult.items)
+      setBalances(balanceResult.items)
       setSelectedCurrencyLabel(
         currencyResult.items.length > 0 ? currencyResult.items[0].label : '',
       )
       setSelectedUserEmail(
         userResult.items.length > 0 ? userResult.items[0].email : '',
       )
-      await loadWalletData()
       setDataLoaded(true)
+      setPollSessionId(generation)
     } catch (error) {
-      if (error instanceof ApiError) {
+      if (loadGenerationRef.current !== generation) {
+        return
+      }
+      if (isAuthorizationError(error)) {
+        setAdminKey('')
+        setAdminKeyInput('')
+        setSelectedCurrencyLabel('')
+        setSelectedUserEmail('')
+        setAmount('')
+        setAcceptanceMessage(null)
+        setPollErrorMessage(null)
+        setErrorMessage(null)
+        setErrorMessage(error.envelope.message)
+      } else if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
       } else if (error instanceof Error) {
         setErrorMessage(error.message)
@@ -102,14 +506,10 @@ export function AdminPage({ onBack }: AdminPageProps) {
       }
       setDataLoaded(false)
     } finally {
-      setIsLoading(false)
+      if (loadGenerationRef.current === generation) {
+        setIsLoading(false)
+      }
     }
-  }
-
-  async function handleSaveKey(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setAdminKey(adminKeyInput.trim())
-    await loadReferenceData()
   }
 
   async function handleDepositSubmit(event: FormEvent<HTMLFormElement>) {
@@ -118,6 +518,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
       return
     }
 
+    const generation = loadGenerationRef.current
     setIsSubmittingDeposit(true)
     setErrorMessage(null)
     setAcceptanceMessage(null)
@@ -128,22 +529,43 @@ export function AdminPage({ onBack }: AdminPageProps) {
         asset: selectedCurrencyLabel,
         amount,
       })
+      if (loadGenerationRef.current !== generation) {
+        return
+      }
       setAcceptanceMessage(
         `Deposit accepted for processing (request ${result.request_id}).`,
       )
       setAmount('')
-      const [balanceResult, transactionResult] = await Promise.all([
-        getAdminBalances(),
-        listAdminTransactions(0, TRANSACTIONS_PAGE_SIZE),
-      ])
-      setBalances(balanceResult.items)
-      setTransactions((current) =>
-        reconcileTransactionsByRequestId(current, transactionResult.items),
-      )
-      setTransactionsTotalItems(transactionResult.total_items)
-      setTransactionsPageNumber(0)
     } catch (error) {
-      if (error instanceof ApiError) {
+      if (loadGenerationRef.current !== generation) {
+        return
+      }
+      if (isAuthorizationError(error)) {
+        loadGenerationRef.current += 1
+        pollControllerRef.current?.abort()
+        setAdminKey('')
+        setAdminKeyInput('')
+        setPollSessionId(null)
+        setCurrencies([])
+        setUsers([])
+        setBalances([])
+        setSelectedCurrencyLabel('')
+        setSelectedUserEmail('')
+        setAmount('')
+        transactionsRef.current = []
+        setTransactions([])
+        succeededAdminTransactionsRef.current.clear()
+        for (const timeoutId of toastTimersRef.current.values()) {
+          window.clearTimeout(timeoutId)
+        }
+        toastTimersRef.current.clear()
+        setStatusToasts([])
+        setDataLoaded(false)
+        setAcceptanceMessage(null)
+        setPollErrorMessage(null)
+        setErrorMessage(null)
+        setErrorMessage(error.envelope.message)
+      } else if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
       } else if (error instanceof Error) {
         setErrorMessage(error.message)
@@ -155,40 +577,47 @@ export function AdminPage({ onBack }: AdminPageProps) {
     }
   }
 
-  async function handleLoadMoreTransactions() {
-    if (transactions.length >= transactionsTotalItems) {
-      return
+  function handleDismissToast(id: string) {
+    const timeoutId = toastTimersRef.current.get(id)
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId)
+      toastTimersRef.current.delete(id)
     }
+    setStatusToasts((current) => current.filter((toast) => toast.id !== id))
+  }
 
-    const nextPageNumber = transactionsPageNumber + 1
-    setIsLoadingMoreTransactions(true)
-    setErrorMessage(null)
-
-    try {
-      const result = await listAdminTransactions(
-        nextPageNumber,
-        TRANSACTIONS_PAGE_SIZE,
-      )
-      setTransactions((current) => [...current, ...result.items])
-      setTransactionsTotalItems(result.total_items)
-      setTransactionsPageNumber(nextPageNumber)
-    } catch (error) {
-      if (error instanceof ApiError) {
-        setErrorMessage(error.envelope.message)
-      } else if (error instanceof Error) {
-        setErrorMessage(error.message)
-      } else {
-        setErrorMessage('Unable to load more transactions.')
-      }
-    } finally {
-      setIsLoadingMoreTransactions(false)
+  function handleBack() {
+    loadGenerationRef.current += 1
+    pollControllerRef.current?.abort()
+    setPollSessionId(null)
+    transactionsRef.current = []
+    succeededAdminTransactionsRef.current.clear()
+    for (const timeoutId of toastTimersRef.current.values()) {
+      window.clearTimeout(timeoutId)
     }
+    toastTimersRef.current.clear()
+    onBack()
   }
 
   return (
     <main className="wallet-page">
       <h1>Admin</h1>
       <p className="auth-detail">Development-only admin operator page.</p>
+      <div className="status-toast-stack" aria-live="polite">
+        {statusToasts.map((toast) => (
+          <div className="status-toast" key={toast.id} role="status">
+            <span>{toast.message}</span>
+            <button
+              className="status-toast-dismiss"
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() => handleDismissToast(toast.id)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
 
       <form className="auth-form" onSubmit={handleSaveKey}>
         <label className="auth-label" htmlFor="admin-key">
@@ -212,6 +641,12 @@ export function AdminPage({ onBack }: AdminPageProps) {
       {errorMessage !== null && (
         <p className="auth-error" role="alert">
           {errorMessage}
+        </p>
+      )}
+
+      {pollErrorMessage !== null && (
+        <p className="auth-detail" role="status">
+          {pollErrorMessage}
         </p>
       )}
 
@@ -367,22 +802,17 @@ export function AdminPage({ onBack }: AdminPageProps) {
                 </tbody>
               </table>
             )}
-            {!isLoading && transactions.length < transactionsTotalItems && (
-              <button
-                className="auth-button"
-                type="button"
-                onClick={handleLoadMoreTransactions}
-                disabled={isBusy}
-              >
-                {isLoadingMoreTransactions ? 'Loading…' : 'Load more'}
-              </button>
-            )}
           </section>
         </>
       )}
 
       <div className="wallet-actions">
-        <button className="auth-button" type="button" onClick={onBack} disabled={isBusy}>
+        <button
+          className="auth-button"
+          type="button"
+          onClick={handleBack}
+          disabled={isBusy}
+        >
           Back to app
         </button>
       </div>

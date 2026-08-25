@@ -54,6 +54,7 @@ from .ports import (
     TokenService,
 )
 from .read_models import (
+    AdminTransactionCursor,
     AuthSessionItem,
     CurrencyItem,
     OtpChallengeItem,
@@ -198,6 +199,7 @@ __all__ = [
     "OtpService",
     "TokenService",
     # .read_models
+    "AdminTransactionCursor",
     "AuthSessionItem",
     "CurrencyItem",
     "OtpChallengeItem",

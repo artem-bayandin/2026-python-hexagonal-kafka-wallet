@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from ...messaging import WalletTxMessage
-from ...ports import MessagePublisher, TransactionCommandRepository
-from ...result import Result
 from ...safe_errors import SAFE_PUBLICATION_FAILED
 
 

@@ -8,6 +8,12 @@ from ..value_objects import TransactionStatus
 
 
 @dataclass(frozen=True, slots=True)
+class AdminTransactionCursor:
+    updated_at: datetime
+    transaction_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
 class TransactionItem:
     id: UUID
     request_id: UUID

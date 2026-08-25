@@ -1,3 +1,4 @@
+from .admin_transaction_cursor_codec import AdminTransactionCursorCodec
 from .exception_handlers import (
     handle_domain_result_error,
     handle_uncaught_exception,
@@ -14,6 +15,7 @@ from .routers import (
 )
 
 __all__ = [
+    "AdminTransactionCursorCodec",
     # Routers
     "admin_router",
     "auth_router",

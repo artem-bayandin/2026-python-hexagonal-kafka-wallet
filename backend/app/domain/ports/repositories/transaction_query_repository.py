@@ -3,6 +3,7 @@ from typing import Protocol
 from uuid import UUID
 
 from ...read_models import (
+    AdminTransactionCursor,
     PaginatedResult,
     PaginationParams,
     StaleSubmittedCandidate,
@@ -12,9 +13,11 @@ from ...read_models import (
 
 
 class TransactionQueryRepository(Protocol):
-    async def get_all_transactions_page(
-        self, params: PaginationParams
-    ) -> PaginatedResult[TransactionListRow]: ...
+    async def list_all_transactions_after(
+        self,
+        after: AdminTransactionCursor | None,
+        limit: int,
+    ) -> list[TransactionListRow]: ...
 
     async def get_user_transactions_page(
         self, user_id: UUID, params: PaginationParams

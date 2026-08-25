@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import load_reaper_runtime
 from app.db import build_session_factory
@@ -23,7 +23,7 @@ async def run_reaper() -> int:
     runtime = load_reaper_runtime()
     configure_process_logging(runtime.settings.log_level)
 
-    engine: AsyncEngine = create_async_engine(runtime.settings.database_url)
+    engine = create_async_engine(runtime.settings.database_url)
     session_factory = build_session_factory(engine)
     wallet_producer = build_wallet_publisher(runtime.kafka)
     handler = build_reap_stale_submitted_handler(

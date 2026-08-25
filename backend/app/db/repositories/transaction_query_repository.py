@@ -3,10 +3,11 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy.orm import aliased
 
 from app.domain import (
+    AdminTransactionCursor,
     PaginatedResult,
     PaginationParams,
     StaleSubmittedCandidate,
@@ -81,27 +82,23 @@ class TransactionQueryRepositoryImpl(TransactionQueryRepository):
             return None
         return TransactionDbMapper.to_domain(model)
 
-    async def get_all_transactions_page(
-        self, params: PaginationParams
-    ) -> PaginatedResult[TransactionListRow]:
-        offset = params.page_number * params.page_size
-
-        count_stmt = select(func.count()).select_from(TransactionModel)
-        total_result = await self.session.execute(count_stmt)
-        total_items = total_result.scalar_one()
-
-        stmt = (
-            self._list_item_select()
-            .order_by(
-                TransactionModel.created_at.desc(),
-                TransactionModel.id.desc(),
+    async def list_all_transactions_after(
+        self,
+        after: AdminTransactionCursor | None,
+        limit: int,
+    ) -> list[TransactionListRow]:
+        stmt = self._list_item_select()
+        if after is not None:
+            stmt = stmt.where(
+                tuple_(TransactionModel.updated_at, TransactionModel.id)
+                > (after.updated_at, after.transaction_id)
             )
-            .offset(offset)
-            .limit(params.page_size)
-        )
+        stmt = stmt.order_by(
+            TransactionModel.updated_at.asc(),
+            TransactionModel.id.asc(),
+        ).limit(limit)
         result = await self.session.execute(stmt)
-        items = self._rows_to_list_rows(result.all())
-        return PaginatedResult(total_items=total_items, items=items)
+        return self._rows_to_list_rows(result.all())
 
     async def get_user_transactions_page(
         self, user_id: UUID, params: PaginationParams
