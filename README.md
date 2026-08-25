@@ -2,7 +2,7 @@
 
 ## Intro
 
-This project presents a wallet code sample. 99.72% AI-coded under human guidance through the SDLC, with human review of docs and code.
+This project presents a wallet code sample. 97.74% AI-coded under human guidance through the SDLC, with human review of docs and code. Frontend side completely crafted by AI with no Human code review.
 
 The project will be built in several versions, gradually incrementing enterprise readiness level:
 
@@ -18,7 +18,7 @@ The project will be built in several versions, gradually incrementing enterprise
 - **Version 1** — implemented.
 - **Version 2** — implemented.
 
-![play](images/2026-08-25-13-23-46.gif)
+![play](images/20260825-181303.gif)
 
 ## Functional requirements
 

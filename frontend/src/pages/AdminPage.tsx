@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import {
   adminDeposit,
@@ -17,6 +17,7 @@ import type {
   UserReferenceItem,
 } from '../types/admin'
 import { formatTransactionAsset } from '../utils/transaction'
+import { acceptanceToastMessage, statusToastMessage } from '../utils/toast'
 import { spendableOf } from '../utils/transaction_status'
 
 type AdminPageProps = {
@@ -56,6 +57,7 @@ function isTerminalStatus(status: TransactionStatus): boolean {
 type StatusToast = {
   id: string
   message: string
+  variant?: 'status' | 'accepted'
 }
 
 type TimestampKey = {
@@ -145,11 +147,6 @@ function isAdminWalletTransaction(item: TransactionItem): boolean {
   return item.type === 'deposit' || item.type === 'withdrawal'
 }
 
-function statusToastMessage(item: TransactionItem): string {
-  const type = item.type === 'withdrawal' ? 'withdraw' : item.type
-  return `${type} (ID: ${item.request_id.slice(0, 4)}) moved to ${item.status}`
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
@@ -207,7 +204,6 @@ export function AdminPage({ onBack }: AdminPageProps) {
   const [amount, setAmount] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pollErrorMessage, setPollErrorMessage] = useState<string | null>(null)
-  const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmittingDeposit, setIsSubmittingDeposit] = useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
@@ -218,6 +214,21 @@ export function AdminPage({ onBack }: AdminPageProps) {
   const transactionsRef = useRef<TransactionItem[]>([])
   const succeededAdminTransactionsRef = useRef(new Set<string>())
   const toastTimersRef = useRef(new Map<string, number>())
+
+  const pushToast = useCallback(
+    (message: string, variant: 'status' | 'accepted' = 'status') => {
+      const id = crypto.randomUUID()
+      setStatusToasts((current) => [{ id, message, variant }, ...current])
+      const timeoutId = window.setTimeout(() => {
+        toastTimersRef.current.delete(id)
+        setStatusToasts((current) =>
+          current.filter((toast) => toast.id !== id),
+        )
+      }, STATUS_TOAST_MS)
+      toastTimersRef.current.set(id, timeoutId)
+    },
+    [],
+  )
 
   const selectedCurrency = currencies.find(
     (currency) => currency.label === selectedCurrencyLabel,
@@ -272,22 +283,13 @@ export function AdminPage({ onBack }: AdminPageProps) {
       clearToastTimers()
       setStatusToasts([])
       setDataLoaded(false)
-      setAcceptanceMessage(null)
       setPollErrorMessage(null)
       setErrorMessage(null)
       setErrorMessage(message)
     }
 
     function pushStatusToast(message: string) {
-      const id = crypto.randomUUID()
-      setStatusToasts((current) => [{ id, message }, ...current])
-      const timeoutId = window.setTimeout(() => {
-        toastTimersRef.current.delete(id)
-        setStatusToasts((current) =>
-          current.filter((toast) => toast.id !== id),
-        )
-      }, STATUS_TOAST_MS)
-      toastTimersRef.current.set(id, timeoutId)
+      pushToast(message)
     }
 
     async function refreshBalances() {
@@ -335,7 +337,9 @@ export function AdminPage({ onBack }: AdminPageProps) {
           isAdminWalletTransaction(item) &&
           TOAST_STATUSES.has(item.status)
         ) {
-          pushStatusToast(statusToastMessage(item))
+          pushStatusToast(
+            statusToastMessage(item.type, item.request_id, item.status),
+          )
         }
       }
 
@@ -433,7 +437,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
         pollControllerRef.current = null
       }
     }
-  }, [pollSessionId])
+  }, [pollSessionId, pushToast])
 
   async function handleSaveKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -446,7 +450,6 @@ export function AdminPage({ onBack }: AdminPageProps) {
     setIsLoading(true)
     setErrorMessage(null)
     setPollErrorMessage(null)
-    setAcceptanceMessage(null)
     setDataLoaded(false)
     setCurrencies([])
     setUsers([])
@@ -493,7 +496,6 @@ export function AdminPage({ onBack }: AdminPageProps) {
         setSelectedCurrencyLabel('')
         setSelectedUserEmail('')
         setAmount('')
-        setAcceptanceMessage(null)
         setPollErrorMessage(null)
         setErrorMessage(null)
         setErrorMessage(error.envelope.message)
@@ -521,7 +523,6 @@ export function AdminPage({ onBack }: AdminPageProps) {
     const generation = loadGenerationRef.current
     setIsSubmittingDeposit(true)
     setErrorMessage(null)
-    setAcceptanceMessage(null)
 
     try {
       const result = await adminDeposit({
@@ -532,8 +533,9 @@ export function AdminPage({ onBack }: AdminPageProps) {
       if (loadGenerationRef.current !== generation) {
         return
       }
-      setAcceptanceMessage(
-        `Deposit accepted for processing (request ${result.request_id}).`,
+      pushToast(
+        acceptanceToastMessage('deposit', result.request_id),
+        'accepted',
       )
       setAmount('')
     } catch (error) {
@@ -561,7 +563,6 @@ export function AdminPage({ onBack }: AdminPageProps) {
         toastTimersRef.current.clear()
         setStatusToasts([])
         setDataLoaded(false)
-        setAcceptanceMessage(null)
         setPollErrorMessage(null)
         setErrorMessage(null)
         setErrorMessage(error.envelope.message)
@@ -605,7 +606,15 @@ export function AdminPage({ onBack }: AdminPageProps) {
       <p className="auth-detail">Development-only admin operator page.</p>
       <div className="status-toast-stack" aria-live="polite">
         {statusToasts.map((toast) => (
-          <div className="status-toast" key={toast.id} role="status">
+          <div
+            className={
+              toast.variant === 'accepted'
+                ? 'status-toast status-toast--accepted'
+                : 'status-toast'
+            }
+            key={toast.id}
+            role="status"
+          >
             <span>{toast.message}</span>
             <button
               className="status-toast-dismiss"
@@ -647,12 +656,6 @@ export function AdminPage({ onBack }: AdminPageProps) {
       {pollErrorMessage !== null && (
         <p className="auth-detail" role="status">
           {pollErrorMessage}
-        </p>
-      )}
-
-      {acceptanceMessage !== null && (
-        <p className="auth-detail" role="status">
-          {acceptanceMessage}
         </p>
       )}
 

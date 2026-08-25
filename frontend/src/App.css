@@ -33,6 +33,11 @@
   text-align: center;
 }
 
+.wallet-user-email {
+  color: var(--accent-border);
+  font-weight: 700;
+}
+
 .wallet-section {
   display: flex;
   flex-direction: column;
@@ -231,10 +236,20 @@ select.auth-input {
   padding: 10px 12px;
   border: 2px solid var(--accent-border);
   border-radius: 8px;
-  background: var(--accent-bg);
+  background: #f9f4fe;
+  opacity: 1;
   color: var(--text-h);
   box-shadow: var(--shadow);
   font-size: 16px;
+}
+
+.status-toast--accepted {
+  background: #f4fef9;
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.status-toast--accepted .status-toast-dismiss {
+  color: rgba(34, 197, 94, 0.85);
 }
 
 .status-toast-dismiss {
