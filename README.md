@@ -1,25 +1,36 @@
 # Clean Architecture Wallet
 
-## Intro
+## About
 
-This project presents a wallet code sample. 97.74% AI-coded under human guidance through the SDLC, with human review of docs and code. Frontend side completely crafted by AI with no Human code review.
+This project presents a wallet code sample (instead of a hackneyed ToDo list). Designed by Human; Led, Reviewed, and Fixed by Human; Coded by AI under the Human's management.
+
+## Goals
+
+- create a code sample to be presented to future investors, teams, and tech interviewers
+- use `python` for `hexagonal` web api
+- use `kafka` within a `docker` container for async message processing
+- use `postgresql` within a `docker` container as the database
+- lead `AI` software development from zero to hero, with 80%+ of code to be created by AI
+
+## Roadmap
 
 The project will be built in several versions, gradually incrementing enterprise readiness level:
 
-1. **Synchronous wallet processing** — Python hexagonal API, dockerized PostgreSQL, minimalistic React UI.
-2. **Async transaction processing** — Kafka-based command pipeline with data changes notifications.
-3. **TBD** **[optional]** code review to clean extra code
-4. **TBD** **[optional]** move docker connetion from Plaintext to Sasl-ssl
+1. **Synchronous wallet processing** [completed] — Python hexagonal API, dockerized PostgreSQL, minimalistic React UI.
+2. **Async transaction processing** [completed] — Kafka-based command pipeline with data changes notifications.
+3. **TBD** **[optional]** system code review
+4. **TBD** **[optional]** improve docker connetion: move from Plaintext to Sasl-ssl, explore more config variables
 5. **TBD** **[optional]** database sharding
 6. **TBD** **[optional]** kubernetes cluster
-7. **TBD** **[optional]** metrics (prometheus, open telemetry, etc.)
+7. **TBD** **[optional]** load balancer
+8. **TBD** **[optional]** metrics (prometheus, open telemetry, kafka connect, etc.)
 
 ## Status
 
-- **Version 1** — implemented.
-- **Version 2** — implemented.
+- **Version 1** — implemented, [release v1.0.0](https://github.com/artem-bayandin/2026-python-hexagonal-kafka-wallet/releases/tag/release-v1.0.0)
+- **Version 2** — implemented, [release v1.1.0](https://github.com/artem-bayandin/2026-python-hexagonal-kafka-wallet/releases/tag/release-v1.1.0).
 
-Check video:
+Version 1.1.0 video presentation:
 
 ![play](images/20260825-184820.gif)
 
@@ -42,17 +53,6 @@ Check video:
 | Wallet feedback | Immediate result or error. | Pending operation ID and polling feedback. |
 | Diagnostics | Not present. | Not present. |
 | Tests | Not present. | Not present. |
-
-## Repository layout
-
-```
-project-root/
-├── backend/          # Python API (uv, FastAPI, Alembic)
-├── frontend/         # React UI (Yarn, Vite)
-├── docs/             # Canonical requirements and implementation guides
-├── docker-compose.yml
-└── README.md
-```
 
 ## Documentation
 
@@ -131,3 +131,129 @@ uv run python -m app.kafka.workers.reaper
 
 - `docker compose --env-file backend/.env down -v --remove-orphans` - (from the repo root) removes stops postgres/kafka, removes the containers (and their logs), and deletes the postgres_data and kafka_data volumes
 - `docker compose --env-file backend/.env up -d --force-recreate kafka` - recreate kafka
+
+## Repository layout (v1.1.0)
+
+```
+project-root/
+├── backend/                              # Python Hexagonal API, Kafka workers, DB migrations
+│   ├── alembic/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── executors/
+│   │   │   ├── routers/
+│   │   │   ├── schemas/
+│   │   │   ├── admin_transaction_cursor_codec.py
+│   │   │   ├── current_user_provider.py
+│   │   │   ├── db_session.py
+│   │   │   ├── dependencies.py
+│   │   │   ├── exception_handlers.py
+│   │   │   ├── formatting.py
+│   │   │   ├── result_mapping.py
+│   │   │   └── sse_status_encoder.py
+│   │   ├── auth/
+│   │   │   ├── jwt_service.py
+│   │   │   ├── otp_service.py
+│   │   │   └── system_clock.py
+│   │   ├── db/
+│   │   │   ├── mappers/
+│   │   │   ├── models/
+│   │   │   ├── repositories/
+│   │   │   └── session.py
+│   │   ├── domain/
+│   │   │   ├── messaging/
+│   │   │   ├── ports/
+│   │   │   │   ├── repositories/
+│   │   │   │   ├── services/
+│   │   │   │   └── current_user_provider.py
+│   │   │   ├── read_models/
+│   │   │   ├── use_cases/
+│   │   │   │   ├── admin/
+│   │   │   │   │   ├── deposit/
+│   │   │   │   │   │   ├── admin_deposit_cmd.py
+│   │   │   │   │   │   ├── execute_deposit.py
+│   │   │   │   │   │   └── submit_deposit.py
+│   │   │   │   │   ├── admin_balances_query.py
+│   │   │   │   │   └── admin_transactions_query.py
+│   │   │   │   ├── auth_session/
+│   │   │   │   │   └── logout_cmd.py
+│   │   │   │   ├── currency/
+│   │   │   │   │   └── currencies_query.py
+│   │   │   │   ├── otp/
+│   │   │   │   │   ├── request_otp_cmd.py
+│   │   │   │   │   └── verify_otp_cmd.py
+│   │   │   │   ├── recovery/
+│   │   │   │   │   └── reap_stale_submitted.py
+│   │   │   │   ├── sub_exec_base/
+│   │   │   │   │   ├── execute_cmd.py
+│   │   │   │   │   └── submit_transaction.py
+│   │   │   │   ├── user/
+│   │   │   │   │   ├── current_user_query.py
+│   │   │   │   │   ├── user_balances_query.py
+│   │   │   │   │   ├── user_transactions_query.py
+│   │   │   │   │   └── users_query.py
+│   │   │   │   └── wallet/
+│   │   │   │       ├── exchange/
+│   │   │   │       │   ├── exchange_cmd.py
+│   │   │   │       │   ├── execute_exchange.py
+│   │   │   │       │   └── submit_exchange.py
+│   │   │   │       ├── transfer/
+│   │   │   │       │   ├── execute_transfer.py
+│   │   │   │       │   ├── submit_transfer.py
+│   │   │   │       │   └── transfer_cmd.py
+│   │   │   │       └── withdraw/
+│   │   │   │           ├── execute_withdrawal.py
+│   │   │   │           ├── submit_withdrawal.py
+│   │   │   │           └── withdraw_cmd.py
+│   │   │   ├── value_objects/
+│   │   │   ├── current_user.py
+│   │   │   ├── error_codes.py
+│   │   │   ├── result.py
+│   │   │   ├── safe_errors.py
+│   │   │   └── token_claims.py
+│   │   ├── kafka/
+│   │   │   ├── runtime/
+│   │   │   │   ├── process.py
+│   │   │   │   └── readiness.py
+│   │   │   ├── shared/
+│   │   │   ├── topics/
+│   │   │   │   ├── dlq/
+│   │   │   │   └── wallet/
+│   │   │   └── workers/
+│   │   │       ├── dlq/
+│   │   │       ├── reaper/
+│   │   │       ├── wallet/
+│   │   │       └── visibility.py
+│   │   ├── notifier/
+│   │   │   ├── adapters/
+│   │   │   │   ├── pg_admin_status_listener.py
+│   │   │   │   └── pg_notifier.py
+│   │   │   ├── ports/
+│   │   │   │   ├── admin_status_listener.py
+│   │   │   │   ├── status_event_repository.py
+│   │   │   │   └── status_notifier.py
+│   │   │   ├── asyncpg_url.py
+│   │   │   └── status_event.py
+│   │   ├── config.py
+│   │   ├── dependencies.py
+│   │   └── main.py
+│   ├── .env
+│   ├── .env.example
+│   ├── .gitignore
+│   ├── .python-version
+│   ├── alembic.ini
+│   ├── pyproject.toml
+│   └── uv.lock
+│
+├── frontend/                             # React UI (Yarn, Vite)
+│
+├── docs/                                 # Canonical requirements and implementation guides
+│
+├── images/                               # Files for docs
+│
+├── .gitignore
+├── docker-compose.yml
+├── LICENSE
+├── pyrightconfig.json
+└── README.md
+```
