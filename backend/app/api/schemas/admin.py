@@ -2,6 +2,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
 
+from .wallet import TransactionItemResponse
+
 
 class AdminDepositRequest(BaseModel):
     email: EmailStr
@@ -9,7 +11,10 @@ class AdminDepositRequest(BaseModel):
     amount: str
 
 
-class AdminDepositResponse(BaseModel):
-    id: UUID
-    type: str = "DEPOSIT"
-    status: str = "COMPLETED"
+class SubmissionAcceptedResponse(BaseModel):
+    request_id: UUID
+
+
+class AdminTransactionPollResponse(BaseModel):
+    items: list[TransactionItemResponse] = Field(default_factory=list)
+    next_cursor: str | None = None

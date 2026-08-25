@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { ApiError, logout } from '../api/client'
+import { connectTransactionStatusStream } from '../api/streamClient'
 import {
   createExchange,
   createTransfer,
@@ -13,9 +14,15 @@ import type {
   BalanceItem,
   CurrencyItem,
   TransactionItem,
+  TransactionStatusEvent,
   UserReferenceItem,
 } from '../types/wallet'
 import { normalizeEmail } from '../utils/email'
+import {
+  applyLiveStatus,
+  reconcileTransactionsByRequestId,
+  spendableOf,
+} from '../utils/transaction_status'
 import { formatTransactionAsset, formatTransactionType } from '../utils/transaction'
 
 type WalletPageProps = {
@@ -24,6 +31,26 @@ type WalletPageProps = {
 }
 
 const TRANSACTIONS_PAGE_SIZE = 20
+
+const parsedToastMs = Number.parseInt(
+  import.meta.env.VITE_STATUS_TOAST_MS ?? '5000',
+  10,
+)
+const STATUS_TOAST_MS =
+  Number.isFinite(parsedToastMs) && parsedToastMs > 0 ? parsedToastMs : 5000
+
+type StatusToast = {
+  id: string
+  message: string
+}
+
+function toastTypeLabel(type: TransactionStatusEvent['type']): string {
+  return type === 'withdrawal' ? 'withdraw' : type
+}
+
+function statusToastMessage(event: TransactionStatusEvent): string {
+  return `${toastTypeLabel(event.type)} (ID: ${event.request_id.slice(0, 4)}) moved to ${event.status}`
+}
 
 function amountStepForPrecision(precision: number): string {
   if (precision <= 0) {
@@ -53,6 +80,7 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
   const [transferAmount, setTransferAmount] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null)
   const [isLoadingWallet, setIsLoadingWallet] = useState(true)
   const [isLoadingReference, setIsLoadingReference] = useState(true)
   const [isSubmittingExchange, setIsSubmittingExchange] = useState(false)
@@ -61,6 +89,8 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
   const [isLoadingMoreTransactions, setIsLoadingMoreTransactions] =
     useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [isLiveConnected, setIsLiveConnected] = useState(false)
+  const [statusToasts, setStatusToasts] = useState<StatusToast[]>([])
 
   const currentUserEmail = normalizeEmail(sessionStorage.getItem('user_email'))
 
@@ -133,6 +163,40 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
 
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    function pushStatusToast(message: string) {
+      const id = crypto.randomUUID()
+      setStatusToasts((current) => [{ id, message }, ...current])
+      window.setTimeout(() => {
+        setStatusToasts((current) => current.filter((toast) => toast.id !== id))
+      }, STATUS_TOAST_MS)
+    }
+
+    void connectTransactionStatusStream(controller.signal, {
+      onConnectionChange: setIsLiveConnected,
+      onEvent: (event) => {
+        pushStatusToast(statusToastMessage(event))
+        setTransactions((current) => applyLiveStatus(current, event))
+        if (event.status === 'succeeded' || event.status === 'failed') {
+          void loadWalletData().catch((error: unknown) => {
+            if (error instanceof ApiError) {
+              setErrorMessage(error.envelope.message)
+            }
+          })
+        }
+        if (event.status === 'failed' && event.error !== null) {
+          setErrorMessage(event.error)
+        }
+      },
+    })
+
+    return () => {
+      controller.abort()
     }
   }, [])
 
@@ -219,9 +283,14 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
 
   async function handleExchangeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (exchangeSourceAsset === exchangeDestAsset) {
+      setErrorMessage('Source and destination assets must differ.')
+      return
+    }
     setIsSubmittingExchange(true)
     setErrorMessage(null)
     setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
       const result = await createExchange({
@@ -229,11 +298,20 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
         destination_asset: exchangeDestAsset,
         amount: exchangeAmount,
       })
-      setSuccessMessage(
-        `Exchange completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      setAcceptanceMessage(
+        `Exchange accepted for processing (request ${result.request_id}).`,
       )
       setExchangeAmount('')
-      await loadWalletData()
+      const [balanceResult, transactionResult] = await Promise.all([
+        getUserBalances(),
+        listUserTransactions(0, TRANSACTIONS_PAGE_SIZE),
+      ])
+      setBalances(balanceResult.items)
+      setTransactions((current) =>
+        reconcileTransactionsByRequestId(current, transactionResult.items),
+      )
+      setTransactionsTotalItems(transactionResult.total_items)
+      setTransactionsPageNumber(0)
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -252,17 +330,27 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
     setIsSubmittingWithdrawal(true)
     setErrorMessage(null)
     setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
       const result = await createWithdrawal({
         asset: withdrawAsset,
         amount: withdrawAmount,
       })
-      setSuccessMessage(
-        `Withdrawal completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      setAcceptanceMessage(
+        `Withdrawal accepted for processing (request ${result.request_id}).`,
       )
       setWithdrawAmount('')
-      await loadWalletData()
+      const [balanceResult, transactionResult] = await Promise.all([
+        getUserBalances(),
+        listUserTransactions(0, TRANSACTIONS_PAGE_SIZE),
+      ])
+      setBalances(balanceResult.items)
+      setTransactions((current) =>
+        reconcileTransactionsByRequestId(current, transactionResult.items),
+      )
+      setTransactionsTotalItems(transactionResult.total_items)
+      setTransactionsPageNumber(0)
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -281,6 +369,7 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
     setIsSubmittingTransfer(true)
     setErrorMessage(null)
     setSuccessMessage(null)
+    setAcceptanceMessage(null)
 
     try {
       const result = await createTransfer({
@@ -288,11 +377,20 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
         asset: transferAsset,
         amount: transferAmount,
       })
-      setSuccessMessage(
-        `Transfer completed. Transaction ${result.id} (${result.type} / ${result.status}).`,
+      setAcceptanceMessage(
+        `Transfer accepted for processing (request ${result.request_id}).`,
       )
       setTransferAmount('')
-      await loadWalletData()
+      const [balanceResult, transactionResult] = await Promise.all([
+        getUserBalances(),
+        listUserTransactions(0, TRANSACTIONS_PAGE_SIZE),
+      ])
+      setBalances(balanceResult.items)
+      setTransactions((current) =>
+        reconcileTransactionsByRequestId(current, transactionResult.items),
+      )
+      setTransactionsTotalItems(transactionResult.total_items)
+      setTransactionsPageNumber(0)
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorMessage(error.envelope.message)
@@ -339,6 +437,30 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
     <main className="wallet-page">
       <h1>Wallet</h1>
       <p className="auth-detail">Your balances and wallet operations.</p>
+      {!isLiveConnected && (
+        <p className="auth-detail" role="status">
+          Live updates unavailable. Showing the last loaded snapshot.
+        </p>
+      )}
+      <div className="status-toast-stack" aria-live="polite">
+        {statusToasts.map((toast) => (
+          <div className="status-toast" key={toast.id} role="status">
+            <span>{toast.message}</span>
+            <button
+              className="status-toast-dismiss"
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() =>
+                setStatusToasts((current) =>
+                  current.filter((item) => item.id !== toast.id),
+                )
+              }
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
 
       {errorMessage !== null && (
         <p className="auth-error" role="alert">
@@ -349,6 +471,12 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
       {successMessage !== null && (
         <p className="auth-detail" role="status">
           {successMessage}
+        </p>
+      )}
+
+      {acceptanceMessage !== null && (
+        <p className="auth-detail" role="status">
+          {acceptanceMessage}
         </p>
       )}
 
@@ -363,14 +491,18 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
             <thead>
               <tr>
                 <th>Asset</th>
-                <th>Available</th>
+                <th>Total</th>
+                <th>Locked</th>
+                <th>Spendable</th>
               </tr>
             </thead>
             <tbody>
               {balances.map((balance) => (
                 <tr key={balance.asset}>
                   <td>{balance.asset}</td>
-                  <td>{balance.available}</td>
+                  <td>{balance.amount}</td>
+                  <td>{balance.locked}</td>
+                  <td>{spendableOf(balance)}</td>
                 </tr>
               ))}
             </tbody>
@@ -458,7 +590,8 @@ export function WalletPage({ onOpenAdmin, onLoggedOut }: WalletPageProps) {
             disabled={
               isBusy ||
               currencies.length === 0 ||
-              exchangeAmount.trim() === ''
+              exchangeAmount.trim() === '' ||
+              exchangeSourceAsset === exchangeDestAsset
             }
           >
             {isSubmittingExchange ? 'Submitting…' : 'Submit exchange'}

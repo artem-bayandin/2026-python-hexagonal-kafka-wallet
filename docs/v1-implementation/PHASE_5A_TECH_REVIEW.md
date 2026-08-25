@@ -61,7 +61,7 @@ Scope: while implementing phases, some questions were left open. In current phas
     - [x] file itself
     - [x] require_admin_key
     - [x] bind_current_user
-      - [x] get_current_user_executor
+      - [x] get_current_user_executor_fn
     - [x] require_admin_or_user_auth (? require_admin_key + bind_current_user ?)
   - admin
     - [x] POST /deposits
@@ -118,14 +118,14 @@ Scope: while implementing phases, some questions were left open. In current phas
 
 ## Dependencies
 
-**Decision:** Split `backend/app/api/dependencies.py` into auth gates + shared HTTP wiring (kept in `dependencies.py`) and one file per executor under `backend/app/api/executors/` (including `current_user.py` for `get_current_user_executor`, consumed by `bind_current_user`). The module singleton and `get_current_user_provider()` live in `current_user_provider.py`. Routers keep importing executors from `..dependencies` via re-exports (no router changes).
+**Decision:** Split `backend/app/api/dependencies.py` into auth gates + shared HTTP wiring (kept in `dependencies.py`) and one file per executor under `backend/app/api/executors/` (including `current_user.py` for `get_current_user_executor_fn`, consumed by `bind_current_user`). The module singleton and `get_current_user_provider()` live in `current_user_provider.py`. Routers keep importing executors from `..dependencies` via re-exports (no router changes).
 
 Canonical rules: [TECHNICAL_REQUIREMENTS.md](../TECHNICAL_REQUIREMENTS.md) §3.4.
 
 **Still open:**
 
 - Rename `backend/app/dependencies.py` (e.g. `handler_builders.py`) to disambiguate from `api/dependencies.py` — larger blast radius.
-- `require_admin_or_user_auth` inlines `build_get_current_user_handler` instead of reusing `get_current_user_executor` — optional consistency follow-up.
+- `require_admin_or_user_auth` inlines `build_get_current_user_handler` instead of reusing `get_current_user_executor_fn` — optional consistency follow-up.
 - Review how executors and handlers are created for routers (executors vs yield-handler injection) — see [LEARN_PY.md](../../LEARN_PY.md).
 
 ## Other

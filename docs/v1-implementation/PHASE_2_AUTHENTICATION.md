@@ -1531,7 +1531,7 @@ In `backend/app/api/dependencies.py`, add:
 
 - a module-level `ContextVarCurrentUserProvider` instance;
 - `get_current_user_provider()` that returns that same instance;
-- `GetCurrentUserExecutor` and `get_current_user_executor(request)`, which opens one short-lived `AsyncSession` from `request.app.state.session_factory`, invokes `build_get_current_user_handler`, and closes the session without committing. Any implicit read transaction rolls back on close.
+- `GetCurrentUserExecutorFn` and `get_current_user_executor_fn(request)`, which opens one short-lived `AsyncSession` from `request.app.state.session_factory`, invokes `build_get_current_user_handler`, and closes the session without committing. Any implicit read transaction rolls back on close.
 
 Add Bearer extraction and request binding to the same file:
 
@@ -1544,7 +1544,7 @@ async def bind_current_user(
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
     ],
     executor: Annotated[
-        GetCurrentUserExecutor, Depends(get_current_user_executor)
+        GetCurrentUserExecutorFn, Depends(get_current_user_executor_fn)
     ],
     provider: Annotated[
         ContextVarCurrentUserProvider,
@@ -1685,17 +1685,17 @@ Return `rowcount == 1`. Do not filter or update by `user_id`. No schema migratio
 
 In `backend/app/dependencies.py`, add `build_logout_handler(session, current_user_provider)` that wires the shared `CurrentUserProvider` port, `AuthSessionRepositoryImpl`, and `SystemClock`. Keep this module free of FastAPI `Request` objects and of imports from `app.api`.
 
-In `backend/app/api/dependencies.py`, add `LogoutExecutor` and `get_logout_executor(request)`. The executor opens its own short-lived `session.begin()` transaction, calls `build_logout_handler(session, get_current_user_provider())`, and invokes the handler. Mirror the Slice 3 `get_current_user_executor` pattern: request-scoped composition stays in the API layer so the composition root never depends upward on incoming adapters. The authentication dependency and logout executor may use separate short-lived database sessions; the former binds `CurrentUser`, while the guarded update makes the command safe if revocation occurs between those operations.
+In `backend/app/api/dependencies.py`, add `LogoutExecutorFn` and `get_logout_executor_fn(request)`. The executor opens its own short-lived `session.begin()` transaction, calls `build_logout_handler(session, get_current_user_provider())`, and invokes the handler. Mirror the Slice 3 `get_current_user_executor_fn` pattern: request-scoped composition stays in the API layer so the composition root never depends upward on incoming adapters. The authentication dependency and logout executor may use separate short-lived database sessions; the former binds `CurrentUser`, while the guarded update makes the command safe if revocation occurs between those operations.
 
 ### API
 
 At the end of this API section, add logout wiring to `backend/app/api/dependencies.py`:
 
 ```python
-LogoutExecutor = Callable[[LogoutCommand], Awaitable[Result[None]]]
+LogoutExecutorFn = Callable[[LogoutCommand], Awaitable[Result[None]]]
 
 
-def get_logout_executor(request: Request) -> LogoutExecutor:
+def get_logout_executor_fn(request: Request) -> LogoutExecutorFn:
     async def execute(command: LogoutCommand) -> Result[None]:
         async with request.app.state.session_factory() as session, session.begin():
             handler = build_logout_handler(
@@ -1715,9 +1715,9 @@ from typing import Annotated
 from fastapi import Depends, Response
 
 from ..dependencies import (
-    LogoutExecutor,
+    LogoutExecutorFn,
     bind_current_user,
-    get_logout_executor,
+    get_logout_executor_fn,
 )
 from app.domain import LogoutCommand
 
@@ -1728,7 +1728,7 @@ from app.domain import LogoutCommand
     dependencies=[Depends(bind_current_user)],
 )
 async def logout(
-    executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
+    executor: Annotated[LogoutExecutorFn, Depends(get_logout_executor_fn)],
 ) -> Response:
     result = await executor(LogoutCommand())
     unwrap_domain_result(result)

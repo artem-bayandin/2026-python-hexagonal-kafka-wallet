@@ -1,21 +1,41 @@
-export type BalanceItem = {
+export type TransactionStatus =
+  | 'submitted'
+  | 'pending'
+  | 'in_progress'
+  | 'succeeded'
+  | 'failed'
+
+export type TransactionType = 'deposit' | 'withdrawal' | 'exchange' | 'transfer'
+
+export interface TransactionStatusEvent {
+  request_id: string
+  status: TransactionStatus
+  type: TransactionType
+  error: string | null
+}
+
+export interface BalanceItem {
   asset: string
-  available: string
+  amount: string
+  locked: string
 }
 
 export type BalanceList = {
   items: BalanceItem[]
 }
 
-export type TransactionItem = {
+export interface TransactionItem {
   id: string
-  type: string
-  status: string
+  request_id: string
+  type: TransactionType
+  status: TransactionStatus
   source_asset: string | null
   dest_asset: string | null
   amount: string
+  error: string | null
   created_at: string
-  direction?: string | null
+  updated_at: string
+  direction?: 'in' | 'out'
 }
 
 export type TransactionList = {

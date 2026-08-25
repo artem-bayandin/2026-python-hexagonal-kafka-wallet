@@ -4,14 +4,14 @@ from fastapi import APIRouter, Depends, Response, status
 
 from app.domain import LogoutCommand, RequestOtpCommand, VerifyOtpCommand
 
-from ..dependencies import (
-    LogoutExecutor,
-    RequestOtpExecutor,
-    VerifyOtpExecutor,
-    bind_current_user,
-    get_logout_executor,
-    get_request_otp_executor,
-    get_verify_otp_executor,
+from ..dependencies import bind_current_user
+from ..executors import (
+    LogoutExecutorFn,
+    RequestOtpExecutorFn,
+    VerifyOtpExecutorFn,
+    get_logout_executor_fn,
+    get_request_otp_executor_fn,
+    get_verify_otp_executor_fn,
 )
 from ..result_mapping import unwrap_domain_result
 from ..schemas import (
@@ -31,9 +31,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 )
 async def request_otp(
     payload: RequestOtpRequest,
-    executor: Annotated[RequestOtpExecutor, Depends(get_request_otp_executor)],
+    executor_fn: Annotated[RequestOtpExecutorFn, Depends(get_request_otp_executor_fn)],
 ) -> RequestOtpResponse:
-    result = await executor(RequestOtpCommand(email=str(payload.email)))
+    result = await executor_fn(RequestOtpCommand(email=str(payload.email)))
     data = unwrap_domain_result(result)
     assert data is not None
     return RequestOtpResponse(
@@ -48,11 +48,9 @@ async def request_otp(
 )
 async def verify_otp(
     payload: VerifyOtpRequest,
-    executor: Annotated[VerifyOtpExecutor, Depends(get_verify_otp_executor)],
+    executor_fn: Annotated[VerifyOtpExecutorFn, Depends(get_verify_otp_executor_fn)],
 ) -> VerifyOtpResponse:
-    result = await executor(
-        VerifyOtpCommand(email=str(payload.email), otp=payload.otp),
-    )
+    result = await executor_fn(VerifyOtpCommand(email=str(payload.email), otp=payload.otp))
     data = unwrap_domain_result(result)
     assert data is not None
     return VerifyOtpResponse(
@@ -68,8 +66,8 @@ async def verify_otp(
     dependencies=[Depends(bind_current_user)],
 )
 async def logout(
-    executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
+    executor_fn: Annotated[LogoutExecutorFn, Depends(get_logout_executor_fn)],
 ) -> Response:
-    result = await executor(LogoutCommand())
+    result = await executor_fn(LogoutCommand())
     unwrap_domain_result(result)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

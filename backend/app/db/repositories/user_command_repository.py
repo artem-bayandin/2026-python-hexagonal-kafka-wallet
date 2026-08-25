@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.domain import UserItem, UserCommandRepository
 
-from ..mappers import user_to_domain
+from ..mappers import UserDbMapper
 from ..models import UserModel
 from ..session import AsyncSession
 
@@ -31,4 +31,4 @@ class UserCommandRepositoryImpl(UserCommandRepository):
         model = result.scalar_one_or_none()
         if model is None:
             return None
-        return user_to_domain(model)
+        return UserDbMapper.to_domain(model)

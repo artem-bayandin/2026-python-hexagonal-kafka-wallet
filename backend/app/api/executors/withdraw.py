@@ -2,22 +2,29 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Request
 
-from app.dependencies import build_withdraw_handler
-from app.domain import Result, WithdrawCommand, WithdrawResult
+from app.db import AsyncSession
+from app.dependencies import build_submit_withdrawal_handler
+from app.domain import Result, SubmissionInterimHandlerResult, SubmissionResult, WithdrawCommand
 
 from ..current_user_provider import get_current_user_provider
-from ..db_session import write_session
+from .submission import get_submission_executor_fn
 
-WithdrawExecutor = Callable[[WithdrawCommand], Awaitable[Result[WithdrawResult]]]
+WithdrawExecutorFn = Callable[[WithdrawCommand], Awaitable[Result[SubmissionResult]]]
 
 
-def get_withdraw_executor(request: Request) -> WithdrawExecutor:
-    async def execute(command: WithdrawCommand) -> Result[WithdrawResult]:
-        async with write_session(request) as session:
-            handler = build_withdraw_handler(
+def get_withdraw_executor_fn(request: Request) -> WithdrawExecutorFn:
+    submission_executor_fn = get_submission_executor_fn(request)
+
+    async def execute_fn(command: WithdrawCommand) -> Result[SubmissionResult]:
+        async def handle_submit_withdrawal_fn(
+            session: AsyncSession,
+        ) -> Result[SubmissionInterimHandlerResult]:
+            handler = build_submit_withdrawal_handler(
                 session,
                 get_current_user_provider(),
             )
-            return await handler.handle(command)
+            return await handler.validate_and_store_initial_tx(command)
 
-    return execute
+        return await submission_executor_fn(handle_submit_withdrawal_fn)
+
+    return execute_fn

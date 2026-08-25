@@ -7,7 +7,7 @@ from sqlalchemy.engine import CursorResult
 
 from app.domain import OtpChallengeItem, OtpChallengeCommandRepository
 
-from ..mappers import otp_challenge_to_domain, otp_challenge_to_model
+from ..mappers import OtpChallengeDbMapper
 from ..models import OtpChallengeModel
 from ..session import AsyncSession
 
@@ -33,7 +33,7 @@ class OtpChallengeCommandRepositoryImpl(OtpChallengeCommandRepository):
         return result.rowcount
 
     async def add(self, challenge: OtpChallengeItem) -> None:
-        self.session.add(otp_challenge_to_model(challenge))
+        self.session.add(OtpChallengeDbMapper.to_model(challenge))
 
     async def get_current_for_user_for_update(self, user_id: UUID) -> OtpChallengeItem | None:
         stmt = (
@@ -49,7 +49,7 @@ class OtpChallengeCommandRepositoryImpl(OtpChallengeCommandRepository):
         model = result.scalar_one_or_none()
         if model is None:
             return None
-        return otp_challenge_to_domain(model)
+        return OtpChallengeDbMapper.to_domain(model)
 
     async def get_newest_by_digest_for_update(
         self, user_id: UUID, digest: str
@@ -71,7 +71,7 @@ class OtpChallengeCommandRepositoryImpl(OtpChallengeCommandRepository):
         model = result.scalar_one_or_none()
         if model is None:
             return None
-        return otp_challenge_to_domain(model)
+        return OtpChallengeDbMapper.to_domain(model)
 
     async def set_failed_attempt_count(self, challenge_id: UUID, count: int) -> None:
         stmt = (

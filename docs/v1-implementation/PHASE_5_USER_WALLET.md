@@ -321,9 +321,9 @@ from fastapi import APIRouter, Depends
 from app.domain import UserBalancesQuery
 
 from ..dependencies import (
-    GetUserBalancesExecutor,
+    GetUserBalancesExecutorFn,
     bind_current_user,
-    get_get_user_balances_executor,
+    get_user_balances_executor_fn,
 )
 from ..formatting import format_amount_with_precision
 from ..result_mapping import unwrap_domain_result
@@ -338,7 +338,7 @@ router = APIRouter(prefix="/me", tags=["wallet"])
 )
 async def get_user_balances(
     balances_executor: Annotated[
-        GetUserBalancesExecutor, Depends(get_get_user_balances_executor)
+        GetUserBalancesExecutorFn, Depends(get_user_balances_executor_fn)
     ],
 ) -> BalanceListResponse:
     items = unwrap_domain_result(await balances_executor(UserBalancesQuery()))
@@ -353,12 +353,12 @@ async def get_user_balances(
     )
 ```
 
-Wire `GetUserBalancesExecutor` and `get_get_user_balances_executor` in `api/dependencies.py`: open a short-lived read session, bind `get_current_user_provider()`, call `build_get_user_balances_handler`, invoke the handler. Mirror the Phase 2 logout executor pattern for provider injection.
+Wire `GetUserBalancesExecutorFn` and `get_user_balances_executor_fn` in `api/dependencies.py`: open a short-lived read session, bind `get_current_user_provider()`, call `build_get_user_balances_handler`, invoke the handler. Mirror the Phase 2 logout executor pattern for provider injection.
 
 Register the router in `main.py`:
 
 ```python
-from app.api import wallet_router  # or from app.api.routers.wallet import router
+from app.api import wallet_router
 
 app.include_router(wallet_router)
 ```
@@ -534,8 +534,8 @@ Add to `wallet.py`:
 )
 async def list_user_transactions(
     executor: Annotated[
-        ListUserTransactionsExecutor,
-        Depends(get_list_user_transactions_executor),
+        ListUserTransactionsExecutorFn,
+        Depends(get_list_user_transactions_executor_fn),
     ],
     page_number: Annotated[int, Query(ge=0)] = 0,
     page_size: Annotated[int, Query(gt=0, le=100)] = 20,
@@ -646,7 +646,7 @@ from ...ports import (
     UserWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
+from ...value_objects import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -821,7 +821,7 @@ Add route:
 )
 async def create_exchange(
     body: ExchangeRequest,
-    executor: Annotated[ExchangeExecutor, Depends(get_exchange_executor)],
+    executor: Annotated[ExchangeExecutorFn, Depends(get_exchange_executor)],
 ) -> WalletMutationResponse:
     data = unwrap_domain_result(
         await executor(
@@ -896,7 +896,7 @@ from ...ports.repositories.admin_wallet_command_repository import (
     AdminWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
+from ...value_objects import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -1049,7 +1049,7 @@ Add route:
 )
 async def create_withdrawal(
     body: WithdrawRequest,
-    executor: Annotated[WithdrawExecutor, Depends(get_withdraw_executor)],
+    executor: Annotated[WithdrawExecutorFn, Depends(get_withdraw_executor)],
 ) -> WalletMutationResponse:
     data = unwrap_domain_result(
         await executor(
@@ -1098,7 +1098,7 @@ from ...ports import (
     UserWalletCommandRepository,
 )
 from ...result import Result
-from ...value_objects.money import Money
+from ...value_objects import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -1225,7 +1225,7 @@ Add route:
 )
 async def create_transfer(
     body: TransferRequest,
-    executor: Annotated[TransferExecutor, Depends(get_transfer_executor)],
+    executor: Annotated[TransferExecutorFn, Depends(get_transfer_executor)],
 ) -> WalletMutationResponse:
     data = unwrap_domain_result(
         await executor(

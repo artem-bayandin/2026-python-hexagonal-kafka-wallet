@@ -1,11 +1,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.api import (
     DomainResultError,
@@ -16,27 +15,39 @@ from app.api import (
     auth_router,
     health_router,
     reference_router,
+    stream_router,
     wallet_router,
 )
-from app.config import Settings, get_settings
+from app.config import ApiSettings, load_api_runtime
 from app.db import build_session_factory
+from app.dependencies import build_admin_status_listener, build_status_notifier
+from app.kafka import build_aiokafka_producer, managed_kafka_producer
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    resolved = settings or get_settings()
-    engine: AsyncEngine = create_async_engine(resolved.database_url)
+def create_app(settings: ApiSettings | None = None) -> FastAPI:
+    runtime = load_api_runtime()
+    resolved = settings or runtime.api
+    engine = create_async_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
+    kafka_producer = build_aiokafka_producer(runtime.kafka)
+    status_notifier = build_status_notifier(session_factory, resolved.database_url)
+    admin_status_listener = build_admin_status_listener(resolved.database_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # Before yield = startup (nothing here yet; engine is already created above)
-        yield
-        # After yield = shutdown (runs when uvicorn stops or reloads)
+        async with managed_kafka_producer(kafka_producer):
+            yield
         await engine.dispose()
 
     app = FastAPI(title="Wallet Sample", lifespan=lifespan)
     app.state.settings = resolved
     app.state.session_factory = session_factory
+    app.state.engine = engine
+    app.state.kafka_producer = kafka_producer
+    app.state.kafka_settings = runtime.kafka
+    app.state.status_notifier = status_notifier
+    app.state.admin_status_listener = admin_status_listener
+    app.state.streaming_settings = runtime.streaming
 
     cors_origins = [
         origin.strip() for origin in resolved.cors_allowed_origins.split(",") if origin.strip()
@@ -58,15 +69,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(reference_router)
     app.include_router(admin_router)
     app.include_router(wallet_router)
-
-    @app.get("/health/ready")
-    async def health_ready(response: Response) -> dict[str, str]:
-        try:
-            async with engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
-        except Exception:
-            response.status_code = 503
-            return {"status": "unavailable"}
-        return {"status": "ok"}
+    app.include_router(stream_router)
 
     return app

@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.domain import AuthSessionItem, AuthSessionQueryRepository
 
-from ..mappers import auth_session_to_domain
+from ..mappers import AuthSessionDbMapper
 from ..models import AuthSessionModel
 from ..session import AsyncSession
 
@@ -19,4 +19,4 @@ class AuthSessionQueryRepositoryImpl(AuthSessionQueryRepository):
         model = result.scalar_one_or_none()
         if model is None:
             return None
-        return auth_session_to_domain(model)
+        return AuthSessionDbMapper.to_domain(model)

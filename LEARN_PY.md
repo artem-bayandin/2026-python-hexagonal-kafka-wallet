@@ -6,14 +6,14 @@ Notes from working through layers in this project.
 
 ## Authentication system design
 
-Canonical file layout and import rules: [TECHNICAL_REQUIREMENTS.md](TECHNICAL_REQUIREMENTS.md) §3.4. Auth gates live in `backend/app/api/dependencies.py`; all executor creators (including `get_current_user_executor`, used by `bind_current_user`) live under `backend/app/api/executors/` (one file per use case). Routers still import executor symbols from `..dependencies` via re-exports.
+Canonical file layout and import rules: [TECHNICAL_REQUIREMENTS.md](TECHNICAL_REQUIREMENTS.md) §3.4. Auth gates live in `backend/app/api/dependencies.py`; all executor creators (including `get_current_user_executor_fn`, used by `bind_current_user`) live under `backend/app/api/executors/` (one file per use case). Routers still import executor symbols from `..dependencies` via re-exports.
 
-### `GetCurrentUserExecutor` — reading the brackets
+### `GetCurrentUserExecutorFn` — reading the brackets
 
-File: `backend/app/api/executors/current_user.py` (routers and auth gates import `GetCurrentUserExecutor` and `get_current_user_executor` from `backend/app/api/dependencies.py`)
+File: `backend/app/api/executors/current_user.py` (routers and auth gates import `GetCurrentUserExecutorFn` and `get_current_user_executor_fn` from `backend/app/api/dependencies.py`)
 
 ```python
-GetCurrentUserExecutor = Callable[
+GetCurrentUserExecutorFn = Callable[
     [CurrentUserQuery], Awaitable[Result[CurrentUser]]
 ]
 ```
@@ -32,7 +32,7 @@ In plain English:
 
 > **A callable that takes a `CurrentUserQuery` and, when awaited, returns `Result[CurrentUser]`.**
 
-That matches the inner function in `get_current_user_executor`:
+That matches the inner function in `get_current_user_executor_fn`:
 
 ```python
 async def execute(query: CurrentUserQuery) -> Result[CurrentUser]:
@@ -49,7 +49,7 @@ Callable[[arg1_type, arg2_type], return_type]
 #         "what you pass in"        "what you get back"
 ```
 
-Why not just write `async def ...` inline? The alias names the **shape** of the injected dependency so `bind_current_user` can declare `executor: GetCurrentUserExecutor` without repeating the full generic.
+Why not just write `async def ...` inline? The alias names the **shape** of the injected dependency so `bind_current_user` can declare `executor: GetCurrentUserExecutorFn` without repeating the full generic.
 
 ---
 
@@ -65,7 +65,7 @@ async def bind_current_user(
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
     ],
     executor: Annotated[
-        GetCurrentUserExecutor, Depends(get_current_user_executor)
+        GetCurrentUserExecutorFn, Depends(get_current_user_executor_fn)
     ],
     provider: Annotated[
         ContextVarCurrentUserProvider,
@@ -88,7 +88,7 @@ HTTP request
     ├─► bearer_scheme (HTTPBearer)        → parses Authorization: Bearer <token>
     │                                          → credentials (or None)
     │
-    ├─► get_current_user_executor(Request)  → returns the async execute() closure
+    ├─► get_current_user_executor_fn(Request)  → returns the async execute() closure
     │                                          (with session/request wired in)
     │
     └─► get_current_user_provider()         → singleton ContextVarCurrentUserProvider
@@ -130,7 +130,7 @@ Same behavior; `Annotated` keeps **type** and **injection rule** separate — be
 
 FastAPI reads `Depends(...)` and knows: "Don't take this from the query/body/path — call this function (or use this security scheme) to produce the value."
 
-Nested `Depends` also chains: `get_current_user_executor` needs `Request`; FastAPI injects `Request` into it automatically because `Request` is a known special parameter.
+Nested `Depends` also chains: `get_current_user_executor_fn` needs `Request`; FastAPI injects `Request` into it automatically because `Request` is a known special parameter.
 
 ---
 
@@ -191,7 +191,7 @@ File: `backend/app/api/routers/auth.py`
     dependencies=[Depends(bind_current_user)],
 )
 async def logout(
-    executor: Annotated[LogoutExecutor, Depends(get_logout_executor)],
+    executor: Annotated[LogoutExecutorFn, Depends(get_logout_executor_fn)],
 ) -> Response:
     result = await executor(LogoutCommand())
     unwrap_domain_result(result)
@@ -203,14 +203,14 @@ This route uses **two** dependency mechanisms. They look similar but do differen
 | # | Where | Dependency | What it does |
 |---|---|---|---|
 | 1 | `dependencies=[Depends(bind_current_user)]` on the decorator | Auth gate + request context | Validates Bearer token, loads `CurrentUser`, stores it in a `ContextVar`, cleans up in `finally` |
-| 2 | `executor: Annotated[..., Depends(get_logout_executor)]` on the handler parameter | Command executor | Returns the async closure that opens a DB transaction and runs `LogoutHandler` |
+| 2 | `executor: Annotated[..., Depends(get_logout_executor_fn)]` on the handler parameter | Command executor | Returns the async closure that opens a DB transaction and runs `LogoutHandler` |
 
 #### Why not one `Depends`?
 
 Each dependency answers a different question:
 
 - **`bind_current_user`** — *"Is this request authenticated, and who is the caller?"*
-- **`get_logout_executor`** — *"How do I run the logout command for this HTTP request?"*
+- **`get_logout_executor_fn`** — *"How do I run the logout command for this HTTP request?"*
 
 They must run in order: auth and binding happen **before** the handler body. The handler then calls `executor(LogoutCommand())`, and the domain handler reads `session_jti` through `CurrentUserProvider.get()` — not from a route parameter.
 
@@ -226,7 +226,7 @@ Putting it in `dependencies=[...]` on the decorator:
 - avoids a dummy parameter like `_auth: Annotated[None, Depends(bind_current_user)]`;
 - matches `/health/authenticated`, which uses the same pattern.
 
-`get_logout_executor` **does** produce something the handler uses (the callable), so it belongs as a **parameter** dependency.
+`get_logout_executor_fn` **does** produce something the handler uses (the callable), so it belongs as a **parameter** dependency.
 
 #### Execution order
 
@@ -238,7 +238,7 @@ bind_current_user (route dependency)
         │ parse Bearer → validate JWT + session
         │ provider.bind(current_user)  ← LogoutHandler reads this later
         ▼
-get_logout_executor (parameter dependency)
+get_logout_executor_fn (parameter dependency)
         │ returns execute() closure wired to Request + session_factory
         ▼
 logout() handler body
@@ -252,7 +252,7 @@ bind_current_user finally: provider.reset()
 204 No Content
 ```
 
-Note: `bind_current_user` and `get_logout_executor` each open their **own** short-lived DB session. That is safe here because logout uses a guarded `UPDATE` (`revoked_at IS NULL AND expires_at > :now`); even if auth read and revoke write are separate transactions, the write still fails cleanly when the session is already invalid.
+Note: `bind_current_user` and `get_logout_executor_fn` each open their **own** short-lived DB session. That is safe here because logout uses a guarded `UPDATE` (`revoked_at IS NULL AND expires_at > :now`); even if auth read and revoke write are separate transactions, the write still fails cleanly when the session is already invalid.
 
 #### Compared to OTP routes
 
@@ -266,7 +266,7 @@ Note: `bind_current_user` and `get_logout_executor` each open their **own** shor
 flowchart TD
     A[HTTP Request] --> B[Depends bind_current_user]
     B --> C[bearer_scheme → credentials]
-    B --> D[get_current_user_executor → execute fn]
+    B --> D[get_current_user_executor_fn → execute fn]
     B --> E[get_current_user_provider → ContextVar]
     C --> F{valid Bearer?}
     F -->|no| G[401 via unwrap_domain_result]
@@ -278,11 +278,11 @@ flowchart TD
 
 **Summary:**
 
-- `GetCurrentUserExecutor` = "async function(query) → Result[user]".
+- `GetCurrentUserExecutorFn` = "async function(query) → Result[user]".
 - `bind_current_user`'s parameters come from FastAPI's DI, not the client.
 - `Annotated[..., Depends(...)]` splits type vs injection.
 - `dependencies=[...]` on the route runs auth as a gate without adding parameters to the handler.
-- Logout uses **two** dependencies: decorator-level `bind_current_user` (auth + ContextVar side effect) and parameter-level `get_logout_executor` (injected command runner).
+- Logout uses **two** dependencies: decorator-level `bind_current_user` (auth + ContextVar side effect) and parameter-level `get_logout_executor_fn` (injected command runner).
 
 ---
 
@@ -296,13 +296,13 @@ Short answer: **yes, functionally equivalent alternatives exist.** The executor 
 
 An executor is **not** an object with an `.execute()` method. It is an async **closure** returned by `get_*_executor`, typed as a `Callable`:
 
-File: `backend/app/api/executors/exchange.py` (routers import `ExchangeExecutor` and `get_exchange_executor` from `backend/app/api/dependencies.py`)
+File: `backend/app/api/executors/exchange.py` (routers import `ExchangeExecutorFn` and `get_exchange_executor` from `backend/app/api/dependencies.py`)
 
 ```python
-ExchangeExecutor = Callable[[ExchangeCommand], Awaitable[Result[ExchangeResult]]]
+ExchangeExecutorFn = Callable[[ExchangeCommand], Awaitable[Result[ExchangeResult]]]
 
 
-def get_exchange_executor(request: Request) -> ExchangeExecutor:
+def get_exchange_executor(request: Request) -> ExchangeExecutorFn:
     async def execute(command: ExchangeCommand) -> Result[ExchangeResult]:
         async with request.app.state.session_factory() as session, session.begin():
             handler = build_exchange_handler(
@@ -369,7 +369,7 @@ These are design choices, not hard constraints:
 |---|---|
 | Transaction boundary at API layer | `TECHNICAL_REQUIREMENTS.md` §6.2: the "command executor" owns `session.begin()`. Domain handlers never see SQLAlchemy sessions — only repository ports wired with a shared session. |
 | Lazy per-invocation session | Session opens when you *call* the executor, not when FastAPI resolves dependencies. With yield-handler injection the session opens slightly earlier (at dependency entry), but for one-shot routes this is equivalent. |
-| Reusable callable in auth deps | `bind_current_user` injects `GetCurrentUserExecutor` and calls it before the route runs — same session-wrapped logic without importing `CurrentUserHandler` into the auth binding. |
+| Reusable callable in auth deps | `bind_current_user` injects `GetCurrentUserExecutorFn` and calls it before the route runs — same session-wrapped logic without importing `CurrentUserHandler` into the auth binding. |
 | Thin router coupling | Routers depend on `Callable[[Cmd], Result[T]]` aliases, not domain handler classes. Minor decoupling — routers still import commands and result types from domain. |
 | Phase 2 precedent | Phase 2 docs prescribed executors; Phases 4–5 copied the pattern (~15 nearly identical functions, now one file each under `api/executors/`). |
 
@@ -390,7 +390,7 @@ So the codebase already proves handler-direct works; executors are a convention,
 **Pros of switching to handler injection**
 
 - Routers read naturally: `await handler.handle(Command(...))`.
-- Eliminates redundant naming (`ExchangeExecutor` vs `ExchangeHandler`).
+- Eliminates redundant naming (`ExchangeExecutorFn` vs `ExchangeHandler`).
 - One less indirection layer for newcomers.
 
 **Cons / things to preserve**

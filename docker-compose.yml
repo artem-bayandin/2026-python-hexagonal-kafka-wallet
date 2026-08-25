@@ -1,6 +1,10 @@
 services:
+  # Kafka ACL guidance (production): API and reaper write `wallet`; the worker reads
+  # `wallet` and writes `wallet_dlq`. No application process receives broad broker-
+  # administration rights; production ACLs are deployment configuration, not app settings.
   postgres:
     image: postgres:18.4-alpine
+    container_name: wallet_container_postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -16,5 +20,63 @@ services:
       retries: 10
       start_period: 5s
 
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: wallet_container_kafka
+    ports:
+      # publish ports - whether that container port is reachable from the host
+      # 9092 is not published, so it stays Docker-only
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: "1"
+      CLUSTER_ID: "wallet_cluster"
+      KAFKA_PROCESS_ROLES: broker,controller # this node is both broker and controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093 # controller voter list (node 1 at kafka:9093)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1" # consumer offsets topic has 1 replica (single-node)
+      # PLAINTEXT, EXTERNAL - are human-readable listener names, might be other
+      # CONTROLLER - KRaft listener name
+      # PLAINTEXT 9092 = Internal Docker network, for kafka-init, for example
+      # EXTERNAL 29092 = APP host
+      # CONTROLLER 9093 = Internal KRaft listener, as this node is 'broker,controller'
+      # set controller listener name
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER # which listener is used for KRaft controller traffic
+      # bind - which port the process opens
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      # advertised listeners - which address the process advertises to other processes
+      # PLAINTEXT://kafka:9092 → only works on the Compose DNS name kafka
+      # EXTERNAL://127.0.0.1:29092 → only works on the Mac
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://127.0.0.1:29092
+      # other keys
+      # security protocols: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
+      # local docker - PLAINTEXT is ok
+      # production - SASL_SSL
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic ${KAFKA_COMMAND_TOPIC} --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic ${KAFKA_DLQ_TOPIC} --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic ${KAFKA_COMMAND_TOPIC}
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic ${KAFKA_DLQ_TOPIC}
+    restart: "no"
+
 volumes:
   postgres_data:
+  kafka_data:

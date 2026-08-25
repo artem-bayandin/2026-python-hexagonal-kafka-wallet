@@ -1,13 +1,15 @@
 import { ApiError } from './client'
+import { parseSubmissionAccepted, type SubmissionAccepted } from './submission'
 import type {
   AdminDepositRequest,
-  AdminDepositResponse,
+  AdminTransactionPollResponse,
   BalanceList,
   CurrencyItem,
   DataList,
-  TransactionList,
   UserReferenceItem,
 } from '../types/admin'
+
+export type { SubmissionAccepted }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
@@ -18,6 +20,10 @@ export function getAdminKey(): string | null {
 }
 
 export function setAdminKey(key: string): void {
+  if (key === '') {
+    sessionStorage.removeItem(ADMIN_KEY_STORAGE)
+    return
+  }
   sessionStorage.setItem(ADMIN_KEY_STORAGE, key)
 }
 
@@ -52,6 +58,23 @@ export async function adminFetch(
   return fetch(`${API_BASE_URL}${path}`, { ...init, headers })
 }
 
+export async function submitAdminMutation(
+  path: string,
+  body: unknown,
+): Promise<SubmissionAccepted> {
+  const response = await adminFetch(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  if (response.status === 202) {
+    return parseSubmissionAccepted(response)
+  }
+  if (!response.ok) {
+    throw await parseErrorResponse(response)
+  }
+  throw await parseErrorResponse(response)
+}
+
 export async function listReferenceCurrencies(): Promise<DataList<CurrencyItem>> {
   const response = await adminFetch('/reference/currencies')
   if (!response.ok) {
@@ -68,21 +91,19 @@ export async function listReferenceUsers(): Promise<DataList<UserReferenceItem>>
   return response.json() as Promise<DataList<UserReferenceItem>>
 }
 
-export async function AdminDeposit(
+export async function adminDeposit(
   body: AdminDepositRequest,
-): Promise<AdminDepositResponse> {
-  const response = await adminFetch('/admin/deposits', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw await parseErrorResponse(response)
-  }
-  return response.json() as Promise<AdminDepositResponse>
+): Promise<SubmissionAccepted> {
+  return submitAdminMutation('/admin/deposits', body)
 }
 
-export async function getAdminBalances(): Promise<BalanceList> {
-  const response = await adminFetch('/admin/balances')
+export async function getAdminBalances(
+  signal?: AbortSignal,
+): Promise<BalanceList> {
+  const response = await adminFetch(
+    '/admin/balances',
+    signal === undefined ? {} : { signal },
+  )
   if (!response.ok) {
     throw await parseErrorResponse(response)
   }
@@ -90,16 +111,33 @@ export async function getAdminBalances(): Promise<BalanceList> {
 }
 
 export async function listAdminTransactions(
-  pageNumber = 0,
-  pageSize = 20,
-): Promise<TransactionList> {
-  const params = new URLSearchParams({
-    page_number: String(pageNumber),
-    page_size: String(pageSize),
-  })
-  const response = await adminFetch(`/admin/transactions?${params.toString()}`)
+  {
+    cursor,
+    limit,
+    timeoutSeconds,
+    signal,
+  }: {
+    cursor?: string
+    limit?: number
+    timeoutSeconds?: number
+    signal?: AbortSignal
+  } = {},
+): Promise<AdminTransactionPollResponse> {
+  const params = new URLSearchParams()
+  if (cursor !== undefined) {
+    params.set('cursor', cursor)
+  }
+  if (limit !== undefined) {
+    params.set('limit', String(limit))
+  }
+  if (timeoutSeconds !== undefined) {
+    params.set('timeout_seconds', String(timeoutSeconds))
+  }
+  const query = params.toString()
+  const path = query === '' ? '/admin/transactions' : `/admin/transactions?${query}`
+  const response = await adminFetch(path, signal === undefined ? {} : { signal })
   if (!response.ok) {
     throw await parseErrorResponse(response)
   }
-  return response.json() as Promise<TransactionList>
+  return response.json() as Promise<AdminTransactionPollResponse>
 }

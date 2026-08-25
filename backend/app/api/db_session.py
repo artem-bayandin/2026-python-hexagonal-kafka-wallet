@@ -25,9 +25,3 @@ async def read_session(request: Request) -> AsyncIterator[AsyncSession]:
 async def write_session(request: Request) -> AsyncIterator[AsyncSession]:
     async with _db_session(request, transactional=True) as session:
         yield session
-
-
-__all__ = [
-    "read_session",
-    "write_session",
-]

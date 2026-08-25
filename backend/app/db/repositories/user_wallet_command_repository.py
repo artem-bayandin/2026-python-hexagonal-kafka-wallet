@@ -9,7 +9,7 @@ from sqlalchemy.engine import CursorResult
 
 from app.domain import UserWalletItem, UserWalletCommandRepository
 
-from ..mappers import user_wallet_to_domain
+from ..mappers import UserWalletDbMapper
 from ..models import UserWalletModel
 from ..session import AsyncSession
 
@@ -37,6 +37,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
                 user_id=user_id,
                 currency_id=currency_id,
                 amount=Decimal("0"),
+                locked_amount=Decimal("0"),
                 updated_at=now,
             )
             self.session.add(model)
@@ -45,7 +46,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
                 select(UserWalletModel).where(UserWalletModel.id == model.id).with_for_update()
             )
             model = locked.scalar_one()
-        return user_wallet_to_domain(model)
+        return UserWalletDbMapper.to_domain(model)
 
     async def lock_for_update_ordered(self, wallet_ids: Sequence[UUID]) -> list[UserWalletItem]:
         ordered_ids = sorted(set(wallet_ids))
@@ -56,7 +57,7 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             .with_for_update()
         )
         result = await self.session.execute(stmt)
-        return [user_wallet_to_domain(row) for row in result.scalars().all()]
+        return [UserWalletDbMapper.to_domain(row) for row in result.scalars().all()]
 
     async def credit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
         stmt = (
@@ -82,6 +83,62 @@ class UserWalletCommandRepositoryImpl(UserWalletCommandRepository):
             )
             .values(
                 amount=UserWalletModel.amount - amount,
+                updated_at=now,
+            )
+        )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0
+
+    async def reserve_debit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
+        stmt = (
+            update(UserWalletModel)
+            .where(
+                UserWalletModel.id == wallet_id,
+                UserWalletModel.amount - UserWalletModel.locked_amount >= amount,
+            )
+            .values(
+                locked_amount=UserWalletModel.locked_amount + amount,
+                updated_at=now,
+            )
+        )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0
+
+    async def release_reservation(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
+        stmt = (
+            update(UserWalletModel)
+            .where(
+                UserWalletModel.id == wallet_id,
+                UserWalletModel.locked_amount >= amount,
+            )
+            .values(
+                locked_amount=UserWalletModel.locked_amount - amount,
+                updated_at=now,
+            )
+        )
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(stmt),
+        )
+        return result.rowcount > 0
+
+    async def settle_debit(self, wallet_id: UUID, amount: Decimal, now: datetime) -> bool:
+        stmt = (
+            update(UserWalletModel)
+            .where(
+                UserWalletModel.id == wallet_id,
+                UserWalletModel.amount >= amount,
+                UserWalletModel.locked_amount >= amount,
+            )
+            .values(
+                amount=UserWalletModel.amount - amount,
+                locked_amount=UserWalletModel.locked_amount - amount,
                 updated_at=now,
             )
         )

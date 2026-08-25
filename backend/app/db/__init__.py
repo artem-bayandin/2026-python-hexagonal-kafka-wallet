@@ -1,4 +1,3 @@
-from .models import Base
 from .repositories import (
     AdminWalletCommandRepositoryImpl,
     AdminWalletQueryRepositoryImpl,
@@ -6,6 +5,7 @@ from .repositories import (
     AuthSessionQueryRepositoryImpl,
     CurrencyQueryRepositoryImpl,
     OtpChallengeCommandRepositoryImpl,
+    StatusEventRepositoryImpl,
     TransactionCommandRepositoryImpl,
     TransactionQueryRepositoryImpl,
     UserCommandRepositoryImpl,
@@ -14,9 +14,9 @@ from .repositories import (
     UserWalletQueryRepositoryImpl,
 )
 from .session import AsyncSession, build_session_factory
+from .models import Base
 
 __all__ = [
-    "Base",
     # Repositories
     "AdminWalletCommandRepositoryImpl",
     "AdminWalletQueryRepositoryImpl",
@@ -24,6 +24,7 @@ __all__ = [
     "AuthSessionQueryRepositoryImpl",
     "CurrencyQueryRepositoryImpl",
     "OtpChallengeCommandRepositoryImpl",
+    "StatusEventRepositoryImpl",
     "TransactionCommandRepositoryImpl",
     "TransactionQueryRepositoryImpl",
     "UserCommandRepositoryImpl",
@@ -33,4 +34,6 @@ __all__ = [
     # Session
     "AsyncSession",
     "build_session_factory",
+    # Base for alembic
+    "Base",
 ]

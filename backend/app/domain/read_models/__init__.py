@@ -3,25 +3,31 @@ from .currency import CurrencyCatalogItem, CurrencyItem
 from .otp_challenge import OtpChallengeItem
 from .pagination import PaginatedResult, PaginationParams
 from .transaction import (
+    AdminTransactionCursor,
+    SubmittedTransactionSpec,
+    StaleSubmittedCandidate,
     TransactionItem,
-    TransactionListRow,
     TransactionListItem,
-    transaction_list_row_to_item,
+    TransactionListRow,
+    TransactionMapper,
 )
 from .user import UserItem, UserReferenceItem
 from .wallet import BalanceItem, UserWalletItem
 
 __all__ = [
+    "AdminTransactionCursor",
     "AuthSessionItem",
     "CurrencyCatalogItem",
     "CurrencyItem",
     "OtpChallengeItem",
     "PaginatedResult",
     "PaginationParams",
+    "SubmittedTransactionSpec",
+    "StaleSubmittedCandidate",
     "TransactionItem",
     "TransactionListRow",
     "TransactionListItem",
-    "transaction_list_row_to_item",
+    "TransactionMapper",
     "UserItem",
     "UserReferenceItem",
     "BalanceItem",

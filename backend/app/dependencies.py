@@ -1,17 +1,20 @@
+from aiokafka import AIOKafkaProducer
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
 from app.auth import (
     HmacOtpService,
     PyJwtTokenService,
     SystemClock,
 )
-from app.config import Settings
+from app.config import KafkaSettings, ApiSettings
 from app.db import (
-    AdminWalletCommandRepositoryImpl,
-    AdminWalletQueryRepositoryImpl,
     AsyncSession,
+    AdminWalletQueryRepositoryImpl,
     AuthSessionCommandRepositoryImpl,
     AuthSessionQueryRepositoryImpl,
     CurrencyQueryRepositoryImpl,
     OtpChallengeCommandRepositoryImpl,
+    StatusEventRepositoryImpl,
     TransactionCommandRepositoryImpl,
     TransactionQueryRepositoryImpl,
     UserCommandRepositoryImpl,
@@ -20,9 +23,8 @@ from app.db import (
     UserWalletQueryRepositoryImpl,
 )
 from app.domain import (
-    AdminDepositHandler,
+    MessagePublisher,
     CurrentUserProvider,
-    ExchangeHandler,
     AdminBalancesHandler,
     CurrentUserHandler,
     UserBalancesHandler,
@@ -32,25 +34,48 @@ from app.domain import (
     UsersHandler,
     LogoutHandler,
     RequestOtpHandler,
-    TransferHandler,
     VerifyOtpHandler,
-    WithdrawHandler,
+    SubmitDepositHandler,
+    SubmitExchangeHandler,
+    SubmitTransferHandler,
+    SubmitWithdrawalHandler,
 )
+from app.kafka import build_wallet_publisher
+from app.notifier import (
+    AdminStatusListener,
+    PostgresAdminStatusListener,
+    PostgresStatusNotifier,
+    StatusNotifier,
+)
+
+# # # # Region: kafka
+
+# CommandPublisher
+
+
+def build_message_publisher(
+    settings: KafkaSettings,
+    producer: AIOKafkaProducer | None = None,
+) -> MessagePublisher:
+    return build_wallet_publisher(settings, producer=producer)
+
 
 # # # # Region: routes.admin
 
 # AdminDeposit
 
 
-def build_admin_deposit_handler(
+def build_submit_deposit_handler(
+    settings: KafkaSettings,
     session: AsyncSession,
-) -> AdminDepositHandler:
-    return AdminDepositHandler(
+) -> SubmitDepositHandler:
+    return SubmitDepositHandler(
         UserQueryRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
+        settings.admin_partition_key,
     )
 
 
@@ -104,7 +129,7 @@ def build_list_currencies_handler(session: AsyncSession) -> CurrenciesHandler:
 
 def build_request_otp_handler(
     session: AsyncSession,
-    settings: Settings,
+    settings: ApiSettings,
 ) -> RequestOtpHandler:
     include_demo_otp = settings.app_env == "development" and settings.enable_demo_otp
     return RequestOtpHandler(
@@ -122,7 +147,7 @@ def build_request_otp_handler(
 
 def build_verify_otp_handler(
     session: AsyncSession,
-    settings: Settings,
+    settings: ApiSettings,
 ) -> VerifyOtpHandler:
     return VerifyOtpHandler(
         UserCommandRepositoryImpl(session),
@@ -143,7 +168,7 @@ def build_verify_otp_handler(
 
 def build_get_current_user_handler(
     session: AsyncSession,
-    settings: Settings,
+    settings: ApiSettings,
 ) -> CurrentUserHandler:
     return CurrentUserHandler(
         PyJwtTokenService(settings.jwt_secret),
@@ -191,11 +216,11 @@ def build_list_user_transactions_handler(
 # Exchange
 
 
-def build_exchange_handler(
+def build_submit_exchange_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> ExchangeHandler:
-    return ExchangeHandler(
+) -> SubmitExchangeHandler:
+    return SubmitExchangeHandler(
         current_user_provider,
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
@@ -207,15 +232,14 @@ def build_exchange_handler(
 # Withdraw
 
 
-def build_withdraw_handler(
+def build_submit_withdrawal_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> WithdrawHandler:
-    return WithdrawHandler(
+) -> SubmitWithdrawalHandler:
+    return SubmitWithdrawalHandler(
         current_user_provider,
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
-        AdminWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
     )
@@ -224,15 +248,38 @@ def build_withdraw_handler(
 # Transfer
 
 
-def build_transfer_handler(
+def build_submit_transfer_handler(
     session: AsyncSession,
     current_user_provider: CurrentUserProvider,
-) -> TransferHandler:
-    return TransferHandler(
+) -> SubmitTransferHandler:
+    return SubmitTransferHandler(
         current_user_provider,
         UserQueryRepositoryImpl(session),
         CurrencyQueryRepositoryImpl(session),
         UserWalletCommandRepositoryImpl(session),
         TransactionCommandRepositoryImpl(session),
         SystemClock(),
+    )
+
+
+# # # # Region: routes.stream
+
+# AdminStatusListener
+
+
+def build_admin_status_listener(database_url: str) -> AdminStatusListener:
+    return PostgresAdminStatusListener(database_url=database_url)
+
+
+# StatusNotifier
+
+
+def build_status_notifier(
+    session_factory: async_sessionmaker[AsyncSession],
+    database_url: str,
+) -> StatusNotifier:
+    return PostgresStatusNotifier(
+        session_factory=session_factory,
+        database_url=database_url,
+        query_repository_factory=lambda session: StatusEventRepositoryImpl(session),
     )

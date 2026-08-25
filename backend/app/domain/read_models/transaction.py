@@ -4,39 +4,83 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
+from ..value_objects import TransactionStatus
+
+
+@dataclass(frozen=True, slots=True)
+class AdminTransactionCursor:
+    updated_at: datetime
+    transaction_id: UUID
+
 
 @dataclass(frozen=True, slots=True)
 class TransactionItem:
     id: UUID
+    request_id: UUID
     type: str
     source_wallet_id: UUID | None
     source_amount: Decimal
     dest_wallet_id: UUID | None
     dest_amount: Decimal
-    status: str
+    status: TransactionStatus
+    error: str | None
     created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SubmittedTransactionSpec:
+    """Immutable terms for a new ``submitted`` transaction row."""
+
+    id: UUID
+    request_id: UUID
+    type: str
+    source_wallet_id: UUID | None
+    source_amount: Decimal
+    dest_wallet_id: UUID | None
+    dest_amount: Decimal
+    created_at: datetime
+    updated_at: datetime
+    reserve_source_debit: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class TransactionListItem:
     id: UUID
+    request_id: UUID
     type: str
-    status: str
+    status: TransactionStatus
+    error: str | None
     created_at: datetime
+    updated_at: datetime
     amount: Decimal
     source_asset: str | None
     dest_asset: str | None
     source_precision: int | None
     dest_precision: int | None
-    direction: Literal["IN", "OUT"] | None = None
+    direction: Literal["in", "out"] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StaleSubmittedCandidate:
+    """Authoritative fields needed to republish a stale ``submitted`` row."""
+
+    request_id: UUID
+    type: str
+    created_at: datetime
+    source_user_id: UUID | None
+    # dest_user_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)
 class TransactionListRow:
     id: UUID
+    request_id: UUID
     type: str
-    status: str
+    status: TransactionStatus
+    error: str | None
     created_at: datetime
+    updated_at: datetime
     amount: Decimal
     source_asset: str | None
     dest_asset: str | None
@@ -46,27 +90,32 @@ class TransactionListRow:
     dest_user_id: UUID | None
 
 
-def transaction_list_row_to_item(
-    row: TransactionListRow,
-    *,
-    viewer_user_id: UUID | None,
-) -> TransactionListItem:
-    direction: Literal["IN", "OUT"] | None = None
-    if viewer_user_id is not None and row.type == "transfer":
-        if row.source_user_id == viewer_user_id:
-            direction = "OUT"
-        elif row.dest_user_id == viewer_user_id:
-            direction = "IN"
+class TransactionMapper:
+    @staticmethod
+    def transaction_list_row_to_item(
+        row: TransactionListRow,
+        *,
+        viewer_user_id: UUID | None,
+    ) -> TransactionListItem:
+        direction: Literal["in", "out"] | None = None
+        if viewer_user_id is not None and row.type == "transfer":
+            if row.source_user_id == viewer_user_id:
+                direction = "out"
+            elif row.dest_user_id == viewer_user_id:
+                direction = "in"
 
-    return TransactionListItem(
-        id=row.id,
-        type=row.type,
-        status=row.status,
-        created_at=row.created_at,
-        amount=row.amount,
-        source_asset=row.source_asset,
-        dest_asset=row.dest_asset,
-        source_precision=row.source_precision,
-        dest_precision=row.dest_precision,
-        direction=direction,
-    )
+        return TransactionListItem(
+            id=row.id,
+            request_id=row.request_id,
+            type=row.type,
+            status=row.status,
+            error=row.error,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            amount=row.amount,
+            source_asset=row.source_asset,
+            dest_asset=row.dest_asset,
+            source_precision=row.source_precision,
+            dest_precision=row.dest_precision,
+            direction=direction,
+        )

@@ -1,4 +1,5 @@
 import { ApiError, authenticatedFetch } from './client'
+import { parseSubmissionAccepted, type SubmissionAccepted } from './submission'
 import type {
   BalanceList,
   CurrencyItem,
@@ -7,9 +8,10 @@ import type {
   TransactionList,
   TransferRequest,
   UserReferenceItem,
-  WalletMutationResponse,
   WithdrawRequest,
 } from '../types/wallet'
+
+export type { SubmissionAccepted }
 
 async function parseErrorResponse(response: Response): Promise<ApiError> {
   try {
@@ -67,44 +69,38 @@ export async function listReferenceUsers(): Promise<DataList<UserReferenceItem>>
   return response.json() as Promise<DataList<UserReferenceItem>>
 }
 
-export async function createExchange(
-  body: ExchangeRequest,
-): Promise<WalletMutationResponse> {
-  const response = await authenticatedFetch('/me/exchanges', {
+export async function submitAuthenticatedMutation(
+  path: string,
+  body: unknown,
+): Promise<SubmissionAccepted> {
+  const response = await authenticatedFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (response.status === 202) {
+    return parseSubmissionAccepted(response)
+  }
   if (!response.ok) {
     throw await parseErrorResponse(response)
   }
-  return response.json() as Promise<WalletMutationResponse>
+  throw await parseErrorResponse(response)
+}
+
+export async function createExchange(
+  body: ExchangeRequest,
+): Promise<SubmissionAccepted> {
+  return submitAuthenticatedMutation('/me/exchanges', body)
 }
 
 export async function createWithdrawal(
   body: WithdrawRequest,
-): Promise<WalletMutationResponse> {
-  const response = await authenticatedFetch('/me/withdrawals', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw await parseErrorResponse(response)
-  }
-  return response.json() as Promise<WalletMutationResponse>
+): Promise<SubmissionAccepted> {
+  return submitAuthenticatedMutation('/me/withdrawals', body)
 }
 
 export async function createTransfer(
   body: TransferRequest,
-): Promise<WalletMutationResponse> {
-  const response = await authenticatedFetch('/me/transfers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw await parseErrorResponse(response)
-  }
-  return response.json() as Promise<WalletMutationResponse>
+): Promise<SubmissionAccepted> {
+  return submitAuthenticatedMutation('/me/transfers', body)
 }
