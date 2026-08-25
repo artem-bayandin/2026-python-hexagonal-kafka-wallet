@@ -628,24 +628,26 @@ export function AdminPage({ onBack }: AdminPageProps) {
         ))}
       </div>
 
-      <form className="auth-form" onSubmit={handleSaveKey}>
-        <label className="auth-label" htmlFor="admin-key">
-          Admin API key
-        </label>
-        <input
-          id="admin-key"
-          className="auth-input"
-          type="password"
-          autoComplete="off"
-          required
-          value={adminKeyInput}
-          onChange={(event) => setAdminKeyInput(event.target.value)}
-          disabled={isBusy}
-        />
-        <button className="auth-button" type="submit" disabled={isBusy}>
-          {isLoading ? 'Loading…' : 'Save key and load data'}
-        </button>
-      </form>
+      {!dataLoaded && (
+        <form className="auth-form" onSubmit={handleSaveKey}>
+          <label className="auth-label" htmlFor="admin-key">
+            Admin API key
+          </label>
+          <input
+            id="admin-key"
+            className="auth-input"
+            type="password"
+            autoComplete="off"
+            required
+            value={adminKeyInput}
+            onChange={(event) => setAdminKeyInput(event.target.value)}
+            disabled={isBusy}
+          />
+          <button className="auth-button" type="submit" disabled={isBusy}>
+            {isLoading ? 'Loading…' : 'Save key and load data'}
+          </button>
+        </form>
+      )}
 
       {errorMessage !== null && (
         <p className="auth-error" role="alert">

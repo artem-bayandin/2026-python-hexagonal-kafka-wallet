@@ -18,7 +18,9 @@ The project will be built in several versions, gradually incrementing enterprise
 - **Version 1** — implemented.
 - **Version 2** — implemented.
 
-![play](images/20260825-181303.gif)
+Check video:
+
+![play](images/20260825-184820.gif)
 
 ## Functional requirements
 
