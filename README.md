@@ -8,10 +8,11 @@ The project will be built in several versions, gradually incrementing enterprise
 
 1. **Synchronous wallet processing** — Python hexagonal API, dockerized PostgreSQL, minimalistic React UI.
 2. **Async transaction processing** — Kafka-based command pipeline with data changes notifications.
-3. **TBD** code review to clean extra code
-4. **TBD** move docker connetion from Plaintext to Sasl-ssl
-5. **TBD** database sharding
-6. **TBD** kubernetes cluster
+3. **TBD** **[optional]** code review to clean extra code
+4. **TBD** **[optional]** move docker connetion from Plaintext to Sasl-ssl
+5. **TBD** **[optional]** database sharding
+6. **TBD** **[optional]** kubernetes cluster
+7. **TBD** **[optional]** metrics (prometheus, open telemetry, etc.)
 
 ## Status
 
