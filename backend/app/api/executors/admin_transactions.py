@@ -97,7 +97,7 @@ async def _wait_for_wakeup_or_disconnect(
         if wakeup_task in done:
             await asyncio.gather(wakeup_task, return_exceptions=True)
         if disconnected:
-            raise asyncio.CancelledError("Client disconnected.")
+            return False
     if wakeup_task in done:
         return wakeup_task.result()
     return False
